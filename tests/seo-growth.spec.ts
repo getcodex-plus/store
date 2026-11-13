@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+const testOrigin = process.env.E2E_BASE_URL || 'http://localhost:3000'
 
 test('public discovery pages contain readable content, crawlable tier links and distinct metadata', async ({
   request,
@@ -8,7 +9,7 @@ test('public discovery pages contain readable content, crawlable tier links and 
     const response = await request.get(path)
     expect(response.status()).toBe(200)
     const html = await response.text()
-    expect(html).toContain(`rel="canonical" href="http://localhost:3000${path}"`)
+    expect(html).toContain(`rel="canonical" href="${testOrigin}${path}"`)
     expect(html).toContain('property="og:title"')
   }
   const html = await (await request.get('/compare')).text()
@@ -26,7 +27,7 @@ test('public discovery pages contain readable content, crawlable tier links and 
 })
 
 test('analytics rejects forged payment events and sensitive extra fields', async ({ request }) => {
-  const headers = { 'X-GetGPT-Request': '1', Origin: 'http://localhost:3000' }
+  const headers = { 'X-GetGPT-Request': '1', Origin: testOrigin }
   for (const data of [
     { event: 'payment_succeeded', productId: 'plus', source: 'direct' },
     { event: 'plan_view', productId: 'plus', source: 'direct', session: 'must-not-store' },

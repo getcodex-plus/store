@@ -15,9 +15,22 @@ import type {
 } from '../types'
 import { pool, rows, transaction } from './db'
 import { ApiError, demo } from './config'
-import { decrypt, encrypt, hash, id } from './crypto'
+import { decrypt, encrypt, hash, id, secretHash } from './crypto'
+import { openCredential, sealCredential } from './credential-storage'
+import { publicPlan } from './safe-errors'
 import { integration, integrationViews } from './integrations/config'
-import { preflight, aicdk } from './integrations/aicdk'
+import {
+  checkAccount,
+  aicdkPlan,
+  preflight,
+  findRedemption,
+  getRedemption,
+  updateAccountSession,
+  resolveAicdk,
+  UpstreamError,
+  type AicdkBinding,
+} from './integrations/aicdk'
+import { priceReference, validateFulfillment, type PricingSnapshot } from './fulfillment-policy'
 import {
   createPayment,
   type PaymentOrder,
@@ -47,7 +60,16 @@ import {
 } from '../withdrawals'
 
 export const orderColumns =
-  'id,user_id,contact_email,product_id,product_name,email,amount,status,channel,created_at,completed_at,rate_bps,settlement_days,first_order_only,kind,balance_amount,external_amount,service_terms'
+  'id,user_id,contact_email,product_id,product_name,email,amount,status,channel,created_at,completed_at,rate_bps,settlement_days,first_order_only,kind,balance_amount,external_amount,service_terms,fulfillment_status'
+export type StoredQuote = Quote & {
+  browserDigest: string
+  aicdkIntegrationId?: string
+  inventoryId?: string
+  preflightToken?: string
+  preflightExpiresAt?: string
+  pricingSnapshot?: PricingSnapshot
+  flowVersion: number
+}
 export async function settings(): Promise<Settings> {
   const result = await pool.query('SELECT body FROM settings WHERE id=1')
   if (!result.rows[0]) throw new ApiError(503, '请先初始化数据库')
@@ -120,8 +142,6 @@ export async function quote(
     await rows<Product>('SELECT * FROM products WHERE id=$1 AND enabled=true', [productId])
   )[0]
   if (!product) throw new ApiError(404, '商品已下架')
-  let stock: { id: string; code: string } | undefined
-  let token = ''
   let amount = product.price
   let currentPlan: string | undefined
   let pricingSnapshot: unknown = { mode: 'fixed', price: product.price }
@@ -143,7 +163,7 @@ export async function quote(
     throw new ApiError(409, '此商品尚未配置固定售价')
   if (
     (!product.upgrade && product.priceCurrency === 'USD') ||
-    (product.upgrade && (configuredPricing?.fxMode ?? 'auto') === 'auto')
+    (demo && product.upgrade && (configuredPricing?.fxMode ?? 'auto') === 'auto')
   ) {
     rate = await exchangeRate(true)
   }
@@ -168,66 +188,37 @@ export async function quote(
       exchangeRate: rate,
     }
   }
-  const aicdkRevision = demo ? null : (await integration('aicdk')).id
-  if (!demo) {
-    stock = await transaction(async (client) => {
-      // Only release expired quote reservations that never became an order.
-      await client.query(`UPDATE inventory i SET status='available',reserved_until=null WHERE status='reserved' AND reserved_until<now()
-        AND NOT EXISTS(SELECT 1 FROM quotes q JOIN orders o ON o.quote_id=q.id WHERE q.inventory_id=i.id AND o.status<>'cancelled')`)
-      const item = (
-        await rows<{ id: string; code: string }>(
-          "SELECT id,code FROM inventory WHERE product_id=$1 AND status='available' FOR UPDATE SKIP LOCKED LIMIT 1",
-          [productId],
-          client,
-        )
-      )[0]
-      if (!item) throw new ApiError(409, '此套餐暂时缺货，请稍后再试')
-      await client.query(
-        "UPDATE inventory SET status='reserved',reserved_until=now()+interval '15 minutes' WHERE id=$1",
-        [item.id],
+  const binding = demo ? undefined : await integration('aicdk')
+  if (binding) {
+    // Account checks never select, decrypt, reserve or transmit a redemption code.
+    const check = await checkAccount(session, binding)
+    if (check.account_email.toLowerCase() !== session.user.email.toLowerCase())
+      throw new ApiError(409, '检查结果与提交账号不匹配')
+    if (check.account_status !== 'active')
+      throw new ApiError(409, '此账号当前无法充值，请检查账号状态')
+    const group = check.subscription[product.upgrade ? 'upgrade' : 'purchase']
+    const matches = group.plans.filter((p) => p.id === aicdkPlan(product.plan))
+    if (matches.length !== 1) throw new ApiError(409, '该目标套餐暂不可用，请选择其他套餐')
+    const target = matches[0]
+    if (group.eligible === null || target.eligible === null)
+      throw new ApiError(503, '账号适用性暂未确定，请稍后重新检查')
+    if (!group.eligible || !target.eligible)
+      throw new ApiError(409, '该账号不符合所选套餐的购买条件')
+    currentPlan = publicPlan(check.current_plan)
+    if (product.upgrade) {
+      if (!target.quote) throw new ApiError(503, '暂未取得有效升级报价，请稍后重试')
+      const priced = await priceReference(
+        target.quote,
+        pricing!,
+        configuredPricing?.fxMode ?? 'auto',
       )
-      return item
-    })
-    try {
-      const check = await preflight(decrypt(stock.code), session, aicdkRevision!)
-      if (check.status !== 'ready' || !check.preflight_token)
-        throw new ApiError(409, `账号正在核价，请 ${check.retry_after || 15} 秒后重试`)
-      if (
-        check.account_email &&
-        check.account_email.toLowerCase() !== session.user.email.toLowerCase()
-      )
-        throw new ApiError(409, '预检账号不匹配')
-      if (check.quote?.target_plan && check.quote.target_plan !== product.plan)
-        throw new ApiError(409, '兑换库存与目标套餐不匹配，请联系支持')
-      currentPlan = check.quote?.current_plan || check.currentPlan
-      if (product.upgrade) {
-        if (check.quote?.business !== 'upgrade' || check.quote.target_plan !== product.plan)
-          throw new ApiError(409, '尚未取得有效升级报价，请稍后重试')
-      }
-      if (product.upgrade) {
-        if (
-          check.quote?.payment_usd_cents === undefined ||
-          check.quote.target_plan !== product.plan
-        )
-          throw new ApiError(409, '未取得有效成本报价，请稍后重试')
-        amount = costBasedPrice(check.quote.payment_usd_cents, pricing!, rate?.rateE8)
-        pricingSnapshot = {
-          mode: 'markup',
-          usdCents: check.quote.payment_usd_cents,
-          ...pricing,
-          exchangeRate: rate,
-        }
-      }
-      token = check.preflight_token
-      if (rate && Date.parse(rate.expiresAt) <= Date.now())
-        throw new ApiError(409, '汇率已过期，请重新验证账号')
-    } catch (error) {
-      await pool.query("UPDATE inventory SET status='available',reserved_until=null WHERE id=$1", [
-        stock.id,
-      ])
-      throw error
+      amount = priced.amount
+      pricingSnapshot = priced.snapshot
+      rate = priced.rate
     }
   }
+  if (rate && Date.parse(rate.expiresAt) <= Date.now())
+    throw new ApiError(409, '汇率已过期，请重新验证账号')
   const q = {
     id: id('q_'),
     productId,
@@ -249,10 +240,10 @@ export async function quote(
         q.productId,
         q.email,
         q.amount,
-        stock?.id ?? null,
-        token ? encrypt(token) : null,
+        null,
+        null,
         q.expiresAt,
-        aicdkRevision,
+        binding?.id ?? null,
         pricingSnapshot ? JSON.stringify(pricingSnapshot) : null,
         currentPlan ?? null,
         product.plan,
@@ -266,11 +257,6 @@ export async function quote(
         "INSERT INTO funnel_events(id,event,visitor_key,product_id,source) VALUES($1,'quote_ready',$2,$3,$4) ON CONFLICT DO NOTHING",
         [q.id, analyticsVisitor(browser), productId, attribution.source],
       )
-    if (stock)
-      await client.query('UPDATE inventory SET reserved_until=$2 WHERE id=$1', [
-        stock.id,
-        q.expiresAt,
-      ])
   })
   return q
 }
@@ -309,6 +295,7 @@ export async function newOrder(
     contactEmail?: string
     balanceAmount?: number
     referralCode?: string
+    session?: string
   },
 ) {
   if (!user && (!input.quoteId || input.channel === 'balance' || (input.balanceAmount ?? 0) > 0))
@@ -324,6 +311,19 @@ export async function newOrder(
       : input.channel === 'balance'
         ? 'balance'
         : conf.fiatProvider
+  // Resolve configuration before taking database locks, so in-flight network
+  // requests cannot exhaust the pool while waiting for another connection.
+  let binding: AicdkBinding | undefined
+  if (!demo && input.quoteId) {
+    const q = (
+      await rows<StoredQuote>(
+        'SELECT aicdk_integration_id FROM quotes WHERE id=$1 AND browser_digest=$2',
+        [input.quoteId, browser],
+      )
+    )[0]
+    if (!q?.aicdkIntegrationId) throw new ApiError(409, '请重新检查账号后创建订单')
+    binding = await resolveAicdk(q.aicdkIntegrationId)
+  }
   return transaction(async (client) => {
     // Per-user serialization also makes concurrent wallet purchases deterministic.
     if (user) await client.query('SELECT id FROM users WHERE id=$1 FOR UPDATE', [user.id])
@@ -350,11 +350,11 @@ export async function newOrder(
         throw new ApiError(409, '同一请求标识不能用于不同的订单参数')
       return existing
     }
-    let quoteRecord: (Quote & { browserDigest: string; aicdkIntegrationId?: string }) | undefined
+    let quoteRecord: StoredQuote | undefined
     let name = '钱包充值'
     if (input.quoteId) {
       quoteRecord = (
-        await rows<Quote & { browserDigest: string; aicdkIntegrationId?: string }>(
+        await rows<StoredQuote>(
           'SELECT * FROM quotes WHERE id=$1 FOR UPDATE',
           [input.quoteId],
           client,
@@ -408,9 +408,59 @@ export async function newOrder(
     const revision =
       demo || externalAmount === 0 || provider === 'balance'
         ? null
-        : (await integration(provider)).id
+        : (await integration(provider, undefined, client)).id
     const limitError = paymentLimitError(conf, input.channel, externalAmount)
     if (limitError) throw new ApiError(409, limitError)
+    if (!demo && quoteRecord && quoteRecord.flowVersion === 2) {
+      if (!input.session) throw new ApiError(400, '账号信息已清除，请重新检查账号')
+      let session: ReturnType<typeof parseSession>
+      try {
+        session = parseSession(input.session)
+      } catch {
+        throw new ApiError(400, '账号信息格式不正确，请重新检查账号')
+      }
+      if (session.user.email.toLowerCase() !== quoteRecord.email)
+        throw new ApiError(409, '请使用本次报价对应的充值账号')
+      if (balanceAmount > 0) {
+        const wallet = (
+          await client.query('SELECT balance FROM wallets WHERE user_id=$1', [user!.id])
+        ).rows[0]
+        if (!wallet || wallet.balance < balanceAmount)
+          throw new ApiError(409, '钱包余额不足，请先充值或选择其他支付方式')
+      }
+      await client.query(`UPDATE inventory i SET status='available',reserved_until=null
+        WHERE status='reserved' AND reserved_until<now()
+        AND NOT EXISTS(SELECT 1 FROM quotes q JOIN orders o ON o.quote_id=q.id WHERE q.inventory_id=i.id AND o.status<>'cancelled')`)
+      const stock = (
+        await client.query<{ id: string; code: string }>(
+          "SELECT id,code FROM inventory WHERE product_id=$1 AND status='available' FOR UPDATE SKIP LOCKED LIMIT 1",
+          [quoteRecord.productId],
+        )
+      ).rows[0]
+      if (!stock) throw new ApiError(409, '此套餐暂时缺货，请稍后再试')
+      const checked = await preflight(
+        openCredential(stock.code, 'inventory', stock.id),
+        session,
+        binding!,
+        quoteRecord.pricingSnapshot?.mode === 'markup' ? 'upgrade' : 'recharge',
+      )
+      if (checked.status !== 'ready')
+        throw new UpstreamError('PRICE_REFRESH_PENDING', checked.retry_after ?? 2, false)
+      validateFulfillment(checked, quoteRecord)
+      if (Date.parse(quoteRecord.expiresAt) <= Date.now())
+        throw new ApiError(409, '报价已过期，请重新检查账号')
+      await client.query("UPDATE inventory SET status='reserved',reserved_until=null WHERE id=$1", [
+        stock.id,
+      ])
+      await client.query(
+        "UPDATE quotes SET inventory_id=$2,preflight_token=$3,preflight_expires_at=now()+interval '9 minutes' WHERE id=$1",
+        [
+          quoteRecord.id,
+          stock.id,
+          sealCredential(checked.preflight_token, 'preflight', quoteRecord.id),
+        ],
+      )
+    }
     const buyerKey = quoteRecord ? hash(`buyer:${quoteRecord.email.toLowerCase()}`) : null
     let inviterId: string | null = null
     if (quoteRecord) {
@@ -958,6 +1008,10 @@ export async function refundFailedOrder(orderId: string, actor: string) {
     if (!order.userId) throw new ApiError(409, '请联系用户先用联系邮箱登录，以接收钱包退款')
     await walletChange(client, order.userId, order.amount, 'refund', order.id)
     await client.query("UPDATE orders SET status='refunded' WHERE id=$1", [order.id])
+    await client.query(
+      'UPDATE quotes SET preflight_token=null WHERE id=(SELECT quote_id FROM orders WHERE id=$1)',
+      [order.id],
+    )
     await client.query('UPDATE jobs SET done=true WHERE order_id=$1', [order.id])
     await client.query("UPDATE commissions SET status='reversed' WHERE order_id=$1", [order.id])
     await audit(actor, '失败订单退回钱包', order.id, client)
@@ -970,64 +1024,95 @@ export async function confirmSession(
   sessionText: string,
   browser = '',
 ) {
-  const session = parseSession(sessionText)
-  const order = await accessibleOrder(user, browser, orderId)
-  if (!order || order.status !== 'needs_session')
-    throw new ApiError(409, '当前订单不需要更新账号信息')
-  if (session.user.email.toLowerCase() !== order.email)
+  let session: ReturnType<typeof parseSession>
+  try {
+    session = parseSession(sessionText)
+  } catch {
+    throw new ApiError(400, '账号信息格式不正确，请重新复制完整信息')
+  }
+  const initial = await accessibleOrder(user, browser, orderId)
+  if (session.user.email.toLowerCase() !== initial.email)
     throw new ApiError(400, '请使用原充值账号的信息')
-  if (!demo) {
-    if (!order.redemptionId) {
-      const recovered = await aicdk<{ id: string }[]>(
-        `/redemptions?client_request_id=${encodeURIComponent(order.id)}`,
-        undefined,
-        undefined,
-        order.aicdkIntegrationId,
+  // A lost response to a completed refresh does not require another mutation.
+  if (initial.status === 'processing') return { resumed: true }
+  if (initial.status !== 'needs_session') throw new ApiError(409, '当前订单不需要更新账号信息')
+  if (!demo && !initial.aicdkIntegrationId) throw new ApiError(409, '订单配置需由管理员核对')
+  const binding = demo ? undefined : await resolveAicdk(initial.aicdkIntegrationId!)
+  await transaction(async (client) => {
+    const order = (
+      await rows<PaymentOrder>(
+        'SELECT * FROM orders WHERE id=$1 AND (user_id=$2 OR (user_id IS NULL AND guest_browser_digest=$3)) FOR UPDATE',
+        [orderId, user?.id ?? null, browser],
+        client,
       )
-      if (recovered[0]?.id) {
-        order.redemptionId = recovered[0].id
-        await pool.query('UPDATE orders SET redemption_id=$2 WHERE id=$1', [
-          order.id,
-          order.redemptionId,
-        ])
-      }
-    }
-    if (order.redemptionId)
-      await aicdk(
-        `/redemptions/${encodeURIComponent(order.redemptionId)}/confirm`,
-        { session },
-        `${order.id}-confirm-${hash(sessionText).slice(0, 20)}`,
-        order.aicdkIntegrationId,
-      )
-    else {
-      const stock = (
-        await pool.query(
-          'SELECT i.code FROM inventory i JOIN quotes q ON q.inventory_id=i.id WHERE q.id=$1',
+    )[0]
+    if (!order) throw new ApiError(404, '未找到订单')
+    if (order.status === 'processing') return
+    if (order.status !== 'needs_session') throw new ApiError(409, '当前订单不需要更新账号信息')
+    if (binding) {
+      const quote = (
+        await rows<StoredQuote>(
+          'SELECT * FROM quotes WHERE id=$1 FOR UPDATE',
           [order.quoteId],
+          client,
         )
-      ).rows[0]
-      if (!stock) throw new ApiError(409, '订单库存需由管理员核对')
-      const result = await preflight(decrypt(stock.code), session, order.aicdkIntegrationId)
-      if (result.status !== 'ready' || !result.preflight_token)
-        throw new ApiError(409, '账号正在核价，请稍后重试')
-      await transaction(async (client) => {
-        const claimed = await client.query(
-          "UPDATE orders SET status='processing',fulfillment_attempt=fulfillment_attempt+1 WHERE id=$1 AND status='needs_session' RETURNING id",
+      )[0]
+      if (!quote) throw new ApiError(409, '订单报价需由管理员核对')
+      let recovered = order.redemptionId
+        ? await getRedemption(order.redemptionId, binding)
+        : await findRedemption(order.id, binding)
+      if (recovered) {
+        validateFulfillment(recovered, quote, order.id)
+        if (recovered.status === 'needs_session') {
+          recovered = await updateAccountSession(
+            recovered.id,
+            session,
+            `${order.id}-session-${secretHash(JSON.stringify(session))}`,
+            binding,
+          )
+          validateFulfillment(recovered, quote, order.id)
+        }
+        if (recovered.version < order.redemptionVersion)
+          throw new ApiError(409, '订单状态正在同步，请稍后重试')
+        await client.query(
+          'UPDATE orders SET redemption_id=$2,redemption_version=$3,fulfillment_status=$4 WHERE id=$1',
+          [order.id, recovered.id, recovered.version, recovered.status],
+        )
+        await client.query('UPDATE quotes SET preflight_token=null WHERE id=$1', [quote.id])
+      } else {
+        if (order.submissionAttempted)
+          throw new ApiError(409, '原兑换请求的结果仍待核对，请联系支持，不能重新发起')
+        const stock = (
+          await client.query<{ id: string; code: string }>(
+            "SELECT id,code FROM inventory WHERE id=$1 AND status='reserved' FOR UPDATE",
+            [quote.inventoryId],
+          )
+        ).rows[0]
+        if (!stock) throw new ApiError(409, '订单库存需由管理员核对')
+        const checked = await preflight(
+          openCredential(stock.code, 'inventory', stock.id),
+          session,
+          binding,
+          quote.pricingSnapshot?.mode === 'markup' ? 'upgrade' : 'recharge',
+        )
+        if (checked.status !== 'ready')
+          throw new UpstreamError('PRICE_REFRESH_PENDING', checked.retry_after ?? 2, false)
+        validateFulfillment(checked, quote)
+        await client.query(
+          'UPDATE orders SET fulfillment_attempt=fulfillment_attempt+1,submission_attempted=false WHERE id=$1',
           [order.id],
         )
-        if (claimed.rowCount)
-          await client.query(
-            "UPDATE quotes SET preflight_token=$2,expires_at=now()+interval '9 minutes' WHERE id=$1",
-            [order.quoteId, encrypt(result.preflight_token!)],
-          )
-      })
+        await client.query(
+          "UPDATE quotes SET preflight_token=$2,preflight_expires_at=now()+interval '9 minutes' WHERE id=$1",
+          [quote.id, sealCredential(checked.preflight_token, 'preflight', quote.id)],
+        )
+      }
     }
-  }
-  await pool.query("UPDATE orders SET status='processing' WHERE id=$1 AND status='needs_session'", [
-    order.id,
-  ])
-  await pool.query('UPDATE jobs SET done=false,run_at=now(),locked_until=null WHERE order_id=$1', [
-    order.id,
-  ])
+    await client.query("UPDATE orders SET status='processing' WHERE id=$1", [order.id])
+    await client.query(
+      'INSERT INTO jobs(id,order_id) VALUES($1,$2) ON CONFLICT(order_id) DO UPDATE SET done=false,run_at=now(),locked_until=null',
+      [id('job_'), order.id],
+    )
+  })
   return { resumed: true }
 }

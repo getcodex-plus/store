@@ -11,7 +11,18 @@ export const usdtExchangeSources = [
   'https://latest.currency-api.pages.dev/v1/currencies/usdt.json',
   'https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usdt.json',
 ] as const
-type ExchangeCurrency = 'USD' | 'USDT'
+type ExchangeCurrency = string
+export function supportedCurrency(currency: string) {
+  return currency === 'USDT' || Intl.supportedValuesOf('currency').includes(currency)
+}
+function requireCurrency(currency: string) {
+  if (!supportedCurrency(currency)) throw new ApiError(503, '暂不支持此报价币种，请联系支持')
+}
+export function sourcesForCurrency(currency: string) {
+  requireCurrency(currency)
+  if (currency === 'USDT') return usdtExchangeSources
+  return exchangeSources.map((url) => url.replace('/usd.json', `/${currency.toLowerCase()}.json`))
+}
 export interface ExchangeRate {
   rateE8: number
   sourceDate: string
@@ -32,9 +43,10 @@ export function parseExchangeRate(
   now = Date.now(),
   currency: ExchangeCurrency = 'USD',
 ): ExchangeRate {
-  const data = input as { date?: string; usd?: { cny?: number }; usdt?: { cny?: number } } | null
+  requireCurrency(currency)
+  const data = input as ({ date?: string } & Record<string, { cny?: number }>) | null
   const date = data?.date
-  const rate = currency === 'USDT' ? data?.usdt?.cny : data?.usd?.cny
+  const rate = data?.[currency.toLowerCase()]?.cny
   const sourceTime =
     typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)
       ? Date.parse(`${date}T00:00:00Z`)
@@ -69,6 +81,18 @@ export async function exchangeRate(
   required = false,
   currency: ExchangeCurrency = 'USD',
 ): Promise<ExchangeRate | undefined> {
+  requireCurrency(currency)
+  if (currency === 'CNY')
+    return {
+      rateE8: 100000000,
+      sourceDate: new Date().toISOString().slice(0, 10),
+      fetchedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 48 * 3600000).toISOString(),
+      source: 'CNY',
+    }
+  await pool.query('INSERT INTO exchange_rates(id) VALUES($1) ON CONFLICT DO NOTHING', [
+    `${currency}_CNY`,
+  ])
   const row = (
     await rows<RateRow>('SELECT * FROM exchange_rates WHERE id=$1', [`${currency}_CNY`])
   )[0]
@@ -106,9 +130,14 @@ export async function exchangeRateStatus(
   }
 }
 export async function requestExchangeRefresh(currency: ExchangeCurrency = 'USD') {
+  requireCurrency(currency)
+  await pool.query('INSERT INTO exchange_rates(id) VALUES($1) ON CONFLICT DO NOTHING', [
+    `${currency}_CNY`,
+  ])
   await pool.query('UPDATE exchange_rates SET refresh_after=now() WHERE id=$1', [`${currency}_CNY`])
 }
 export async function refreshExchangeRate(currency: ExchangeCurrency = 'USD') {
+  requireCurrency(currency)
   const pair = `${currency}_CNY`
   const lease = id('fx_')
   const claim = await pool.query(
@@ -118,7 +147,7 @@ export async function refreshExchangeRate(currency: ExchangeCurrency = 'USD') {
     [lease, pair],
   )
   if (!claim.rowCount) return false
-  for (const url of currency === 'USDT' ? usdtExchangeSources : exchangeSources) {
+  for (const url of sourcesForCurrency(currency)) {
     try {
       const response = await fetch(url, {
         cache: 'no-store',
@@ -148,4 +177,15 @@ export async function refreshExchangeRate(currency: ExchangeCurrency = 'USD') {
     [lease, pair],
   )
   return true
+}
+
+export async function refreshPendingExchangeRates() {
+  const due = await rows<{ id: string }>(
+    'SELECT id FROM exchange_rates WHERE refresh_after<=now() AND (locked_until IS NULL OR locked_until<now()) ORDER BY refresh_after LIMIT 8',
+  )
+  // Bound concurrency; newly encountered quote currencies are filled by the worker.
+  for (let i = 0; i < due.length; i += 2)
+    await Promise.all(
+      due.slice(i, i + 2).map(({ id }) => refreshExchangeRate(id.replace(/_CNY$/, ''))),
+    )
 }

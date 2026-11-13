@@ -1,78 +1,261 @@
+import { z } from 'zod'
 import { ApiError } from '../config'
+import { safeUpstreamError } from '../safe-errors'
 import { integration } from './config'
 
+export type AicdkBinding = string | Record<string, string>
+export const resolveAicdk = (revision: string) => integration('aicdk', revision)
+export const aicdkPlan = (plan: string) =>
+  (({ pro5: 'pro_100', pro20: 'pro_200', promax: 'pro_500' }) as Record<string, string>)[plan] ??
+  plan
+
 export class UpstreamError extends Error {
+  code: string
+  retryAfter: number
   constructor(
-    public code: string,
-    public retryAfter: number,
+    code: string,
+    retryAfter: number,
     public uncertain: boolean,
+    public status = 503,
   ) {
-    super(code)
+    const safe = safeUpstreamError({ code, retryAfter })
+    super(safe.code)
+    this.code = safe.code
+    this.retryAfter = safe.retryAfter
   }
 }
+
 export async function aicdk<T>(
   path: string,
   body?: unknown,
   key?: string,
-  revision?: string,
+  binding?: AicdkBinding,
+  method: 'GET' | 'POST' | 'PUT' = body === undefined ? 'GET' : 'POST',
 ): Promise<T> {
-  const config = await integration('aicdk', revision)
+  const config = typeof binding === 'object' ? binding : await integration('aicdk', binding)
   const origin = config.url.replace(/\/$/, '')
+  // HTTP is intentional for deployments on a trusted private network.
   if (!/^https?:\/\//.test(origin)) throw new ApiError(503, 'AICDK 地址需使用 HTTP 或 HTTPS')
-  const response = await fetch(`${origin}/api/v1${path}`, {
-    method: body === undefined ? 'GET' : 'POST',
-    signal: AbortSignal.timeout(20_000),
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`,
-      'Content-Type': 'application/json',
-      ...(key ? { 'Idempotency-Key': key } : {}),
-    },
-    body: body === undefined ? undefined : JSON.stringify(body),
-    cache: 'no-store',
-    redirect: 'error',
-  })
-  const result = await response.json()
-  if (!response.ok || !result.ok)
+  let response: Response
+  let result: { ok?: boolean; data?: unknown; error?: { code?: unknown; uncertain?: unknown } }
+  try {
+    response = await fetch(`${origin}/api/v1${path}`, {
+      method,
+      signal: AbortSignal.timeout(30_000),
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`,
+        'Content-Type': 'application/json',
+        ...(key ? { 'Idempotency-Key': key } : {}),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      cache: 'no-store',
+      redirect: 'error',
+    })
+    const reader = response.body?.getReader()
+    if (!reader) throw new Error()
+    const chunks: Uint8Array[] = []
+    let size = 0
+    for (;;) {
+      const part = await reader.read()
+      if (part.done) break
+      size += part.value.length
+      if (size > 256_000) {
+        await reader.cancel()
+        throw new Error()
+      }
+      chunks.push(part.value)
+    }
+    result = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+    if (!result || typeof result !== 'object') throw new Error()
+  } catch {
+    // Never retain response bodies, network error messages or request credentials.
+    throw new UpstreamError('UPSTREAM_UNAVAILABLE', 30, true)
+  }
+  if (!response.ok || result.ok !== true) {
+    const safe = safeUpstreamError({
+      code: result.error?.code,
+      retryAfter: Number(response.headers.get('Retry-After')) || 30,
+    })
     throw new UpstreamError(
-      result.error?.code || 'UPSTREAM_ERROR',
-      Number(response.headers.get('Retry-After')) || 30,
-      result.error?.uncertain === true,
+      safe.code,
+      safe.retryAfter,
+      result.error?.uncertain !== false,
+      response.status,
     )
+  }
   return result.data as T
 }
-export interface Preflight {
-  status: 'ready' | 'pricing'
-  preflight_token?: string
-  retry_after?: number
-  account_email?: string
-  currentPlan?: string
-  quote?: {
-    payment_usd_cents?: number
-    current_plan?: string
-    target_plan?: string
-    business?: string
-  }
+
+const token = z.string().min(1).max(2048)
+const email = z.email().max(254)
+const identifier = z.string().regex(/^[a-zA-Z0-9_-]{1,200}$/)
+export const providerMoneySchema = z.object({
+  amount_minor: z.number().int().min(0).max(100_000_000),
+  currency: z.string().regex(/^[A-Z]{3}$/),
+  currency_decimals: z.number().int().min(0).max(6).optional(),
+})
+export type ProviderMoney = z.infer<typeof providerMoneySchema>
+const eligibility = z.object({
+  eligible: z.boolean().nullable(),
+  quote: providerMoneySchema.optional(),
+})
+const group = z.object({
+  eligible: z.boolean().nullable(),
+  plans: z.array(eligibility.extend({ id: z.string().min(1).max(64) })).max(32),
+})
+const accountCheckSchema = z.object({
+  account_email: email,
+  current_plan: z.string().max(64),
+  account_status: z.enum(['active', 'deactivated']),
+  subscription: z.object({ purchase: group, upgrade: group }),
+})
+export type AccountCheck = z.infer<typeof accountCheckSchema>
+const redemptionQuote = providerMoneySchema.extend({
+  current_plan: z.string().max(64).optional(),
+  target_plan: z.string().min(1).max(64),
+  business: z.string().min(1).max(64),
+})
+const preflightSchema = z.discriminatedUnion('status', [
+  z.object({
+    status: z.literal('pricing'),
+    retry_after: z.number().int().min(1).max(86400).optional(),
+  }),
+  z.object({
+    status: z.literal('ready'),
+    preflight_token: token,
+    account_email: email,
+    current_plan: z.string().max(64).optional(),
+    quote: redemptionQuote,
+  }),
+])
+export type Preflight = z.infer<typeof preflightSchema>
+const redemptionSchema = z.object({
+  id: identifier,
+  status: z
+    .enum([
+      'queued',
+      'processing',
+      'requires_action',
+      'uncertain',
+      'needs_session',
+      'completed',
+      'failed',
+      'cancelled',
+      'manual_review',
+      'manual_processing',
+      'submitting',
+    ])
+    .transform((value) =>
+      value === 'manual_review'
+        ? 'requires_action'
+        : ['manual_processing', 'submitting'].includes(value)
+          ? 'processing'
+          : value,
+    ),
+  client_request_id: z.string().min(8).max(96),
+  account_email: email,
+  quote: redemptionQuote,
+  version: z.number().int().nonnegative(),
+})
+export type Redemption = z.infer<typeof redemptionSchema>
+
+function validated<T>(schema: z.ZodType<T>, value: unknown): T {
+  const result = schema.safeParse(value)
+  if (!result.success) throw new UpstreamError('UPSTREAM_INVALID_RESPONSE', 30, true)
+  return result.data
 }
+
+export async function checkAccount(session: unknown, binding: AicdkBinding): Promise<AccountCheck> {
+  return validated(
+    accountCheckSchema,
+    await aicdk('/account-checks', { session }, undefined, binding),
+  )
+}
+
 export async function preflight(
   code: string,
   session: unknown,
-  revision?: string,
+  binding: AicdkBinding,
+  expectedBusiness: 'upgrade' | 'recharge',
 ): Promise<Preflight> {
-  const preview = await aicdk<{ redemption_token: string; credential_type: string }>(
-    '/redemptions/preview',
-    { code },
-    undefined,
-    revision,
+  const preview = validated(
+    z.object({
+      redemption_token: token,
+      credential_type: z.literal('chatgpt_session'),
+      business: z.string(),
+    }),
+    await aicdk('/redemptions/previews', { code }, undefined, binding),
   )
-  if (preview.credential_type !== 'chatgpt_session')
-    throw new ApiError(409, '此商品暂不支持当前账号验证方式')
-  return aicdk<Preflight>(
-    '/redemptions/preflight',
-    {
-      redemption_token: preview.redemption_token,
-      session,
-    },
-    undefined,
-    revision,
+  if (preview.business !== expectedBusiness)
+    throw new ApiError(409, '兑换库存与业务类型不匹配，请联系支持')
+  return validated(
+    preflightSchema,
+    await aicdk(
+      '/redemptions/preflights',
+      { redemption_token: preview.redemption_token, session },
+      undefined,
+      binding,
+    ),
   )
+}
+
+export async function findRedemption(requestId: string, binding: AicdkBinding) {
+  const results = validated(
+    z.array(redemptionSchema).max(2),
+    await aicdk(
+      `/redemptions?client_request_id=${encodeURIComponent(requestId)}&limit=2`,
+      undefined,
+      undefined,
+      binding,
+    ),
+  )
+  if (results.length > 1 || results.some((order) => order.client_request_id !== requestId))
+    throw new UpstreamError('UPSTREAM_INVALID_RESPONSE', 30, true)
+  return results[0]
+}
+
+export async function getRedemption(orderId: string, binding: AicdkBinding) {
+  const result = validated(
+    redemptionSchema,
+    await aicdk(`/redemptions/${encodeURIComponent(orderId)}`, undefined, undefined, binding),
+  )
+  if (result.id !== orderId) throw new UpstreamError('UPSTREAM_INVALID_RESPONSE', 30, true)
+  return result
+}
+
+export async function submitRedemption(
+  preflightToken: string,
+  requestId: string,
+  key: string,
+  binding: AicdkBinding,
+) {
+  return validated(
+    redemptionSchema,
+    await aicdk(
+      '/redemptions',
+      { preflight_token: preflightToken, client_request_id: requestId },
+      key,
+      binding,
+    ),
+  )
+}
+
+export async function updateAccountSession(
+  orderId: string,
+  session: unknown,
+  key: string,
+  binding: AicdkBinding,
+) {
+  const result = validated(
+    redemptionSchema,
+    await aicdk(
+      `/redemptions/${encodeURIComponent(orderId)}/account-session`,
+      { session },
+      key,
+      binding,
+      'PUT',
+    ),
+  )
+  if (result.id !== orderId) throw new UpstreamError('UPSTREAM_INVALID_RESPONSE', 30, true)
+  return result
 }

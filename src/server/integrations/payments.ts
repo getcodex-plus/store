@@ -22,6 +22,8 @@ export interface PaymentOrder extends Order {
   quoteId?: string
   fulfillmentAttempt: number
   aicdkIntegrationId?: string
+  redemptionVersion: number
+  submissionAttempted: boolean
 }
 export interface Receipt {
   orderId: string

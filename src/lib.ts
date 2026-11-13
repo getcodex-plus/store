@@ -33,6 +33,7 @@ export async function api<T>(
   const response = await fetch(`/api${path}`, {
     method,
     credentials: 'same-origin',
+    cache: 'no-store',
     headers: { 'Content-Type': 'application/json', 'X-GetGPT-Request': '1' },
     body: body === undefined ? undefined : JSON.stringify(body),
   })

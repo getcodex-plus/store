@@ -4,7 +4,7 @@ import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile'
 import { Alert } from 'antd'
 import { useSite } from './Providers'
 export function useBotCheck(scene: 'login' | 'purchase', visible = true) {
-  const { data } = useSite()
+  const { data, nonce } = useSite()
   const ref = useRef<TurnstileInstance>(null)
   const [token, setToken] = useState('')
   const [error, setError] = useState(false)
@@ -24,6 +24,7 @@ export function useBotCheck(scene: 'login' | 'purchase', visible = true) {
           <Turnstile
             ref={ref}
             siteKey={data!.turnstile.siteKey}
+            scriptOptions={{ nonce }}
             options={{ action: scene, theme: 'light', size: 'flexible' }}
             onSuccess={(value) => {
               setToken(value)

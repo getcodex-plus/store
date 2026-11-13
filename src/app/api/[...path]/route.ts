@@ -32,7 +32,8 @@ import {
 import { pool, rows, transaction } from '../../../server/db'
 import { normalizeDemoSession } from '../../../lib'
 import { requestExchangeRefresh } from '../../../server/exchange-rates'
-import { decrypt, encrypt, hash, id } from '../../../server/crypto'
+import { decrypt, hash, id } from '../../../server/crypto'
+import { importInventory } from '../../../server/credential-storage'
 import { integrationSchema, saveIntegration } from '../../../server/integrations/config'
 import type { PaymentOrder } from '../../../server/integrations/payments'
 import type { Order, Product } from '../../../types'
@@ -141,7 +142,7 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
         .parse(data)
       const browser = await browserDigest()
       await rateLimit(`quote:${browser}`, 6, 60)
-      if (!demo) await rateLimit('aicdk:preflight', 6, 60)
+      if (!demo) await rateLimit('aicdk:account-check', 6, 60)
       let text = input.session
       if (demo) {
         try {
@@ -162,6 +163,7 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
       const input = z
         .object({
           quoteId: z.string().optional(),
+          session: z.string().max(100000).optional(),
           amount: z.number().int().min(100).max(1000000).optional(),
           channel: z.enum(['alipay', 'wechat', 'crypto', 'balance']),
           requestKey: z.string().min(16).max(128),
@@ -177,8 +179,12 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
         })
         .parse(data)
       await rateLimit(`order:${await browserDigest()}`, 12, 600)
+      if (!demo && input.quoteId) await rateLimit('aicdk:preflight', 6, 60)
       if (input.contactEmail) await rateLimit(`guest-contact:${hash(input.contactEmail)}`, 5, 600)
-      result = await newOrder(await currentUser(), await browserDigest(), input)
+      result = await newOrder(await currentUser(), await browserDigest(), {
+        ...input,
+        session: demo && input.session ? normalizeDemoSession(input.session) : input.session,
+      })
     } else if (/^orders\/[^/]+$/.test(path) && method === 'GET') {
       const order = await accessibleOrder(
         await currentUser(),
@@ -207,10 +213,11 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
       result = { ok: true }
     } else if (/^orders\/[^/]+\/session$/.test(path) && method === 'POST') {
       const input = z.object({ session: z.string().max(100000) }).parse(data)
+      await rateLimit(`session-update:${await browserDigest()}`, 6, 60)
       result = await confirmSession(
         await currentUser(),
         path.split('/')[1],
-        input.session,
+        demo ? normalizeDemoSession(input.session) : input.session,
         await browserDigest(),
       )
     } else if (path === 'account' && method === 'GET') result = await account(await requireUser())
@@ -413,21 +420,15 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
         })
         result = { saved: true }
       } else if (path === 'admin/inventory' && method === 'POST') {
+        await requireRecent(admin)
+        await rateLimit(`inventory-import:${admin.id}`, 10, 60)
         const input = z
           .object({
-            productId: z.string(),
+            productId: z.string().regex(/^[a-z\d_-]{1,64}$/),
             codes: z.array(z.string().trim().min(8).max(200)).min(1).max(500),
           })
           .parse(data)
-        await transaction(async (client) => {
-          for (const code of new Set(input.codes))
-            await client.query(
-              'INSERT INTO inventory(id,product_id,code,fingerprint) VALUES($1,$2,$3,$4) ON CONFLICT(fingerprint) DO NOTHING',
-              [id('i_'), input.productId, encrypt(code), hash(code)],
-            )
-          await audit(admin.email, '导入兑换库存', input.productId, client)
-        })
-        result = { saved: true }
+        result = await importInventory(input.productId, input.codes, admin.email)
       } else if (path === 'admin/users' && method === 'POST') {
         const input = z.object({ id: z.string(), disabled: z.boolean() }).parse(data)
         if (input.id === admin.id) throw new ApiError(400, '不能停用当前管理员')

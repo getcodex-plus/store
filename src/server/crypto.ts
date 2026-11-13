@@ -24,14 +24,14 @@ function key() {
   return Buffer.from(value, 'hex')
 }
 export const secretHash = (value: string) => createHmac('sha256', key()).update(value).digest('hex')
-export function encrypt(value: string, purpose = 'getgpt') {
+export function encrypt(value: string, purpose: string) {
   const iv = randomBytes(12)
   const cipher = createCipheriv('aes-256-gcm', key(), iv)
   cipher.setAAD(Buffer.from(purpose))
   const ciphertext = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()])
   return Buffer.concat([iv, cipher.getAuthTag(), ciphertext]).toString('base64')
 }
-export function decrypt(value: string, purpose = 'getgpt') {
+export function decrypt(value: string, purpose: string) {
   const input = Buffer.from(value, 'base64')
   const cipher = createDecipheriv('aes-256-gcm', key(), input.subarray(0, 12))
   cipher.setAAD(Buffer.from(purpose))

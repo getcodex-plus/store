@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import { GoogleAnalytics, GoogleTagManager } from '@next/third-parties/google'
+import { headers } from 'next/headers'
 import { AntdRegistry } from '@ant-design/nextjs-registry'
 import { Providers } from '../components/Providers'
 import { SiteHeader, SiteFooter } from '../components/Site'
@@ -29,27 +29,20 @@ export const metadata: Metadata = {
       ? { index: true, follow: true }
       : { index: false, follow: false },
 }
-export default function RootLayout({ children }: { children: React.ReactNode }) {
-  const gaId = process.env.NEXT_PUBLIC_GA_ID?.trim()
-  const gtmId = process.env.NEXT_PUBLIC_GTM_ID?.trim()
-  const analyticsEnabled = gaId && /^G-[A-Z0-9]+$/.test(gaId)
-  const tagManagerEnabled = gtmId && /^GTM-[A-Z0-9]+$/.test(gtmId)
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Dynamic rendering is required: a cached document must not reuse a CSP nonce.
+  const nonce = (await headers()).get('x-nonce') || undefined
 
   return (
     <html lang="zh-CN" data-scroll-behavior="smooth">
       <body>
         <AntdRegistry>
-          <Providers>
+          <Providers nonce={nonce}>
             <SiteHeader />
             {children}
             <SiteFooter />
           </Providers>
         </AntdRegistry>
-        {tagManagerEnabled ? (
-          <GoogleTagManager gtmId={gtmId} />
-        ) : (
-          analyticsEnabled && <GoogleAnalytics gaId={gaId} />
-        )}
       </body>
     </html>
   )

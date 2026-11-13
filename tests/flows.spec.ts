@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test'
 import * as OTPAuth from 'otpauth'
 import { demoSession } from '../src/lib'
+const testOrigin = process.env.E2E_BASE_URL || 'http://localhost:3000'
 const testEmail = () => `test-${Date.now()}@example.com`
 async function login(page: Page, email: string) {
   await page
@@ -49,7 +50,7 @@ test('demo checkout shares the real session form, consent and validation without
   await expect(page.getByText('演示环境请使用示例 Session，不要填写真实登录凭证')).toBeVisible()
   expect(quoteRequests).toBe(0)
   const rejected = await page.request.post('/api/quotes', {
-    headers: { 'X-GetGPT-Request': '1', Origin: 'http://localhost:3000' },
+    headers: { 'X-GetGPT-Request': '1', Origin: testOrigin },
     data: { productId: 'plus', session: realLooking },
   })
   expect(rejected.status()).toBe(400)
@@ -207,7 +208,7 @@ test('guest referral is credited before signup and channel limits save and rejec
   await login(page, testEmail())
   const referrer = await (await page.request.get('/api/bootstrap')).json()
   const deniedEstimate = await page.request.post('/api/admin/withdrawals/estimate', {
-    headers: { 'X-GetGPT-Request': '1', Origin: 'http://localhost:3000' },
+    headers: { 'X-GetGPT-Request': '1', Origin: testOrigin },
     data: { id: 'not-visible-to-customers' },
   })
   expect(deniedEstimate.status()).toBe(403)
@@ -285,13 +286,13 @@ test('guest referral is credited before signup and channel limits save and rejec
         })
       }
       const response = await page.request.post('/api/orders', {
-        headers: { 'X-GetGPT-Request': '1', Origin: 'http://localhost:3000' },
+        headers: { 'X-GetGPT-Request': '1', Origin: testOrigin },
         data: { amount: 100, channel: 'alipay', requestKey: crypto.randomUUID() },
       })
       expect(response.status()).toBe(409)
     } finally {
       const restored = await adminPage.request.post('/api/admin/settings', {
-        headers: { 'X-GetGPT-Request': '1', Origin: 'http://localhost:3000' },
+        headers: { 'X-GetGPT-Request': '1', Origin: testOrigin },
         data: previous.settings,
       })
       expect(restored.ok()).toBe(true)
@@ -307,7 +308,7 @@ test('admin sets fixed base prices, cached currency conversion and upgrade round
   await login(page, 'admin@example.com')
   const original = await (await page.request.get('/api/admin')).json()
   const product = original.products.find((p: { id: string }) => p.id === 'go')
-  const headers = { 'X-GetGPT-Request': '1', Origin: 'http://localhost:3000' }
+  const headers = { 'X-GetGPT-Request': '1', Origin: testOrigin }
   try {
     await page.goto('/admin')
     await page.getByRole('menuitem', { name: '商品与库存' }).click()
@@ -484,7 +485,7 @@ test('EPay has one entry and selects protocol-specific fields inside configurati
     expect(
       (
         await page.request.post('/api/admin/settings', {
-          headers: { 'X-GetGPT-Request': '1', Origin: 'http://localhost:3000' },
+          headers: { 'X-GetGPT-Request': '1', Origin: testOrigin },
           data: previous,
         })
       ).ok(),
@@ -583,7 +584,7 @@ test('Passkey requires email or TOTP after password and deleting it preserves TO
   await expect(page.getByText('密码已更新，其他登录会话已注销')).toBeVisible()
   await page.getByRole('button', { name: '添加 Passkey' }).click()
   await expect(page.getByText('Passkey 已添加，密码登录将需要二步验证')).toBeVisible()
-  const headers = { Origin: 'http://localhost:3000', 'X-GetGPT-Request': '1' }
+  const headers = { Origin: testOrigin, 'X-GetGPT-Request': '1' }
   await expect(page.getByRole('switch', { name: '二步验证', exact: true })).toBeChecked()
   await expect(page.getByRole('switch', { name: '二步验证', exact: true })).toBeDisabled()
   expect(
@@ -785,7 +786,7 @@ test('guest checkout requires contact email and only verified owner can claim or
   await expect(page).toHaveURL(/\/orders\/o_/)
   const orderPath = new URL(page.url()).pathname
   await expect(page.getByText(`订单联系邮箱：${email}`)).toBeVisible()
-  const stranger = await browser.newContext({ baseURL: 'http://localhost:3000' })
+  const stranger = await browser.newContext({ baseURL: testOrigin })
   expect((await stranger.request.get(`/api${orderPath}`)).status()).toBe(404)
   await page.getByRole('button', { name: '获取支付信息' }).click()
   await page.getByRole('button', { name: '模拟付款成功' }).click()
@@ -808,7 +809,7 @@ test('optional Turnstile gates direct login and purchase requests on the server'
 }) => {
   await page.goto('/')
   await login(page, 'admin@example.com')
-  const headers = { Origin: 'http://localhost:3000', 'X-GetGPT-Request': '1' }
+  const headers = { Origin: testOrigin, 'X-GetGPT-Request': '1' }
   const body = {
     provider: 'turnstile',
     enabled: true,

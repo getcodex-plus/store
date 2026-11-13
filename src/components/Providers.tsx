@@ -7,6 +7,7 @@ import { api } from '../lib'
 import { attributionSource } from '../funnel-client'
 
 interface Context {
+  nonce?: string
   data: Bootstrap | null
   error: string
   refresh: () => Promise<void>
@@ -21,7 +22,7 @@ const State = createContext<Context>({
   openLogin: () => {},
 })
 export const useSite = () => useContext(State)
-function StateProvider({ children }: { children: React.ReactNode }) {
+function StateProvider({ children, nonce }: { children: React.ReactNode; nonce?: string }) {
   const [data, setData] = useState<Bootstrap | null>(null)
   const [error, setError] = useState('')
   const [loginOpen, openLogin] = useState(false)
@@ -50,15 +51,16 @@ function StateProvider({ children }: { children: React.ReactNode }) {
     }
   }, [refresh])
   return (
-    <State.Provider value={{ data, error, refresh, loginOpen, openLogin }}>
+    <State.Provider value={{ data, error, refresh, loginOpen, openLogin, nonce }}>
       {children}
     </State.Provider>
   )
 }
-export function Providers({ children }: { children: React.ReactNode }) {
+export function Providers({ children, nonce }: { children: React.ReactNode; nonce?: string }) {
   return (
     <ConfigProvider
       locale={zhCN}
+      csp={nonce ? { nonce } : undefined}
       theme={{
         token: {
           // A monochrome seed needs explicit light state colors: the generated
@@ -139,7 +141,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       }}
     >
       <App>
-        <StateProvider>{children}</StateProvider>
+        <StateProvider nonce={nonce}>{children}</StateProvider>
       </App>
     </ConfigProvider>
   )

@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { ZodError } from 'zod'
 import { ApiError, appUrl, demo, validateRuntime } from './config'
 import { UpstreamError } from './integrations/aicdk'
+import { safeUpstreamError } from './safe-errors'
+
+export const privateResponseHeaders = { 'Cache-Control': 'private, no-store, max-age=0' }
 
 export async function bodyText(request: Request, max = 110_000) {
   if (Number(request.headers.get('content-length') || 0) > max) throw new ApiError(413, '请求过大')
@@ -34,22 +37,36 @@ export function guard(request: NextRequest, callback = false) {
 }
 export function failure(error: unknown) {
   if (error instanceof ApiError)
-    return NextResponse.json({ error: error.message }, { status: error.status })
+    return NextResponse.json(
+      { error: error.message },
+      { status: error.status, headers: privateResponseHeaders },
+    )
   if (error instanceof ZodError)
     return NextResponse.json(
-      { error: error.issues[0]?.message || '输入格式不正确' },
-      { status: 400 },
+      { error: '输入格式不正确，请检查填写内容' },
+      { status: 400, headers: privateResponseHeaders },
     )
   if (error instanceof SyntaxError)
-    return NextResponse.json({ error: '请求格式不正确' }, { status: 400 })
-  if (error instanceof UpstreamError)
     return NextResponse.json(
-      { error: '账号服务暂未完成验证，请稍后重试', code: error.code },
-      { status: 503, headers: { 'Retry-After': String(error.retryAfter) } },
+      { error: '请求格式不正确' },
+      { status: 400, headers: privateResponseHeaders },
     )
+  if (error instanceof UpstreamError) {
+    const safe = safeUpstreamError(error)
+    return NextResponse.json(
+      { error: '账号服务暂未完成验证，请稍后重试', code: safe.code },
+      {
+        status: error.status === 429 ? 429 : 503,
+        headers: { ...privateResponseHeaders, 'Retry-After': String(safe.retryAfter) },
+      },
+    )
+  }
   // Avoid logging request bodies, SQL parameters, credentials or provider payloads.
-  console.error('Request failed', error instanceof Error ? error.name : 'UnknownError')
-  return NextResponse.json({ error: '暂时无法完成操作，请稍后重试' }, { status: 500 })
+  console.error('Request failed')
+  return NextResponse.json(
+    { error: '暂时无法完成操作，请稍后重试' },
+    { status: 500, headers: privateResponseHeaders },
+  )
 }
 // Payment callbacks are flat objects. Reject duplicate JSON keys before JSON.parse
 // can silently discard one, including equivalent escaped property names.

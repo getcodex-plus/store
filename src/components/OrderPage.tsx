@@ -272,6 +272,20 @@ export function OrderPage({ id }: { id: string }) {
               </Button>
             </div>
           )}
+          {order.status === 'processing' &&
+            ['requires_action', 'uncertain'].includes(order.fulfillmentStatus || '') && (
+              <Alert
+                className="mt-24"
+                type="warning"
+                showIcon
+                title={
+                  order.fulfillmentStatus === 'requires_action'
+                    ? '本次充值需要进一步处理'
+                    : '正在核对本次充值结果'
+                }
+                description="请保留原订单并联系支持，不要重复下单或付款。"
+              />
+            )}
           {['failed', 'refunded', 'cancelled'].includes(order.status) && (
             <Result
               status="warning"

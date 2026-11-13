@@ -1,5 +1,6 @@
 import { z } from 'zod'
-import { rows, transaction } from '../db'
+import { pool, rows, transaction } from '../db'
+import type { PoolClient } from 'pg'
 import { ApiError } from '../config'
 import { decrypt, encrypt, id } from '../crypto'
 
@@ -45,10 +46,15 @@ const secretKeys: Record<IntegrationKind, string[]> = {
   resend: ['apiKey'],
   turnstile: ['secret'],
 }
-export async function integration(provider: IntegrationKind, revision?: string) {
+export async function integration(
+  provider: IntegrationKind,
+  revision?: string,
+  client: PoolClient | typeof pool = pool,
+) {
   const result = await rows<IntegrationRecord>(
     `SELECT * FROM integrations WHERE provider=$1 AND ${revision ? 'id=$2' : 'active=true'}`,
     revision ? [provider, revision] : [provider],
+    client,
   )
   if (!result[0] || (!revision && !result[0].enabled))
     throw new ApiError(503, '该服务尚未启用，请联系管理员')

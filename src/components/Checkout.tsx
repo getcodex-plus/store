@@ -23,7 +23,7 @@ import {
   CheckCircleFilled,
   SafetyCertificateOutlined,
 } from '@ant-design/icons'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useBotCheck } from './BotCheck'
 import { useSite } from './Providers'
 import { api, channels, money, parseSession, demoSession, normalizeDemoSession } from '../lib'
@@ -83,6 +83,8 @@ export function Checkout() {
   const { message } = App.useApp()
   const [quote, setQuote] = useState<Quote | null>(null)
   const [session, setSession] = useState('')
+  // Keep credentials only in this mounted checkout, never URL/storage/server DB.
+  const verifiedSession = useRef<{ quoteId: string; value: string } | null>(null)
   const [contactEmail, setContactEmail] = useState('')
   const [consent, setConsent] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -93,6 +95,19 @@ export function Checkout() {
   const [walletBalance, setWalletBalance] = useState<number | null>(null)
   const [balanceAmount, setBalanceAmount] = useState(0)
   const [clock, setClock] = useState(Date.now())
+  useEffect(() => {
+    const clear = () => {
+      verifiedSession.current = null
+    }
+    window.addEventListener('pagehide', clear)
+    return () => {
+      clear()
+      window.removeEventListener('pagehide', clear)
+    }
+  }, [])
+  useEffect(() => {
+    if (!quote || Date.parse(quote.expiresAt) <= clock) verifiedSession.current = null
+  }, [quote, clock])
   useEffect(() => {
     if (data?.mode === 'demo') setSession((current) => current || demoSession())
   }, [data?.mode])
@@ -150,13 +165,15 @@ export function Checkout() {
     try {
       trackFunnel('verify_started', product.id)
       parseSession(session)
+      const submittedSession = data?.mode === 'demo' ? normalizeDemoSession(session) : session
       const result = await api<Quote>('/quotes', {
         productId: product.id,
         turnstileToken: bot.token(),
-        session: data?.mode === 'demo' ? normalizeDemoSession(session) : session,
+        session: submittedSession,
         source: attributionSource(),
         analytics: analyticsAllowed(),
       })
+      verifiedSession.current = { quoteId: result.id, value: submittedSession }
       setQuote(result)
       setBalanceAmount(0)
       setClock(Date.now())
@@ -176,6 +193,11 @@ export function Checkout() {
       return
     }
     if (!quote) return
+    if (data?.mode === 'live' && verifiedSession.current?.quoteId !== quote.id) {
+      setQuote(null)
+      setError('账号信息已清除，请重新检查账号')
+      return
+    }
     if (expired || limitError) {
       setError(expired ? '报价已过期，请重新验证账号' : limitError)
       return
@@ -196,7 +218,10 @@ export function Checkout() {
         contactEmail: contactEmail.trim().toLowerCase() || undefined,
         balanceAmount: walletUsed,
         referralCode,
+        session:
+          verifiedSession.current?.quoteId === quote.id ? verifiedSession.current.value : undefined,
       })
+      verifiedSession.current = null
       router.push(`/orders/${order.id}`)
     } catch (e) {
       setError((e as Error).message)
@@ -345,7 +370,7 @@ export function Checkout() {
                 验证账号并确认价格 <ArrowRightOutlined />
               </Button>
               <p className="secure-note">
-                <SafetyCertificateOutlined /> 验证不会发起扣款
+                <SafetyCertificateOutlined /> 检查账号不使用卡密，也不会发起扣款
               </p>
             </>
           ) : (

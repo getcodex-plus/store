@@ -191,7 +191,7 @@ CREATE TABLE IF NOT EXISTS exchange_rates (
 );
 INSERT INTO exchange_rates(id) VALUES('USD_CNY') ON CONFLICT DO NOTHING;
 ALTER TABLE exchange_rates DROP CONSTRAINT IF EXISTS exchange_rates_id_check;
-ALTER TABLE exchange_rates ADD CONSTRAINT exchange_rates_id_check CHECK(id IN ('USD_CNY','USDT_CNY'));
+ALTER TABLE exchange_rates ADD CONSTRAINT exchange_rates_id_check CHECK(id ~ '^([A-Z]{3}|USDT)_CNY$');
 ALTER TABLE exchange_rates ADD COLUMN IF NOT EXISTS source text;
 INSERT INTO exchange_rates(id) VALUES('USDT_CNY') ON CONFLICT DO NOTHING;
 
@@ -208,6 +208,21 @@ ALTER TABLE quotes ADD COLUMN IF NOT EXISTS service_terms text NOT NULL DEFAULT 
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS service_terms text NOT NULL DEFAULT '';
 ALTER TABLE quotes ADD COLUMN IF NOT EXISTS analytics_visitor text;
 ALTER TABLE quotes ADD COLUMN IF NOT EXISTS attribution_source text NOT NULL DEFAULT 'direct';
+-- Existing quotes keep their already-bound authorization. New quotes are CDK-free checks.
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS flow_version integer NOT NULL DEFAULT 1;
+ALTER TABLE quotes ALTER COLUMN flow_version SET DEFAULT 2;
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS preflight_expires_at timestamptz;
+UPDATE quotes SET preflight_expires_at=expires_at WHERE preflight_token IS NOT NULL AND preflight_expires_at IS NULL;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS fulfillment_status text;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS redemption_version integer NOT NULL DEFAULT 0;
+DO $$ BEGIN
+  IF NOT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema()
+    AND table_name='orders' AND column_name='submission_attempted') THEN
+    ALTER TABLE orders ADD COLUMN submission_attempted boolean NOT NULL DEFAULT false;
+    -- Conservatively preserve legacy requests whose upstream result may be unknown.
+    UPDATE orders SET submission_attempted=true WHERE status IN ('processing','needs_session');
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS funnel_events (
   id text PRIMARY KEY,

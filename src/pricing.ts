@@ -15,13 +15,21 @@ export function paymentLimitError(settings: Settings, channel: Channel, amount: 
     : ''
 }
 
-export function costBasedPrice(usdCents: number, rules: PricingRules, automaticRateE8?: number) {
+export function costBasedPrice(
+  amountMinor: number,
+  rules: PricingRules,
+  automaticRateE8?: number,
+  currencyDecimals = 2,
+) {
   const minimumProfit = rules.minimumProfit ?? 0
   const step = rules.roundingStep ?? 100
   if (
-    !Number.isSafeInteger(usdCents) ||
-    usdCents < 0 ||
-    usdCents > 100000000 ||
+    !Number.isSafeInteger(amountMinor) ||
+    amountMinor < 0 ||
+    amountMinor > 100000000 ||
+    !Number.isInteger(currencyDecimals) ||
+    currencyDecimals < 0 ||
+    currencyDecimals > 6 ||
     !Number.isSafeInteger(rules.fxRateBps) ||
     rules.fxRateBps <= 0 ||
     rules.fxRateBps > 1000000 ||
@@ -43,9 +51,11 @@ export function costBasedPrice(usdCents: number, rules: PricingRules, automaticR
   const rateE8 = automaticRateE8 ?? rules.fxRateBps * 10000
   if (!Number.isSafeInteger(rateE8) || rateE8 <= 0 || rateE8 > 10000000000)
     throw new Error('汇率无效')
-  const denominator = 1000000000000n
-  const converted = BigInt(usdCents) * BigInt(rateE8) * BigInt(10000 + rules.markupBps)
-  const cost = Number((BigInt(usdCents) * BigInt(rateE8) + 99999999n) / 100000000n)
+  const costDenominator = 100000000n * 10n ** BigInt(currencyDecimals)
+  const costNumerator = BigInt(amountMinor) * BigInt(rateE8) * 100n
+  const denominator = costDenominator * 10000n
+  const converted = costNumerator * BigInt(10000 + rules.markupBps)
+  const cost = Number((costNumerator + costDenominator - 1n) / costDenominator)
   const unrounded = Math.max(
     Number((converted + denominator - 1n) / denominator) + rules.serviceFee,
     rules.minimum,

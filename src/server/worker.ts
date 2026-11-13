@@ -1,11 +1,11 @@
-import { pool, rows, transaction } from './db'
+import { pool, transaction } from './db'
 import { demo, validateRuntime } from './config'
-import { decrypt, id } from './crypto'
-import { aicdk, UpstreamError } from './integrations/aicdk'
+import { id } from './crypto'
+import { safeUpstreamError } from './safe-errors'
+import { UpstreamError } from './integrations/aicdk'
+import { fulfillOrder } from './fulfillment'
 import { deliverOrderEmail } from './notifications'
-import { completeOrder } from './services'
-import type { PaymentOrder } from './integrations/payments'
-import { refreshExchangeRate } from './exchange-rates'
+import { refreshPendingExchangeRates } from './exchange-rates'
 
 validateRuntime()
 let stopping = false
@@ -51,83 +51,24 @@ async function tick() {
   })
   if (!job) return false
   try {
-    const order = (await rows<PaymentOrder>('SELECT * FROM orders WHERE id=$1', [job.order_id]))[0]
-    if (!order || ['completed', 'refunded', 'failed'].includes(order.status)) {
-      await pool.query('UPDATE jobs SET done=true WHERE id=$1 AND lease=$2', [job.id, lease])
-      return true
-    }
-    if (order.status !== 'processing') throw new Error('ORDER_WAITING_FOR_USER')
-    if (demo) await completeOrder(order.id)
-    else {
-      let redemptionId = order.redemptionId
-      if (!redemptionId) {
-        // Recover an accepted request after a network timeout before attempting the same idempotent submission.
-        const recovered = await aicdk<{ id: string }[]>(
-          `/redemptions?client_request_id=${encodeURIComponent(order.id)}`,
-          undefined,
-          undefined,
-          order.aicdkIntegrationId,
-        )
-        redemptionId = recovered[0]?.id
-        if (!redemptionId) {
-          const quote = (
-            await pool.query('SELECT preflight_token FROM quotes WHERE id=$1', [order.quoteId])
-          ).rows[0]
-          if (!quote?.preflight_token) throw new Error('PREFLIGHT_MISSING')
-          const response = await aicdk<{ id: string }>(
-            '/redemptions',
-            { preflight_token: decrypt(quote.preflight_token), client_request_id: order.id },
-            `${order.id}-v${order.fulfillmentAttempt}`,
-            order.aicdkIntegrationId,
-          )
-          redemptionId = response.id
-        }
-        if (!redemptionId) throw new Error('REDEMPTION_ID_MISSING')
-        await pool.query('UPDATE orders SET redemption_id=$2 WHERE id=$1', [order.id, redemptionId])
-      }
-      const result = await aicdk<{ status: string }>(
-        `/redemptions/${encodeURIComponent(redemptionId)}`,
-        undefined,
-        undefined,
-        order.aicdkIntegrationId,
+    if (!(await fulfillOrder(job.order_id))) {
+      await pool.query(
+        "UPDATE jobs SET run_at=now()+interval '5 seconds',locked_until=null,last_error=null WHERE id=$1 AND lease=$2",
+        [job.id, lease],
       )
-      if (result.status === 'completed') await completeOrder(order.id)
-      else if (result.status === 'needs_session')
-        await pool.query(
-          "UPDATE orders SET status='needs_session' WHERE id=$1 AND status='processing'",
-          [order.id],
-        )
-      else if (['failed', 'cancelled'].includes(result.status))
-        await pool.query("UPDATE orders SET status='failed' WHERE id=$1 AND status='processing'", [
-          order.id,
-        ])
-      else throw new Error('REDEMPTION_PENDING')
-    }
-    await pool.query('UPDATE jobs SET done=true,locked_until=null WHERE id=$1 AND lease=$2', [
-      job.id,
-      lease,
-    ])
-  } catch (error) {
-    if (error instanceof UpstreamError && error.code === 'PREFLIGHT_EXPIRED' && !error.uncertain) {
-      await transaction(async (client) => {
-        await client.query(
-          "UPDATE orders SET status='needs_session' WHERE id=$1 AND status='processing' AND redemption_id IS NULL",
-          [job.order_id],
-        )
-        await client.query(
-          'UPDATE jobs SET done=true,locked_until=null,last_error=$3 WHERE id=$1 AND lease=$2',
-          [job.id, lease, error.code],
-        )
-      })
       return true
     }
-    const wait =
-      error instanceof UpstreamError
-        ? error.retryAfter
-        : Math.min(300, 5 * 2 ** Math.min(job.attempts, 6))
+    await pool.query(
+      `UPDATE jobs SET done=true,locked_until=null WHERE id=$1 AND lease=$2
+      AND NOT EXISTS(SELECT 1 FROM orders o WHERE o.id=jobs.order_id AND o.status='processing')`,
+      [job.id, lease],
+    )
+  } catch (error) {
+    const safe = error instanceof UpstreamError ? safeUpstreamError(error) : null
+    const wait = safe?.retryAfter ?? Math.min(300, 5 * 2 ** Math.min(job.attempts, 6))
     await pool.query(
       "UPDATE jobs SET run_at=now()+$3*interval '1 second',locked_until=null,last_error=$4 WHERE id=$1 AND lease=$2",
-      [job.id, lease, wait, error instanceof UpstreamError ? error.code : 'RETRY_PENDING'],
+      [job.id, lease, wait, safe?.code ?? 'RETRY_PENDING'],
     )
   }
   return true
@@ -136,7 +77,7 @@ console.log('GetCodex Plus worker running; mode:', demo ? 'demo' : 'live')
 const exchangeLoop = (async () => {
   while (!stopping) {
     try {
-      await Promise.all([refreshExchangeRate(), refreshExchangeRate('USDT')])
+      await refreshPendingExchangeRates()
     } catch {
       console.error('Exchange rate refresh failed; retrying')
     }

@@ -56,6 +56,7 @@ export interface Order {
   settlementDays: number
   firstOrderOnly: boolean
   serviceTerms?: string
+  fulfillmentStatus?: string | null
 }
 export interface Commission {
   id: string

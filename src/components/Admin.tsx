@@ -1681,15 +1681,19 @@ export function Admin() {
         </Form>
       </Modal>
       <Modal
-        forceRender
+        destroyOnHidden
         title="导入兑换库存"
         open={stockOpen}
-        onCancel={() => setStockOpen(false)}
+        onCancel={() => {
+          stockForm.resetFields()
+          setStockOpen(false)
+        }}
         footer={null}
       >
         <p className="muted">仅管理员可导入。兑换码加密保存，不会展示给最终用户。</p>
         <Form
           form={stockForm}
+          clearOnDestroy
           layout="vertical"
           onFinish={(v) =>
             mutate(
@@ -1701,7 +1705,10 @@ export function Admin() {
                   .map((s: string) => s.trim())
                   .filter(Boolean),
               },
-              () => setStockOpen(false),
+              () => {
+                stockForm.resetFields()
+                setStockOpen(false)
+              },
             )
           }
         >
@@ -1709,7 +1716,13 @@ export function Admin() {
             <Select options={data?.products.map((p) => ({ value: p.id, label: p.name }))} />
           </Form.Item>
           <Form.Item name="codes" label="兑换码（每行一个）" rules={[{ required: true }]}>
-            <Input.TextArea rows={7} autoComplete="off" />
+            <Input.TextArea
+              rows={7}
+              autoComplete="off"
+              spellCheck={false}
+              autoCorrect="off"
+              autoCapitalize="off"
+            />
           </Form.Item>
           <Button htmlType="submit" type="primary" loading={busy} block>
             加密保存库存

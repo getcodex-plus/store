@@ -5,9 +5,11 @@ import { pool, transaction } from '../src/server/db'
 import { defaultPaymentLimits } from '../src/pricing'
 import { defaultReferralTiers } from '../src/referral'
 import { defaultWithdrawalChannels, withdrawalChannels } from '../src/withdrawals'
+import { migrateCredentialStorage } from '../src/server/credential-storage'
 
 await transaction(async (client) => {
   await client.query(await readFile(new URL('../src/server/schema.sql', import.meta.url), 'utf8'))
+  await migrateCredentialStorage(client)
   const products = [
     {
       id: 'plus',
