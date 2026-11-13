@@ -26,7 +26,7 @@ export function ProPlanCard({ products }: { products: Product[] }) {
           onChange={(event) => setSelected(event.target.value)}
           options={products.map((p) => ({
             value: p.id,
-            label: tiers[p.plan],
+            label: `Pro ${tiers[p.plan]}`,
             title: p.name,
           }))}
         />

@@ -48,6 +48,7 @@ import { api, channels, dateTime, money, statuses } from '../lib'
 import { defaultPaymentLimits, planNames, roundingOptions } from '../pricing'
 import type { AdminData, Order, Product, Withdrawal } from '../types'
 import type { IntegrationView, IntegrationKind } from '../server/integrations/config'
+import { funnelLabels, sourceLabels } from '../funnel'
 
 type Role = { id: string; name: string; permissions: string[]; protected: boolean }
 type Data = AdminData & { integrations: IntegrationView[]; roles: Role[] }
@@ -93,9 +94,9 @@ const publicFields: Record<IntegrationKind, [string, string, string][]> = {
     ['host', 'SMTP 主机', 'smtp.example.com'],
     ['port', 'SMTP 端口', '465'],
     ['user', 'SMTP 用户名', '账号'],
-    ['from', '发件地址', 'GetGPT <hello@example.com>'],
+    ['from', '发件地址', 'GetCodex Plus <hello@example.com>'],
   ],
-  resend: [['from', '发件地址', 'GetGPT <hello@example.com>']],
+  resend: [['from', '发件地址', 'GetCodex Plus <hello@example.com>']],
   turnstile: [['siteKey', 'Site Key', 'Cloudflare 站点密钥']],
 }
 const secretFields: Record<IntegrationKind, [string, string][]> = {
@@ -223,6 +224,7 @@ export function Admin() {
       priceCurrency: product?.priceCurrency ?? 'CNY',
       roundingStep: product?.roundingStep ?? 100,
       featureText: product?.features.join('\n') ?? '',
+      serviceTerms: product?.serviceTerms ?? '',
     })
     setProductOpen(true)
   }
@@ -249,7 +251,7 @@ export function Admin() {
       <Brand />
       <div className="admin-workspace">
         <span>工作空间</span>
-        <strong>GetGPT 控制台</strong>
+        <strong>GetCodex Plus 控制台</strong>
       </div>
       <Menu
         theme="light"
@@ -552,6 +554,35 @@ export function Admin() {
                       </div>
                     </Card>
                   </div>
+                  {data.funnel && (
+                    <Card title="最近 30 天购买阶段与来源" className="mt-24">
+                      <p className="tiny muted">
+                        浏览阶段按浏览器、商品、UTC
+                        日期去重；报价按报价数，交易阶段按订单去重。来源为本次浏览会话首次来源。各阶段独立统计，不代表同一批访客的转化率；直接购买可能不经过详情页。付款、交付与退款仅由服务端确认。
+                      </p>
+                      <Table
+                        rowKey={(record) => `${record.event}:${record.source}`}
+                        dataSource={data.funnel}
+                        pagination={{ pageSize: 8 }}
+                        scroll={{ x: 520 }}
+                        locale={{ emptyText: '尚无统计记录，开始访问套餐与购买后会显示数据。' }}
+                        columns={[
+                          {
+                            title: '阶段',
+                            dataIndex: 'event',
+                            render: (value: string) => funnelLabels[value] || value,
+                          },
+                          {
+                            title: '来源',
+                            dataIndex: 'source',
+                            render: (value: keyof typeof sourceLabels) => sourceLabels[value],
+                          },
+                          { title: '事件数', dataIndex: 'events' },
+                          { title: '浏览器数', dataIndex: 'visitors' },
+                        ]}
+                      />
+                    </Card>
+                  )}
                   <Card
                     title="最近订单"
                     extra={
@@ -1194,6 +1225,13 @@ export function Admin() {
                     <Form.Item name="supportEmail" label="支持邮箱">
                       <Input type="email" placeholder="support@example.com" />
                     </Form.Item>
+                    <Form.Item
+                      name="sessionGuideUrl"
+                      label="账号信息操作指引（HTTPS）"
+                      extra="填写已验证可用的指引地址，将展示在新手指南与结算页。请勿填写包含账号信息或访问凭据的地址。"
+                    >
+                      <Input type="url" placeholder="https://…" maxLength={2048} />
+                    </Form.Item>
                     <Button htmlType="submit" type="primary" loading={busy}>
                       保存设置
                     </Button>
@@ -1401,6 +1439,17 @@ export function Admin() {
           )}
           <Form.Item name="featureText" label="套餐说明（每行一条）" rules={[{ required: true }]}>
             <Input.TextArea rows={3} />
+          </Form.Item>
+          <Form.Item
+            name="serviceTerms"
+            label="服务期限与交付范围"
+            rules={[
+              { required: true, whitespace: true, message: '请填写真实服务期限与交付范围' },
+              { max: 400 },
+            ]}
+            extra="写明实际期限、续费或升级如何影响到期日及交付内容。报价后保存快照，后续修改不改变已有订单。"
+          >
+            <Input.TextArea rows={3} maxLength={400} showCount />
           </Form.Item>
           <div className="form-three">
             <Form.Item name="enabled" label="上架" valuePropName="checked">

@@ -9,6 +9,7 @@ import { refreshExchangeRate } from './exchange-rates'
 
 validateRuntime()
 let stopping = false
+let lastAnalyticsCleanup = 0
 process.on('SIGINT', () => {
   stopping = true
 })
@@ -16,6 +17,13 @@ process.on('SIGTERM', () => {
   stopping = true
 })
 async function tick() {
+  if (Date.now() - lastAnalyticsCleanup > 3600000) {
+    await pool.query("DELETE FROM funnel_events WHERE created_at < now()-interval '90 days'")
+    await pool.query(
+      "UPDATE quotes SET analytics_visitor=null WHERE analytics_visitor IS NOT NULL AND expires_at < now()-interval '90 days'",
+    )
+    lastAnalyticsCleanup = Date.now()
+  }
   await deliverOrderEmail()
   await pool.query(
     "UPDATE commissions SET status='available' WHERE status='pending' AND available_at<=now()",
@@ -124,7 +132,7 @@ async function tick() {
   }
   return true
 }
-console.log('GetGPT worker running; mode:', demo ? 'demo' : 'live')
+console.log('GetCodex Plus worker running; mode:', demo ? 'demo' : 'live')
 const exchangeLoop = (async () => {
   while (!stopping) {
     try {

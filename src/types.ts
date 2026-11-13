@@ -14,6 +14,7 @@ export interface Product {
   name: string
   subtitle: string
   description: string
+  serviceTerms?: string
   price: number
   features: string[]
   plan: string
@@ -54,6 +55,7 @@ export interface Order {
   rateBps: number
   settlementDays: number
   firstOrderOnly: boolean
+  serviceTerms?: string
 }
 export interface Commission {
   id: string
@@ -80,6 +82,7 @@ export interface Settings {
   minimumWithdrawal: number
   firstOrderOnly: boolean
   supportEmail: string
+  sessionGuideUrl?: string
   alipay: boolean
   wechat: boolean
   crypto: boolean
@@ -135,6 +138,7 @@ export interface AccountData {
   ledger: WalletEntry[]
 }
 export interface AdminData {
+  funnel?: import('./funnel').FunnelRow[]
   exchangeRate?: {
     rate: number | null
     sourceDate: string | null
@@ -160,4 +164,5 @@ export interface Quote {
   expiresAt: string
   currentPlan?: string
   targetPlan?: string
+  serviceTerms?: string
 }

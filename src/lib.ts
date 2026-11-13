@@ -17,7 +17,7 @@ export const statuses: Record<OrderStatus, { text: string; color: string }> = {
   completed: { text: '充值完成', color: 'success' },
   needs_session: { text: '需更新账号信息', color: 'warning' },
   failed: { text: '充值异常', color: 'error' },
-  refunded: { text: '已退款', color: 'default' },
+  refunded: { text: '已退回钱包', color: 'default' },
 }
 export const channels = {
   alipay: '支付宝',

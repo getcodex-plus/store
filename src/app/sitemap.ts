@@ -1,11 +1,20 @@
 import type { MetadataRoute } from 'next'
 import { products } from '../server/services'
+import { siteOrigin } from '../seo'
 export const dynamic = 'force-dynamic'
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const origin = process.env.APP_URL || 'http://localhost:3000'
-  return ['', '/guide', ...(await products()).map((p) => `/plans/${p.id}`)].map((path) => ({
+  const origin = siteOrigin()
+  if (process.env.APP_MODE !== 'live') return []
+  return [
+    '',
+    '/guide',
+    '/compare',
+    '/upgrade',
+    '/help/payment',
+    '/terms',
+    '/privacy',
+    ...(await products()).map((p) => `/plans/${p.id}`),
+  ].map((path) => ({
     url: `${origin}${path}`,
-    changeFrequency: 'weekly',
-    priority: path === '' ? 1 : 0.7,
   }))
 }

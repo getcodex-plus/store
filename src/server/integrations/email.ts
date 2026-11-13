@@ -6,7 +6,7 @@ import { ApiError } from '../config'
 export async function sendLoginEmail(to: string, code: string, requestId: string) {
   return sendEmail(
     to,
-    'GetGPT 登录验证码',
+    'GetCodex Plus 登录验证码',
     `你的验证码是 ${code}，10 分钟内有效。请勿转发给他人。如果不是你本人操作，请忽略此邮件。`,
     `login-code/${requestId}`,
   )

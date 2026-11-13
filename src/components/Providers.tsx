@@ -4,6 +4,7 @@ import { App, ConfigProvider } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import type { Bootstrap } from '../types'
 import { api } from '../lib'
+import { attributionSource } from '../funnel-client'
 
 interface Context {
   data: Bootstrap | null
@@ -33,6 +34,7 @@ function StateProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
   useEffect(() => {
+    attributionSource()
     void refresh()
     const ref = new URLSearchParams(window.location.search).get('ref')
     if (ref && /^[a-z\d]{10,12}$/.test(ref)) {

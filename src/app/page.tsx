@@ -2,8 +2,15 @@ import Link from 'next/link'
 import { products } from '../server/services'
 import { PlanCard } from '../components/PlanCard'
 import { ProPlanCard } from '../components/ProPlanCard'
+import { Support } from '../components/Support'
+import { JsonLd } from '../components/JsonLd'
+import { pageMetadata, siteOrigin } from '../seo'
 export const dynamic = 'force-dynamic'
-export const metadata = { alternates: { canonical: '/' } }
+export const metadata = pageMetadata(
+  'ChatGPT 充值与升级｜套餐与价格',
+  '查看 ChatGPT 充值套餐、服务说明与升级流程。为自己的账号充值，游客无需注册，先检查账号和最终价格，再付款并跟踪订单。',
+  '/',
+)
 export default async function Home() {
   const catalog = await products()
   const proVariants = ['pro5', 'pro20', 'promax'].flatMap((plan) => {
@@ -15,18 +22,28 @@ export default async function Home() {
     catalog.find((p) => p.upgrade && p.plan === 'pro20') || catalog.find((p) => p.upgrade)
   return (
     <main>
+      <JsonLd
+        data={{
+          '@context': 'https://schema.org',
+          '@type': 'WebSite',
+          name: 'GetCodex Plus',
+          url: siteOrigin(),
+          inLanguage: 'zh-CN',
+          description: '独立 ChatGPT 充值与升级服务，与 OpenAI 无隶属关系。',
+        }}
+      />
       <section className="hero container">
         <div className="hero-copy">
           <div className="eyebrow">
             <span className="status-dot" /> 你的 GPT 升级助手
           </div>
           <h1>
-            把精力留给灵感。
+            为你的 ChatGPT
             <br />
-            <span>升级的事，交给我们。</span>
+            <span>充值与升级。</span>
           </h1>
           <p>
-            为自己的 GPT 账号充值与升级。
+            使用自己的账号，无需共享，也无需提前注册。
             <br />
             先确认账号和价格，再安心付款。
           </p>
@@ -35,7 +52,7 @@ export default async function Home() {
               选择适合我的套餐 <span>↗</span>
             </a>
             <Link href="/guide" className="text-link">
-              第一次充值？看这里 <span>→</span>
+              查看新手充值指南 <span>→</span>
             </Link>
           </div>
           <div className="hero-notes">
@@ -86,12 +103,16 @@ export default async function Home() {
           <div className="section-heading">
             <div>
               <div className="eyebrow">FIND YOUR FIT</div>
-              <h2>好工具，选适合自己的。</h2>
-              <p>无需共享账号。选择套餐，开始你的下一步。</p>
+              <h2>选择套餐，先看清服务内容。</h2>
+              <p>查看价格与服务期限，已有订阅可先了解升级条件。</p>
             </div>
             <span className="subtle-pill">支持支付宝 · 微信 · 加密货币</span>
           </div>
           <div className="catalog-group">
+            <p className="catalog-links">
+              <Link href="/compare">比较全部套餐与服务说明 →</Link>
+              <Link href="/upgrade">已有订阅？了解升级流程 →</Link>
+            </p>
             <h3>充值套餐</h3>
             <div className="plan-grid">
               {catalog
@@ -175,7 +196,7 @@ export default async function Home() {
             ],
             [
               '遇到充值失败怎么办？',
-              '保留原订单，在订单页查看处理提示。需要更新账号信息时可继续原订单，不要重复购买。',
+              '保留原订单，不要重复购买。已确认失败的订单经核实后可退回本站钱包，不会自动原路退回；游客需用联系邮箱登录认领订单。',
             ],
           ].map(([q, a]) => (
             <details key={q}>
@@ -187,6 +208,12 @@ export default async function Home() {
             </details>
           ))}
         </div>
+      </section>
+      <section className="container purchase-support">
+        <Support />
+        <Link href="/help/payment" className="text-link">
+          付款、到账与退款问题 →
+        </Link>
       </section>
     </main>
   )

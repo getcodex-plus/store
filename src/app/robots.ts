@@ -1,22 +1,17 @@
 import type { MetadataRoute } from 'next'
+import { siteOrigin } from '../seo'
+export const dynamic = 'force-dynamic'
 export default function robots(): MetadataRoute.Robots {
-  const origin = process.env.APP_URL || 'http://localhost:3000'
+  const origin = siteOrigin()
   return {
     rules:
       process.env.APP_MODE === 'live'
         ? {
             userAgent: '*',
             allow: '/',
-            disallow: [
-              '/api/',
-              '/admin',
-              '/account',
-              '/wallet',
-              '/checkout',
-              '/orders/',
-              '/referral',
-              '/security',
-            ],
+            // Let crawlers read noindex on application pages. APIs remain blocked;
+            // authentication, rather than robots.txt, protects private data.
+            disallow: ['/api/'],
           }
         : { userAgent: '*', disallow: '/' },
     sitemap: `${origin}/sitemap.xml`,

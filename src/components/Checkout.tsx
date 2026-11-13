@@ -29,6 +29,10 @@ import { useSite } from './Providers'
 import { api, channels, money, parseSession, demoSession, normalizeDemoSession } from '../lib'
 import type { AccountData, Channel, Order, Quote } from '../types'
 import { paymentLimitError, planNames } from '../pricing'
+import { Support } from './Support'
+import { serviceTerms, refundSummary } from '../product-copy'
+import { FunnelView } from './FunnelView'
+import { trackFunnel, attributionSource, analyticsAllowed } from '../funnel-client'
 
 export function PaymentOptions({
   value,
@@ -144,11 +148,14 @@ export function Checkout() {
     setBusy(true)
     setError('')
     try {
+      trackFunnel('verify_started', product.id)
       parseSession(session)
       const result = await api<Quote>('/quotes', {
         productId: product.id,
         turnstileToken: bot.token(),
         session: data?.mode === 'demo' ? normalizeDemoSession(session) : session,
+        source: attributionSource(),
+        analytics: analyticsAllowed(),
       })
       setQuote(result)
       setBalanceAmount(0)
@@ -200,6 +207,7 @@ export function Checkout() {
   }
   return (
     <main className="container checkout-page">
+      <FunnelView event="checkout_view" productId={product.id} />
       <Link href="/#plans" className="text-link">
         <ArrowLeftOutlined /> 返回套餐
       </Link>
@@ -292,16 +300,17 @@ export function Checkout() {
                   <strong>如何准备账号信息？</strong>
                   <ol>
                     <li>在浏览器登录需要充值的 ChatGPT 账号。</li>
-                    <li>获取包含邮箱、accessToken 和 sessionToken 的完整会话 JSON。</li>
+                    <li>按本站操作指引准备完整会话信息，缺少字段时先联系支持。</li>
                     <li>
                       复制全部内容，粘贴到下方。
                       <Link href="/guide" target="_blank">
                         {' '}
-                        查看详细说明 ↗
+                        查看账号信息准备说明 ↗
                       </Link>
                     </li>
                   </ol>
                 </div>
+                <Support guide />
                 <Form.Item
                   label="账号会话信息（Session）"
                   extra={
@@ -443,7 +452,7 @@ export function Checkout() {
                 {`确认订单 · ${money(quote.amount)}`} <ArrowRightOutlined />
               </Button>
               <p className="tiny muted">
-                提交前请阅读{' '}
+                {refundSummary} 提交前请阅读{' '}
                 <Link href="/terms" target="_blank">
                   服务说明
                 </Link>{' '}
@@ -466,6 +475,11 @@ export function Checkout() {
             </div>
             <h2>{product.name}</h2>
             <p className="muted">{product.subtitle}</p>
+            <p>
+              <strong>服务期限与交付范围</strong>
+            </p>
+            <p>{quote?.serviceTerms || serviceTerms(product)}</p>
+            <p className="tiny muted">本站按本次订单收费，不自动续扣。请确认上述内容后再付款。</p>
             <div className="summary-price">
               {!quote && product.upgrade
                 ? '验证账号后报价'

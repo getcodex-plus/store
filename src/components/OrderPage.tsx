@@ -112,7 +112,7 @@ export function OrderPage({ id }: { id: string }) {
     completed: order.kind === 'topup' ? '充值余额已到账。' : '充值完成，开始使用吧。',
     needs_session: '需要更新账号信息，继续原订单。',
     failed: '这笔订单需要进一步处理。',
-    refunded: '订单已退款。',
+    refunded: '订单金额已退回本站钱包。',
   }
   const safeUrl =
     payment?.paymentUrl && /^(https?:|alipays:|weixin:)/i.test(payment.paymentUrl)
@@ -120,6 +120,18 @@ export function OrderPage({ id }: { id: string }) {
       : undefined
   return (
     <main className="container order-page">
+      {order.serviceTerms && (
+        <div className="support-note">
+          <strong>本订单服务期限与交付范围</strong>
+          <p>{order.serviceTerms}</p>
+        </div>
+      )}
+      {order.status === 'refunded' && (
+        <p className="support-note">
+          退款已计入本站钱包，可用于本站消费；不会自动原路退回支付账户。
+          <Link href="/wallet">查看钱包余额 →</Link>
+        </p>
+      )}
       <Link href="/account" className="text-link">
         ← 我的订单
       </Link>

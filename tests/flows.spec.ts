@@ -72,12 +72,10 @@ test('SSR storefront, responsive layout, wallet topup and balance purchase', asy
   request,
 }) => {
   const html = await (await request.get('/')).text()
-  expect(html).toContain('把精力留给灵感')
+  expect(html).toContain('为你的 ChatGPT')
   expect(html).toContain('ChatGPT Plus')
   await page.goto('/')
-  await expect(
-    page.getByRole('heading', { name: /把精力留给灵感。.*升级的事，交给我们。/ }),
-  ).toBeVisible()
+  await expect(page.getByRole('heading', { name: /为你的 ChatGPT.*充值与升级。/ })).toBeVisible()
   await page.setViewportSize({ width: 375, height: 812 })
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,
@@ -127,7 +125,7 @@ test('all tiers, upgrade quotation and partial wallet payment are visible to buy
     ['500', 'pro500', '¥3,329.00'],
   ]) {
     await pro.getByTitle(`ChatGPT Pro ${tier}`, { exact: true }).click()
-    await expect(pro.getByRole('radio', { name: tier, exact: true })).toBeChecked()
+    await expect(pro.getByRole('radio', { name: `Pro ${tier}`, exact: true })).toBeChecked()
     await expect(pro.locator('.price')).toContainText(price)
     await expect(pro.getByRole('link', { name: '选择此套餐' })).toHaveAttribute(
       'href',
@@ -280,6 +278,7 @@ test('admin sets fixed base prices, cached currency conversion and upgrade round
     await expect(dialog.getByLabel('成本加价（%）')).toHaveCount(0)
     await expect(page.getByRole('button', { name: '请求刷新价格' })).toHaveCount(0)
     await dialog.getByLabel('固定售价（元）').fill('49.37')
+    await dialog.getByLabel('服务期限与交付范围').fill('仅测试：演示交付范围，不代表真实服务。')
     await dialog.getByRole('button', { name: '保存商品' }).click()
     await expect(dialog).toBeHidden()
     const fixed = await (

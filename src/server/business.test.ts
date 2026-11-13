@@ -19,6 +19,8 @@ import {
   products,
 } from './services'
 import { id, encrypt } from './crypto'
+import { demoSession } from '../lib'
+import { analyticsVisitor, recordView } from './funnel'
 import { authorize, permissionsFor } from './rbac'
 import type { Order, User } from '../types'
 import { integration, saveIntegration } from './integrations/config'
@@ -91,6 +93,55 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
   })
   afterAll(async () => {
     await pool.end()
+  })
+  it('preserves accepted service terms and records only one authoritative event per order stage', async () => {
+    const buyer = await fixtureUser(`${id()}@example.com`)
+    const productId = id('metrics_')
+    await pool.query(
+      "INSERT INTO products(id,name,subtitle,description,price,features,plan,service_terms) VALUES($1,'Metrics test','','',6000,'[]','plus','已确认的演示服务说明')",
+      [productId],
+    )
+    const visitor = id('browser_')
+    await recordView(visitor, 'checkout_view', productId, 'google')
+    await recordView(visitor, 'checkout_view', productId, 'google')
+    const q = await createQuote(productId, demoSession('metrics@example.com'), visitor, {
+      source: 'google',
+      analytics: true,
+    })
+    await pool.query("UPDATE products SET service_terms='后续变更' WHERE id=$1", [productId])
+    const order = await newOrder(buyer, visitor, {
+      quoteId: q.id,
+      channel: 'alipay',
+      requestKey: id(),
+    })
+    expect(q.serviceTerms).toBe('已确认的演示服务说明')
+    expect(order.serviceTerms).toBe(q.serviceTerms)
+    const receipt = { orderId: order.id, transactionId: id(), amount: order.amount, paid: true }
+    await acceptPayment('xorpay', null, receipt)
+    await acceptPayment('xorpay', null, receipt)
+    await completeOrder(order.id)
+    await completeOrder(order.id)
+    const events = (
+      await pool.query(
+        'SELECT event,source,count(*)::int AS n FROM funnel_events WHERE visitor_key=$1 GROUP BY event,source',
+        [analyticsVisitor(visitor)],
+      )
+    ).rows
+    expect(events.map((e) => e.event).sort()).toEqual(
+      [
+        'checkout_view',
+        'quote_ready',
+        'order_created',
+        'payment_succeeded',
+        'delivery_completed',
+      ].sort(),
+    )
+    expect(events.every((e) => e.n === 1 && e.source === 'google')).toBe(true)
+    const privateQuote = await createQuote(productId, demoSession('private@example.com'), visitor)
+    expect(
+      (await pool.query('SELECT analytics_visitor FROM quotes WHERE id=$1', [privateQuote.id]))
+        .rows[0].analytics_visitor,
+    ).toBeNull()
   })
   it('isolates guest orders and preserves a separate contact email', async () => {
     const quoteId = await quote('recharge@example.com')

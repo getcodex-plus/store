@@ -26,9 +26,12 @@ import {
 import { parseSession } from '../lib'
 import { paymentLimitError, costBasedPrice, convertedSubscriptionPrice } from '../pricing'
 import { exchangeRate, exchangeRateStatus, type ExchangeRate } from './exchange-rates'
+import { serviceTerms } from '../product-copy'
+import { analyticsVisitor, funnelReport } from './funnel'
+import type { FunnelSource } from '../funnel'
 
 export const orderColumns =
-  'id,user_id,contact_email,product_id,product_name,email,amount,status,channel,created_at,completed_at,rate_bps,settlement_days,first_order_only,kind,balance_amount,external_amount'
+  'id,user_id,contact_email,product_id,product_name,email,amount,status,channel,created_at,completed_at,rate_bps,settlement_days,first_order_only,kind,balance_amount,external_amount,service_terms'
 export async function settings(): Promise<Settings> {
   const result = await pool.query('SELECT body FROM settings WHERE id=1')
   if (!result.rows[0]) throw new ApiError(503, '请先初始化数据库')
@@ -36,7 +39,7 @@ export async function settings(): Promise<Settings> {
 }
 export async function products(all = false): Promise<Product[]> {
   const catalog = await rows<Product>(
-    `SELECT id,name,subtitle,description,price,features,plan,enabled,featured,upgrade,pricing_mode,price_currency,rounding_step
+    `SELECT id,name,subtitle,description,price,features,plan,enabled,featured,upgrade,pricing_mode,price_currency,rounding_step,service_terms
      FROM products ${all ? '' : 'WHERE enabled=true'} ORDER BY upgrade, CASE plan WHEN 'go' THEN 0 WHEN 'plus' THEN 1 WHEN 'pro5' THEN 2 WHEN 'pro20' THEN 3 ELSE 4 END, price`,
   )
   if (all) return catalog
@@ -69,6 +72,10 @@ export async function quote(
   productId: string,
   sessionText: string,
   browser: string,
+  attribution: { source: FunnelSource; analytics: boolean } = {
+    source: 'direct',
+    analytics: false,
+  },
 ): Promise<Quote> {
   let session: ReturnType<typeof parseSession>
   try {
@@ -195,13 +202,14 @@ export async function quote(
     amount,
     currentPlan,
     targetPlan: product.plan,
+    serviceTerms: serviceTerms(product),
     expiresAt: new Date(
       Math.min(Date.now() + 9 * 60_000, rate ? Date.parse(rate.expiresAt) : Infinity),
     ).toISOString(),
   }
   await transaction(async (client) => {
     await client.query(
-      `INSERT INTO quotes(id,browser_digest,product_id,email,amount,inventory_id,preflight_token,expires_at,aicdk_integration_id,pricing_snapshot,current_plan,target_plan) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      `INSERT INTO quotes(id,browser_digest,product_id,email,amount,inventory_id,preflight_token,expires_at,aicdk_integration_id,pricing_snapshot,current_plan,target_plan,service_terms,analytics_visitor,attribution_source) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
       [
         q.id,
         browser,
@@ -215,8 +223,16 @@ export async function quote(
         pricingSnapshot ? JSON.stringify(pricingSnapshot) : null,
         currentPlan ?? null,
         product.plan,
+        q.serviceTerms,
+        attribution.analytics ? analyticsVisitor(browser) : null,
+        attribution.source,
       ],
     )
+    if (attribution.analytics)
+      await client.query(
+        "INSERT INTO funnel_events(id,event,visitor_key,product_id,source) VALUES($1,'quote_ready',$2,$3,$4) ON CONFLICT DO NOTHING",
+        [q.id, analyticsVisitor(browser), productId, attribution.source],
+      )
     if (stock)
       await client.query('UPDATE inventory SET reserved_until=$2 WHERE id=$1', [
         stock.id,
@@ -384,8 +400,8 @@ export async function newOrder(
     }
     const order = (
       await rows<Order>(
-        `INSERT INTO orders(id,user_id,quote_id,product_id,product_name,email,amount,status,channel,rate_bps,settlement_days,first_order_only,provider,integration_id,kind,request_hash,contact_email,guest_browser_digest,aicdk_integration_id,balance_amount,external_amount,inviter_id,buyer_key)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) RETURNING ${orderColumns}`,
+        `INSERT INTO orders(id,user_id,quote_id,product_id,product_name,email,amount,status,channel,rate_bps,settlement_days,first_order_only,provider,integration_id,kind,request_hash,contact_email,guest_browser_digest,aicdk_integration_id,balance_amount,external_amount,inviter_id,buyer_key,service_terms)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24) RETURNING ${orderColumns}`,
         [
           orderId,
           user?.id ?? null,
@@ -410,6 +426,7 @@ export async function newOrder(
           externalAmount,
           inviterId,
           buyerKey,
+          quoteRecord?.serviceTerms ?? '',
         ],
         client,
       )
@@ -701,6 +718,7 @@ export async function adminData(
   const can = (permission: string) => actor.permissions.includes(permission)
   const { upgradePricing: _pricing, ...publicSettings } = conf
   return {
+    funnel: can('orders:read') ? await funnelReport() : undefined,
     exchangeRate: can('settings:read') ? await exchangeRateStatus() : undefined,
     users: can('users:read') ? users : [],
     products: can('products:read') ? allProducts : [],

@@ -27,15 +27,16 @@ import { useEffect, useState } from 'react'
 import { useBotCheck } from './BotCheck'
 import { useSite } from './Providers'
 import { api } from '../lib'
+import { BrandMark } from './BrandMark'
 
 export function Brand({ light = false }: { light?: boolean }) {
   return (
-    <Link href="/" className={`brand ${light ? 'brand-light' : ''}`} aria-label="GetGPT 首页">
+    <Link href="/" className={`brand ${light ? 'brand-light' : ''}`} aria-label="GetCodex Plus 首页">
       <span className="brand-mark">
-        g<span>✦</span>
+        <BrandMark symbolColor={light ? '#171717' : '#fff'} />
       </span>
-      <span>
-        GetGPT<span className="brand-dot">.</span>
+      <span className="brand-wordmark">
+        GetCodex <span className="brand-plus">Plus</span>
       </span>
     </Link>
   )
@@ -176,7 +177,7 @@ export function LoginDialog() {
   }
   return (
     <Modal
-      title="欢迎来到 GetGPT"
+      title="欢迎来到 GetCodex Plus"
       open={loginOpen}
       onCancel={() => openLogin(false)}
       footer={null}
@@ -366,6 +367,9 @@ export function SiteHeader() {
               <Link className={path === '/guide' ? 'active' : ''} href="/guide">
                 新手指南
               </Link>
+              <Link className={path === '/compare' ? 'active' : ''} href="/compare">
+                套餐对比
+              </Link>
               <Link className={path === '/referral' ? 'active' : ''} href="/referral">
                 邀请有礼 <span className="nav-gift">↗</span>
               </Link>
@@ -447,6 +451,7 @@ export function SiteHeader() {
 }
 export function SiteFooter() {
   const path = usePathname()
+  const { data } = useSite()
   if (path.startsWith('/admin')) return null
   return (
     <footer className="site-footer">
@@ -457,12 +462,18 @@ export function SiteFooter() {
           <span className="tiny muted">独立充值服务，与 OpenAI 无隶属关系。</span>
         </div>
         <div className="footer-links">
+          <Link href="/compare">套餐对比</Link>
+          <Link href="/upgrade">订阅升级</Link>
           <Link href="/guide">使用指南</Link>
+          <Link href="/help/payment">到账与退款</Link>
+          {data?.settings.supportEmail && (
+            <a href={`mailto:${data.settings.supportEmail}`}>联系支持</a>
+          )}
           <Link href="/wallet">我的钱包</Link>
           <Link href="/privacy">隐私说明</Link>
           <Link href="/terms">服务说明</Link>
         </div>
-        <span className="footer-copy">© {new Date().getFullYear()} GetGPT</span>
+        <span className="footer-copy">© {new Date().getFullYear()} GetCodex Plus</span>
       </div>
     </footer>
   )

@@ -37,6 +37,8 @@ import type { Order, Product } from '../../../types'
 import { authorize, mayGrant, permissions, type Permission } from '../../../server/rbac'
 import { requireTurnstile, turnstilePublic } from '../../../server/turnstile'
 import { setPassword, securityStatus } from '../../../server/security'
+import { funnelSchema, sourceSchema } from '../../../funnel'
+import { recordView } from '../../../server/funnel'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -53,6 +55,7 @@ const productSchema = z
     name: z.string().min(1).max(80),
     subtitle: z.string().max(100),
     description: z.string().max(500),
+    serviceTerms: z.string().trim().max(400).default(''),
     price: z.number().int().min(1).max(100000000),
     features: z.array(z.string().min(1).max(100)).min(1).max(8),
     plan: z.enum(['go', 'plus', 'pro5', 'pro20', 'promax']),
@@ -80,7 +83,10 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
   try {
     guard(request)
     const path = (await context.params).path.join('/')
-    const data = request.method === 'GET' ? {} : JSON.parse((await bodyText(request)) || '{}')
+    const data =
+      request.method === 'GET'
+        ? {}
+        : JSON.parse((await bodyText(request, path === 'events' ? 1024 : 110_000)) || '{}')
     const method = request.method
     let result: unknown
     if (path === 'bootstrap' && method === 'GET') {
@@ -94,6 +100,14 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
         settings: publicSettings,
         turnstile: await turnstilePublic(),
       }
+    } else if (path === 'events' && method === 'POST') {
+      const input = funnelSchema.parse(data)
+      if (request.headers.get('dnt') !== '1' && request.headers.get('sec-gpc') !== '1') {
+        const browser = await browserDigest()
+        await rateLimit(`events:${browser}`, 60, 60)
+        await recordView(browser, input.event, input.productId, input.source)
+      }
+      result = { recorded: true }
     } else if (path === 'demo/code' && method === 'POST' && demo) {
       const { email } = z.object({ email: emailSchema }).parse(data)
       const record = (
@@ -116,6 +130,8 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
         .object({
           productId: z.string().max(64),
           session: z.string().min(1).max(100000),
+          source: sourceSchema.default('direct'),
+          analytics: z.boolean().default(false),
         })
         .parse(data)
       const browser = await browserDigest()
@@ -129,7 +145,13 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
           throw new ApiError(400, (error as Error).message)
         }
       }
-      result = await quote(input.productId, text, browser)
+      result = await quote(input.productId, text, browser, {
+        source: input.source,
+        analytics:
+          input.analytics &&
+          request.headers.get('dnt') !== '1' &&
+          request.headers.get('sec-gpc') !== '1',
+      })
     } else if (path === 'orders' && method === 'POST') {
       await requireTurnstile('purchase', data.turnstileToken)
       const input = z
@@ -296,8 +318,8 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
         const p: Product = productSchema.parse(data)
         await transaction(async (client) => {
           await client.query(
-            `INSERT INTO products(id,name,subtitle,description,price,features,plan,enabled,featured,upgrade,pricing_mode,pricing,price_currency,rounding_step) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-            ON CONFLICT(id) DO UPDATE SET name=excluded.name,subtitle=excluded.subtitle,description=excluded.description,price=excluded.price,features=excluded.features,plan=excluded.plan,enabled=excluded.enabled,featured=excluded.featured,upgrade=excluded.upgrade,pricing_mode=excluded.pricing_mode,pricing=excluded.pricing,price_currency=excluded.price_currency,rounding_step=excluded.rounding_step`,
+            `INSERT INTO products(id,name,subtitle,description,price,features,plan,enabled,featured,upgrade,pricing_mode,pricing,price_currency,rounding_step,service_terms) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+            ON CONFLICT(id) DO UPDATE SET name=excluded.name,subtitle=excluded.subtitle,description=excluded.description,price=excluded.price,features=excluded.features,plan=excluded.plan,enabled=excluded.enabled,featured=excluded.featured,upgrade=excluded.upgrade,pricing_mode=excluded.pricing_mode,pricing=excluded.pricing,price_currency=excluded.price_currency,rounding_step=excluded.rounding_step,service_terms=excluded.service_terms`,
             [
               p.id,
               p.name,
@@ -313,6 +335,7 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
               null,
               p.priceCurrency,
               p.roundingStep,
+              p.serviceTerms,
             ],
           )
           await audit(admin.email, '更新商品', p.id, client)
@@ -326,6 +349,21 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
             minimumWithdrawal: z.number().int().min(100).max(100000000),
             firstOrderOnly: z.boolean(),
             supportEmail: z.union([z.email(), z.literal('')]),
+            sessionGuideUrl: z
+              .union([
+                z.literal(''),
+                z
+                  .url()
+                  .max(2048)
+                  .refine(
+                    (value) => {
+                      const url = new URL(value)
+                      return url.protocol === 'https:' && !url.username && !url.password
+                    },
+                    { message: '操作指引必须是无登录凭据的 HTTPS 地址' },
+                  ),
+              ])
+              .default(''),
             alipay: z.boolean(),
             wechat: z.boolean(),
             crypto: z.boolean(),

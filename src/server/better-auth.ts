@@ -29,7 +29,7 @@ function authSecret() {
 // Covered by integration tests because upstream hook contracts may change on upgrades.
 const mfa = twoFactor({
   schema: { user: { fields: { twoFactorEnabled: 'two_factor_enabled' } } },
-  issuer: 'GetGPT',
+  issuer: 'GetCodex Plus',
   allowPasswordless: true,
   backupCodeOptions: { storeBackupCodes: 'encrypted', amount: 0 },
   otpOptions: {
@@ -209,7 +209,7 @@ const policy: BetterAuthPlugin = {
 }
 
 export const auth = betterAuth({
-  appName: 'GetGPT',
+  appName: 'GetCodex Plus',
   baseURL: appUrl,
   secret: authSecret(),
   database: pool,
@@ -333,7 +333,7 @@ export const auth = betterAuth({
     }),
     passkey({
       rpID: new URL(appUrl).hostname,
-      rpName: 'GetGPT',
+      rpName: 'GetCodex Plus',
       origin: appUrl,
       authenticatorSelection: { residentKey: 'required', userVerification: 'required' },
       schema: { passkey: { modelName: 'auth_passkey' } },

@@ -1,4 +1,9 @@
-export const metadata = { title: '隐私说明' }
+import { pageMetadata } from '../../seo'
+export const metadata = pageMetadata(
+  '隐私说明｜账号信息与订单数据',
+  '了解 GetCodex Plus 对联系邮箱、账号会话信息、订单、支付记录、Cookie 和站内使用统计的处理方式。',
+  '/privacy',
+)
 export default function Privacy() {
   return (
     <main className="container prose-page">
@@ -23,6 +28,14 @@ export default function Privacy() {
       <p>
         网站可启用 Cloudflare Turnstile 进行人机验证。开启时，浏览器会连接 Cloudflare
         验证服务，服务端核验一次性验证结果。本站不会将账号会话信息、支付密钥或密码发送给 Turnstile。
+      </p>
+      <h2>站内使用统计</h2>
+      <p>
+        本站记录套餐浏览、进入结算、账号检查及订单处理阶段，用于改进购买流程。统计仅保存去标识的浏览器标识、商品、阶段和来源分类，不采集完整网址、搜索词、邮箱、会话内容或支付凭证，不发送给第三方分析平台。
+      </p>
+      <p>
+        浏览器会话内保留来源分类；支持浏览器的“禁止跟踪”或全局隐私控制信号时，停止浏览阶段统计及后续报价的统计关联。统计明细保留最长
+        90 天，由后台任务清理；交易记录按订单服务与对账需要另行保存。
       </p>
       <h2>服务联系</h2>
       <p>

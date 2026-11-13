@@ -2,6 +2,7 @@ import Link from 'next/link'
 import type { ReactNode } from 'react'
 import type { Product } from '../types'
 import { money } from '../lib'
+import { serviceTerms } from '../product-copy'
 
 export function PlanCard({
   product,
@@ -30,13 +31,11 @@ export function PlanCard({
         ) : (
           <>
             <strong>{money(product.price)}</strong>
-            <span>/ 次</span>
+            <span>/ 本次服务</span>
           </>
         )}
       </div>
-      <p className="price-note">
-        {product.upgrade ? '验证账号后确认本次价格' : '以结算页确认的服务内容为准'}
-      </p>
+      <p className="price-note">{serviceTerms(product)}</p>
       <Link
         className={product.featured ? 'primary-link plan-button' : 'secondary-link plan-button'}
         href={`/checkout?product=${product.id}`}

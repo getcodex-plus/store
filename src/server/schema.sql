@@ -178,3 +178,50 @@ UPDATE settings SET body=body || jsonb_build_object('epayVersion',
  ELSE COALESCE((SELECT provider FROM integrations WHERE active=true AND provider IN ('epay_v1','epay_v2')
    ORDER BY created_at DESC LIMIT 1),'epay_v1') END)
  WHERE NOT body ? 'epayVersion';
+
+-- Preserve the service description accepted with a quote, then with its order.
+ALTER TABLE products ADD COLUMN IF NOT EXISTS service_terms text NOT NULL DEFAULT '';
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS service_terms text NOT NULL DEFAULT '';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS service_terms text NOT NULL DEFAULT '';
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS analytics_visitor text;
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS attribution_source text NOT NULL DEFAULT 'direct';
+
+CREATE TABLE IF NOT EXISTS funnel_events (
+  id text PRIMARY KEY,
+  event text NOT NULL CHECK(event IN ('plan_view','checkout_view','verify_started','quote_ready','order_created','payment_succeeded','delivery_completed','order_refunded')),
+  visitor_key text NOT NULL,
+  product_id text NOT NULL,
+  source text NOT NULL CHECK(source IN ('direct','google','bing','baidu','referral','other')),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS funnel_events_date ON funnel_events(created_at);
+
+-- Financial events come exclusively from database transitions. Stable IDs prevent
+-- retries, balance-only payments and repeated status updates from double counting.
+CREATE OR REPLACE FUNCTION record_funnel_order() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE q record;
+BEGIN
+  IF NEW.kind <> 'purchase' THEN RETURN NEW; END IF;
+  SELECT analytics_visitor, attribution_source INTO q FROM quotes WHERE id=NEW.quote_id;
+  IF q.analytics_visitor IS NULL THEN RETURN NEW; END IF;
+  IF TG_OP='INSERT' THEN
+    INSERT INTO funnel_events(id,event,visitor_key,product_id,source)
+    VALUES(NEW.id||':created','order_created',q.analytics_visitor,NEW.product_id,q.attribution_source)
+    ON CONFLICT DO NOTHING;
+  END IF;
+  IF NEW.status IN ('processing','completed') THEN
+    INSERT INTO funnel_events(id,event,visitor_key,product_id,source)
+    VALUES(NEW.id||':paid','payment_succeeded',q.analytics_visitor,NEW.product_id,q.attribution_source)
+    ON CONFLICT DO NOTHING;
+  END IF;
+  IF NEW.status IN ('completed','refunded') THEN
+    INSERT INTO funnel_events(id,event,visitor_key,product_id,source)
+    VALUES(NEW.id||':'||NEW.status,CASE NEW.status WHEN 'completed' THEN 'delivery_completed' ELSE 'order_refunded' END,
+      q.analytics_visitor,NEW.product_id,q.attribution_source)
+    ON CONFLICT DO NOTHING;
+  END IF;
+  RETURN NEW;
+END $$;
+DROP TRIGGER IF EXISTS order_funnel ON orders;
+CREATE TRIGGER order_funnel AFTER INSERT OR UPDATE OF status ON orders
+FOR EACH ROW EXECUTE FUNCTION record_funnel_order();

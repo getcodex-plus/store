@@ -25,7 +25,7 @@ export async function deliverOrderEmail() {
     if (!demo && order?.contact_email)
       await sendEmail(
         order.contact_email,
-        `GetGPT 订单通知：${labels[job.status] || '状态更新'}`,
+        `GetCodex Plus 订单通知：${labels[job.status] || '状态更新'}`,
         `订单号：${job.order_id}\n状态：${labels[job.status] || job.status}\n金额：¥${(order.amount / 100).toFixed(2)}\n查看订单：${appUrl}/orders/${job.order_id}\n\n请使用下单时的浏览器打开；更换设备后，用本邮箱验证码登录即可查看。请勿转发验证码。`,
         job.id,
       )

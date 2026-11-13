@@ -140,45 +140,38 @@ svg {
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
-  font-size: 25px;
-  letter-spacing: -1px;
+  gap: 10px;
+  font-size: 23px;
+  letter-spacing: -0.8px;
   font-weight: 700;
+  line-height: 1;
   white-space: nowrap;
 }
-.brand-dot {
-  color: var(--accent);
+.brand-wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.brand-plus {
+  padding: 5px 6px;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  font-size: 0.52em;
+  font-weight: 600;
+  letter-spacing: 0;
 }
 .brand-mark {
-  display: inline-flex;
-  background: var(--accent);
-  color: var(--on-inverse);
-  width: 33px;
-  height: 33px;
-  border-radius: 10px;
-  font-family: var(--font-sans);
-  font-size: 30px;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  padding-bottom: 7px;
+  display: flex;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
 }
-.brand-mark > span {
-  font-family: Arial;
-  font-size: 11px;
-  position: absolute;
-  right: 4px;
-  top: 4px;
+.brand-mark > svg {
+  width: 100%;
+  height: 100%;
 }
 .brand-light {
   color: var(--on-inverse);
-}
-.brand-light .brand-mark {
-  background: var(--surface-hover);
-  color: var(--ink);
-}
-.brand-light .brand-dot {
-  color: var(--on-inverse-muted);
 }
 .site-header {
   height: 88px;
@@ -734,10 +727,8 @@ svg {
   font-size: 21px;
 }
 .footer-content .brand-mark {
-  width: 27px;
-  height: 27px;
-  font-size: 25px;
-  border-radius: 8px;
+  width: 32px;
+  height: 32px;
 }
 .footer-content > div > p {
   color: var(--muted);
@@ -1329,6 +1320,13 @@ svg {
 .admin-sidebar > .brand,
 .admin-mobile-navigation > .brand {
   padding-inline: 14px;
+  gap: 8px;
+  font-size: 19px;
+}
+.admin-sidebar .brand-mark,
+.admin-mobile-navigation .brand-mark {
+  width: 30px;
+  height: 30px;
 }
 .admin-workspace {
   margin: 32px 14px 23px;
@@ -1830,7 +1828,18 @@ svg {
     gap: 12px;
   }
   .brand {
-    font-size: 22px;
+    gap: 8px;
+    font-size: 20px;
+  }
+  .brand-mark {
+    width: 32px;
+    height: 32px;
+  }
+  .site-header .header-actions > .ant-btn {
+    padding-inline: 10px;
+  }
+  .site-header .header-actions > .ant-btn > .anticon {
+    display: none;
   }
   .site-header nav {
     display: flex;
@@ -2284,5 +2293,74 @@ svg {
 }
 .plan-card-top:has(.pro-tier-selector) {
   gap: 12px;
+  flex-wrap: wrap;
+}
+.catalog-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px 24px;
+  margin: 24px 0;
+}
+.support-note {
+  padding: 20px;
+  margin: 24px 0;
+  border: 1px solid var(--border, #d4d4d4);
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.support-note p {
+  margin: 8px 0 0;
+}
+.support-retry {
+  border: 0;
+  padding: 0 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.support-note a,
+.comparison-table a {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.purchase-support {
+  padding-bottom: 64px;
+}
+.comparison-page {
+  max-width: 1120px;
+}
+.comparison-scroll {
+  overflow-x: auto;
+}
+.comparison-table {
+  width: 100%;
+  min-width: 640px;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.comparison-table caption {
+  text-align: left;
+  padding: 16px 0;
+  font-weight: 700;
+}
+.comparison-table th,
+.comparison-table td {
+  text-align: left;
+  vertical-align: top;
+  padding: 18px 16px;
+  border-bottom: 1px solid #d4d4d4;
+}
+.comparison-table th {
+  min-width: 130px;
+}
+.comparison-table td p {
+  margin-top: 0;
+}
+.footer-links {
   flex-wrap: wrap;
 }
