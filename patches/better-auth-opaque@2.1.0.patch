@@ -1,0 +1,23 @@
+diff --git a/dist/index.js b/dist/index.js
+index 8863b3f1689daad840ef187e51748c7f80af2134..744f8e9705dc34b2662ba1226f6423139a832728 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -1,3 +1,3 @@
+-export { opaqueClient } from "./client";
+-export { opaque } from "./server";
++export { opaqueClient } from "./client.js";
++export { opaque } from "./server.js";
+ //# sourceMappingURL=index.js.map
+diff --git a/dist/server.js b/dist/server.js
+index 71ab594b4ef87cc75da2a3bfbdae9630ab6fbc52..9a9f5d87a8794e0cb56ad4e3b10f87d9a34acb3b 100644
+--- a/dist/server.js
++++ b/dist/server.js
+@@ -4,7 +4,7 @@ import { createAuthEndpoint, sessionMiddleware } from "better-auth/api";
+ import { setSessionCookie } from "better-auth/cookies";
+ import { generateRandomString } from "better-auth/crypto";
+ import * as z from "zod";
+-import { createDummyRegistrationRecord, decryptServerLoginState, encryptServerLoginState, findOpaqueAccount, LOGIN_REQUEST_LENGTH, REGISTRATION_RECORD_MAX_LENGTH, REGISTRATION_RECORD_MIN_LENGTH, REGISTRATION_REQUEST_LENGTH, validateBase64Length, validateBase64LengthRange, } from "./utils";
++import { createDummyRegistrationRecord, decryptServerLoginState, encryptServerLoginState, findOpaqueAccount, LOGIN_REQUEST_LENGTH, REGISTRATION_RECORD_MAX_LENGTH, REGISTRATION_RECORD_MIN_LENGTH, REGISTRATION_REQUEST_LENGTH, validateBase64Length, validateBase64LengthRange, } from "./utils.js";
+ export const opaque = (options) => {
+     let OPAQUE_SERVER_KEY;
+     if (options?.OPAQUE_SERVER_KEY) {

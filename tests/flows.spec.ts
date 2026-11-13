@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test'
 import * as OTPAuth from 'otpauth'
 import { demoSession } from '../src/lib'
+import { opaqueLogin } from './opaque-helpers'
 const testOrigin = process.env.E2E_BASE_URL || 'http://localhost:3000'
 const testEmail = () => `test-${Date.now()}@example.com`
 async function login(page: Page, email: string) {
@@ -591,16 +592,13 @@ test('Passkey requires email or TOTP after password and deleting it preserves TO
     (
       await page.request.post('/api/auth/two-factor/disable', {
         headers,
-        data: { password },
+        data: {},
       })
     ).status(),
   ).toBe(403)
   async function passwordChallenge() {
     await page.request.post('/api/auth/sign-out', { headers, data: {} })
-    const result = await page.request.post('/api/auth/sign-in/email', {
-      headers,
-      data: { email, password },
-    })
+    const result = await opaqueLogin(page.request, email, password, headers)
     expect(result.ok()).toBe(true)
     expect((await page.request.get('/api/account')).status()).toBe(401)
     return result.json()
@@ -656,7 +654,6 @@ test('Passkey requires email or TOTP after password and deleting it preserves TO
   await expect(page.getByRole('dialog')).toBeHidden()
   await page.goto('/security')
   await page.getByRole('button', { name: '设置 TOTP', exact: true }).click()
-  await page.getByRole('dialog').getByLabel('当前密码', { exact: true }).fill(password)
   await page
     .getByRole('dialog')
     .getByRole('button', { name: /继\s*续/ })

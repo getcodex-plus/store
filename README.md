@@ -70,7 +70,11 @@ USD 自动汇率由独立 worker 循环每小时获取 `https://cdn.jsdelivr.net
 
 ## 账户与安全
 
-认证使用 Better Auth、`@better-auth/passkey`、官方 emailOTP/twoFactor 插件，不再使用项目早期自制的登录会话、密码哈希或 WebAuthn 实现。Resend 使用官方 SDK，SMTP 使用 Nodemailer，Turnstile 组件使用 `@marsidev/react-turnstile`。
+认证使用 Better Auth、`better-auth-opaque`、`@serenity-kit/opaque`、`@better-auth/passkey` 和官方 emailOTP/twoFactor 插件。Resend 使用官方 SDK，SMTP 使用 Nodemailer，Turnstile 组件使用 `@marsidev/react-turnstile`。
+
+密码通过 OPAQUE 协议验证。浏览器本地完成密码计算，接口只接收协议消息；数据库在 `auth_account.registrationRecord` 保存 OPAQUE 注册记录（`providerId=opaque`），不保存密码明文或 scrypt 哈希。用户先通过邮箱验证码注册，再在账号安全页面设置密码；改密在浏览器验证当前密码并生成新记录，完成后注销其他会话。密码长度 12–128 字符由客户端检查，服务端校验协议消息和登录权限。普通明文密码注册、登录、验证和重置接口已关闭。
+
+OPAQUE 挑战有效期为 5 分钟，只能消费一次，绑定操作用途、账号、凭据版本及敏感操作会话；密码更改后的旧挑战不能继续登录。密码登录复用官方 MFA 挑战。`better-auth-opaque` 2.1.0 的 Node ESM 导入扩展名修复保存在 `patches/`，随 `bun install --frozen-lockfile` 自动应用。
 
 新账号默认关闭二步验证。用户可主动开启，开启后邮箱验证码固定可用，身份验证器（TOTP）为可选项；配置 TOTP 后默认使用动态码，也可切换邮箱验证码。
 
@@ -84,7 +88,7 @@ USD 自动汇率由独立 worker 循环每小时获取 `https://cdn.jsdelivr.net
 
 密码登录需要二步验证时，未绑定 TOTP 自动发送邮箱验证码；已绑定 TOTP 默认使用动态码，可切换邮箱验证码。邮箱验证码直接登录在未绑定 TOTP 时不重复要求同一邮箱验证码。Passkey 登录不额外要求动态码。删除最后一个 Passkey 保留二步验证设置，并撤销现有会话以要求重新登录。
 
-恢复码功能已移除：不再生成、显示或接受恢复码，相关 SDK 端点不注册，迁移清空已有恢复码材料。敏感操作要求最近 10 分钟内登录；密码修改还验证原密码。二步验证登录不允许“信任设备”绕过。新用户先通过邮箱验证码注册；所有者通过专用 bootstrap 创建。
+恢复码功能已移除：不再生成、显示或接受恢复码，相关 SDK 端点不注册，迁移清空已有恢复码材料。敏感操作要求最近 10 分钟内登录并完成账号要求的二步验证；修改密码还通过 OPAQUE 验证原密码。管理二步验证无需向服务器提交密码。二步验证登录不允许“信任设备”绕过。新用户先通过邮箱验证码注册；所有者通过专用 bootstrap 创建 OPAQUE 凭据。
 
 二步验证复用 Better Auth 的挑战、哈希邮箱验证码与 TOTP 实现。数据库将 SDK 的 `two_factor_enabled` 视为“需要 MFA”，TOTP 的实际绑定状态从已验证的 `twoFactor` 记录判断。绑定 Passkey 时强制开启 MFA，删除时保留二步验证状态和 TOTP 密钥。业务接口独立检查当前认证方式，拒绝仅完成密码验证的会话。升级 Better Auth 后必须运行认证 E2E。
 
@@ -122,7 +126,7 @@ worker 使用 PostgreSQL 持久化任务、`SKIP LOCKED` 和租约，支持多�
 ## 正式环境
 
 1. 使用独立 PostgreSQL 数据库、受控数据库账户和备份，勿使用演示 Compose 的 trust 配置作为生产数据库。
-2. 配置 `APP_MODE=live`、HTTPS 的 `APP_URL`、`DATABASE_URL`、独立随机的 `ENCRYPTION_KEY` 和 `BETTER_AUTH_SECRET`。两把密钥均需安全备份；丢失将导致密文无法恢复，切勿随意替换。
+2. 配置 `APP_MODE=live`、HTTPS 的 `APP_URL`、`DATABASE_URL`、独立随机的 `ENCRYPTION_KEY`、`BETTER_AUTH_SECRET` 和 `OPAQUE_SERVER_KEY`。OPAQUE 密钥使用 `bunx @serenity-kit/opaque@0.9.0 create-server-setup` 生成，也可放在权限为 0600 的文件中并配置 `OPAQUE_SERVER_KEY_FILE`。三份密钥均需安全备份，OPAQUE setup 应与数据库备份分开存放；丢失或替换会使已有密码无法登录。演示环境自动生成并持久化至 `.data/opaque.key`，重启时复用。
 3. 升级已有站点时先停止 Web 和 worker，备份数据库及现有密钥，再执行 `bun run db:migrate`。迁移在事务中重加密旧卡密与预检令牌并重建 HMAC 指纹，保留用户 ID、订单、钱包、邀请关系和原兑换标识；勿更换现有 `ENCRYPTION_KEY`。重复卡密展示形式冲突或解密失败会回滚。迁移完成后启动新版本，不混跑新旧版本。详见 [AICDK v2 迁移与安全审查](docs/aicdk-v2-and-security.md)。
 4. 设置 `ADMIN_EMAIL` 和 `BOOTSTRAP_PASSWORD_FILE`（0600 文件，16–128 字符），执行 `bun run admin:bootstrap`。脚本拒绝覆盖已有所有者。初次用密码登录，配置邮件、添加 Passkey 与 TOTP 后删除密码文件。
 5. 在后台配置真实商品/价格、兑换库存、收款和邮件。示例价格不构成实际服务承诺。所有外部渠道需逐个完成真实小额订单、回调与异常恢复联调。

@@ -6,7 +6,8 @@ export function proxy(request: NextRequest) {
   const development = process.env.NODE_ENV === 'development'
   const policy = [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' https://challenges.cloudflare.com${development ? " 'unsafe-eval'" : ''}`,
+    // OPAQUE requires WebAssembly compilation; JavaScript eval remains blocked in production.
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'wasm-unsafe-eval' https://challenges.cloudflare.com${development ? " 'unsafe-eval'" : ''}`,
     "script-src-attr 'none'",
     // Ant Design uses inline styles. Scripts still require a per-response nonce.
     "style-src 'self' 'unsafe-inline'",

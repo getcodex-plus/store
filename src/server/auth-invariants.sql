@@ -50,3 +50,6 @@ UPDATE users SET two_factor_enabled=true
 WHERE NOT two_factor_enabled AND EXISTS(SELECT 1 FROM auth_passkey WHERE "userId"=users.id);
 -- Recovery-code endpoints are disabled. Remove previously issued material.
 UPDATE "twoFactor" SET "backupCodes"='' WHERE "backupCodes"<>'';
+
+CREATE UNIQUE INDEX IF NOT EXISTS auth_one_opaque_account
+  ON auth_account("userId") WHERE "providerId"='opaque';

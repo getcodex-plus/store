@@ -1,7 +1,4 @@
-import { headers } from 'next/headers'
-import { auth } from './better-auth'
 import { pool, rows } from './db'
-import { requireRecent } from './auth'
 import type { User } from '../types'
 export async function securityStatus(user: User) {
   const totp =
@@ -9,7 +6,7 @@ export async function securityStatus(user: User) {
       .rowCount! > 0
   const password = !!(
     await pool.query(
-      'SELECT id FROM auth_account WHERE "userId"=$1 AND "providerId"=\'credential\' AND password IS NOT NULL',
+      'SELECT id FROM auth_account WHERE "userId"=$1 AND "providerId"=\'opaque\' AND "registrationRecord" IS NOT NULL',
       [user.id],
     )
   ).rowCount
@@ -24,14 +21,4 @@ export async function securityStatus(user: User) {
       [user.id],
     ),
   }
-}
-export async function setPassword(user: User, password: string) {
-  await requireRecent(user)
-  await auth.api.setPassword({ headers: await headers(), body: { newPassword: password } })
-  const session = await auth.api.getSession({ headers: await headers() })
-  await pool.query('DELETE FROM auth_session WHERE "userId"=$1 AND token<>$2', [
-    user.id,
-    session!.session.token,
-  ])
-  return { saved: true }
 }

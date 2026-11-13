@@ -17,6 +17,7 @@ import {
 } from 'antd'
 import { KeyOutlined, SafetyCertificateOutlined } from '@ant-design/icons'
 import { authClient, authResult } from '../auth-client'
+import { changeOpaquePassword, enrollOpaque } from '../opaque-client'
 import { useCallback, useEffect, useState } from 'react'
 import { useSite } from './Providers'
 import { api, dateTime } from '../lib'
@@ -35,7 +36,6 @@ export function Security() {
   const [name, setName] = useState('我的通行密钥')
   const [setup, setSetup] = useState<{ uri: string; secret: string } | null>(null)
   const [code, setCode] = useState('')
-  const [currentPassword, setCurrentPassword] = useState('')
   const [securityAction, setSecurityAction] = useState<'enable' | 'disable' | 'totp' | null>(null)
   const [error, setError] = useState('')
   const [form] = Form.useForm()
@@ -99,7 +99,6 @@ export function Security() {
                 loading={busy}
                 disabled={data.passkeys.length > 0}
                 onChange={(enabled) => {
-                  setCurrentPassword('')
                   setSecurityAction(enabled ? 'enable' : 'disable')
                 }}
               />
@@ -131,7 +130,6 @@ export function Security() {
                   ) : (
                     <Button
                       onClick={() => {
-                        setCurrentPassword('')
                         setSecurityAction('totp')
                       }}
                     >
@@ -211,15 +209,8 @@ export function Security() {
               layout="vertical"
               onFinish={(v) =>
                 action(async () => {
-                  if (data.password)
-                    authResult(
-                      await authClient.changePassword({
-                        currentPassword: v.currentPassword,
-                        newPassword: v.password,
-                        revokeOtherSessions: true,
-                      }),
-                    )
-                  else await api('/security/password', { password: v.password })
+                  if (data.password) await changeOpaquePassword(v.currentPassword, v.password)
+                  else await enrollOpaque(v.password)
                   form.resetFields()
                   message.success('密码已更新，其他登录会话已注销')
                 })
@@ -272,20 +263,17 @@ export function Security() {
         open={!!securityAction}
         onCancel={() => {
           setSecurityAction(null)
-          setCurrentPassword('')
         }}
         okText={securityAction === 'disable' ? '关闭二步验证' : '继续'}
         cancelText="取消"
         confirmLoading={busy}
         onOk={() =>
           action(async () => {
-            const password = currentPassword || undefined
             if (securityAction === 'disable') {
-              authResult(await authClient.twoFactor.disable({ password }))
+              authResult(await authClient.twoFactor.disable({}))
             } else {
               const result = authResult(
                 await authClient.twoFactor.enable({
-                  password,
                   method: securityAction === 'totp' ? 'totp' : 'otp',
                 }),
               )
@@ -299,7 +287,6 @@ export function Security() {
               }
             }
             setSecurityAction(null)
-            setCurrentPassword('')
           })
         }
       >
@@ -308,18 +295,7 @@ export function Security() {
             ? '关闭后将移除身份验证器，密码登录不再要求第二步验证。'
             : '确认后继续。邮箱验证码在二步验证开启时始终可用。'}
         </p>
-        {data?.password && (
-          <Form layout="vertical">
-            <Form.Item label="当前密码" htmlFor="security-current-password">
-              <Input.Password
-                id="security-current-password"
-                value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-                autoComplete="current-password"
-              />
-            </Form.Item>
-          </Form>
-        )}
+        <p className="tiny muted">需要最近 10 分钟内完成登录及账号要求的二步验证。</p>
       </Modal>
       <Modal
         title="绑定身份验证器"

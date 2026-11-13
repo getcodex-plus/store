@@ -23,6 +23,7 @@ import {
   KeyOutlined,
 } from '@ant-design/icons'
 import { authClient, authResult } from '../auth-client'
+import { signInOpaque } from '../opaque-client'
 import { useEffect, useState } from 'react'
 import { useBotCheck } from './BotCheck'
 import { useSite } from './Providers'
@@ -31,7 +32,11 @@ import { BrandMark } from './BrandMark'
 
 export function Brand({ light = false }: { light?: boolean }) {
   return (
-    <Link href="/" className={`brand ${light ? 'brand-light' : ''}`} aria-label="GetCodex Plus 首页">
+    <Link
+      href="/"
+      className={`brand ${light ? 'brand-light' : ''}`}
+      aria-label="GetCodex Plus 首页"
+    >
       <span className="brand-mark">
         <BrandMark symbolColor={light ? '#171717' : '#fff'} />
       </span>
@@ -159,15 +164,14 @@ export function LoginDialog() {
       }
       const result =
         mode === 'password'
-          ? await authClient.signIn.email(
-              { email: values.email, password: values.password },
-              fetchOptions,
+          ? await signInOpaque(values.email, values.password, fetchOptions.headers)
+          : authResult(
+              await authClient.signIn.emailOtp(
+                { email: values.email, otp: values.code },
+                fetchOptions,
+              ),
             )
-          : await authClient.signIn.emailOtp(
-              { email: values.email, otp: values.code },
-              fetchOptions,
-            )
-      await finish(authResult(result) as { twoFactorRedirect?: boolean })
+      await finish(result as { twoFactorRedirect?: boolean; twoFactorMethods?: string[] })
     } catch (e) {
       message.error((e as Error).message)
     } finally {

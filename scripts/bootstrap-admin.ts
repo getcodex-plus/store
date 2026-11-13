@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { pool, transaction } from '../src/server/db'
-import { hashPassword } from 'better-auth/crypto'
+import { client, ready, server } from '@serenity-kit/opaque'
+import { opaqueSetup } from '../src/server/opaque-setup'
 import { id } from '../src/server/crypto'
 import { validateRuntime } from '../src/server/config'
 
@@ -14,7 +15,18 @@ if (!email || !passwordFile)
 const password = (await readFile(passwordFile, 'utf8')).trimEnd()
 if (password.length < 16 || password.length > 128)
   throw new Error('The initial password must contain 16–128 characters')
-const encoded = await hashPassword(password)
+await ready
+const { clientRegistrationState, registrationRequest } = client.startRegistration({ password })
+const { registrationResponse } = server.createRegistrationResponse({
+  serverSetup: await opaqueSetup(),
+  userIdentifier: email,
+  registrationRequest,
+})
+const { registrationRecord } = client.finishRegistration({
+  password,
+  clientRegistrationState,
+  registrationResponse,
+})
 await transaction(async (client) => {
   await client.query("SELECT pg_advisory_xact_lock(hashtext('getgpt-bootstrap-owner'))")
   if ((await client.query("SELECT id FROM users WHERE role='admin'")).rowCount)
@@ -25,8 +37,8 @@ await transaction(async (client) => {
     [userId, email, id().slice(0, 10)],
   )
   await client.query(
-    `INSERT INTO auth_account(id,"userId","accountId","providerId",password,"createdAt","updatedAt") VALUES($1,$2,$2,'credential',$3,now(),now())`,
-    [id('a_'), userId, encoded],
+    `INSERT INTO auth_account(id,"userId","accountId","providerId","registrationRecord","createdAt","updatedAt") VALUES($1,$2,$2,'opaque',$3,now(),now())`,
+    [id('a_'), userId, registrationRecord],
   )
 })
 console.log('Owner initialized. Sign in with the password, then add a Passkey and TOTP.')

@@ -11,6 +11,7 @@ import { encrypt, hash, id } from './crypto'
 import { rateLimit } from './rate-limit'
 import { requireTurnstile } from './turnstile'
 import { sendLoginEmail } from './integrations/email'
+import { opaqueAuth } from './opaque'
 
 function authSecret() {
   if (process.env.BETTER_AUTH_SECRET) return process.env.BETTER_AUTH_SECRET
@@ -46,7 +47,8 @@ delete (mfa.endpoints as Partial<typeof mfa.endpoints>).generateBackupCodes
 delete (mfa.endpoints as Partial<typeof mfa.endpoints>).viewBackupCodes
 const mfaHook = mfa.hooks.after[0]
 const mfaMatcher = mfaHook.matcher
-mfaHook.matcher = (ctx) => ctx.path === '/sign-in/email-otp' || mfaMatcher(ctx)
+mfaHook.matcher = (ctx) =>
+  ctx.path === '/sign-in/email-otp' || ctx.path === '/sign-in/opaque/complete' || mfaMatcher(ctx)
 const mfaHandler = mfaHook.handler
 mfaHook.handler = createAuthMiddleware(async (ctx) => {
   // Email is already the primary verification in this flow. Without TOTP,
@@ -105,8 +107,22 @@ const sensitivePaths = new Set([
   '/two-factor/enable',
   '/two-factor/disable',
   '/two-factor/get-totp-uri',
-  '/change-password',
+  '/opaque/enroll/challenge',
+  '/opaque/enroll/complete',
+  '/opaque/changePassword/challenge',
+  '/opaque/changePassword/complete',
   '/update-user',
+])
+const disabledPasswordPaths = new Set([
+  '/sign-in/email',
+  '/sign-up/email',
+  '/change-password',
+  '/set-password',
+  '/verify-password',
+  '/request-password-reset',
+  '/reset-password',
+  '/email-otp/reset-password',
+  '/email-otp/request-password-reset',
 ])
 const policy: BetterAuthPlugin = {
   id: 'getgpt-login-policy',
@@ -116,10 +132,20 @@ const policy: BetterAuthPlugin = {
         matcher: () => true,
         handler: createAuthMiddleware(async (ctx) => {
           validateRuntime()
+          if (disabledPasswordPaths.has(ctx.path))
+            throw new APIError('FORBIDDEN', {
+              message: '请使用密码登录，或通过邮箱验证码登录后设置密码',
+            })
+          if (
+            ctx.path.startsWith('/two-factor/') &&
+            ctx.body &&
+            Object.hasOwn(ctx.body, 'password')
+          )
+            throw new APIError('BAD_REQUEST', { message: '请重新登录后管理二步验证，无需提交密码' })
           if (
             [
               '/email-otp/send-verification-otp',
-              '/sign-in/email',
+              '/sign-in/opaque/challenge',
               '/sign-in/email-otp',
               '/passkey/verify-authentication',
               '/two-factor/verify-totp',
@@ -135,16 +161,6 @@ const policy: BetterAuthPlugin = {
           }
           if (ctx.body?.trustDevice)
             throw new APIError('BAD_REQUEST', { message: '请每次完成二步验证' })
-          if (
-            [
-              '/sign-up/email',
-              '/request-password-reset',
-              '/reset-password',
-              '/email-otp/reset-password',
-              '/email-otp/request-password-reset',
-            ].includes(ctx.path)
-          )
-            throw new APIError('FORBIDDEN', { message: '请通过邮箱验证码注册或登录后管理密码' })
           if (sensitivePaths.has(ctx.path)) {
             const session = await getSessionFromCtx(ctx, { disableCookieCache: true })
             if (!session || Date.now() - new Date(session.session.createdAt).getTime() > 600000)
@@ -183,8 +199,10 @@ const policy: BetterAuthPlugin = {
             '/passkey/verify-registration',
             '/two-factor/verify-totp',
             '/two-factor/verify-otp',
+            '/two-factor/enable',
             '/two-factor/disable',
-            '/change-password',
+            '/opaque/enroll/complete',
+            '/opaque/changePassword/complete',
           ].includes(ctx.path || ''),
         handler: createAuthMiddleware(async (ctx) => {
           if (ctx.context.returned instanceof APIError) return
@@ -241,7 +259,7 @@ export const auth = betterAuth({
   account: { modelName: 'auth_account', encryptOAuthTokens: true },
   verification: { modelName: 'auth_verification' },
   emailAndPassword: {
-    enabled: true,
+    enabled: false,
     minPasswordLength: 12,
     maxPasswordLength: 128,
     requireEmailVerification: true,
@@ -253,13 +271,17 @@ export const auth = betterAuth({
     modelName: 'auth_rate_limit',
     window: 60,
     max: demo ? 300 : 60,
-    customRules: demo
-      ? {
-          '/two-factor/*': { window: 10, max: 30 },
-          '/sign-in/*': { window: 60, max: 100 },
-          '/passkey/*': { window: 60, max: 100 },
-        }
-      : undefined,
+    customRules: {
+      '/sign-in/opaque/*': { window: 60, max: demo ? 100 : 10 },
+      '/opaque/*/*': { window: 60, max: demo ? 100 : 10 },
+      ...(demo
+        ? {
+            '/two-factor/*': { window: 10, max: 30 },
+            '/sign-in/*': { window: 60, max: 100 },
+            '/passkey/*': { window: 60, max: 100 },
+          }
+        : {}),
+    },
   },
   databaseHooks: {
     user: {
@@ -309,7 +331,7 @@ export const auth = betterAuth({
                 ? 'mfa'
                 : path === '/sign-in/email-otp'
                   ? 'email'
-                  : path === '/sign-in/email'
+                  : path === '/sign-in/opaque/complete'
                     ? 'password'
                     : (sensitivePaths.has(path)
                         ? (ctx?.context.session?.session as { method?: string } | undefined)?.method
@@ -322,6 +344,7 @@ export const auth = betterAuth({
     },
   },
   plugins: [
+    await opaqueAuth(),
     emailOTP({
       rateLimit: demo ? { window: 60, max: 100 } : { window: 60, max: 3 },
       storeOTP: 'hashed',

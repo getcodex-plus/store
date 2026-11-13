@@ -39,7 +39,7 @@ import type { PaymentOrder } from '../../../server/integrations/payments'
 import type { Order, Product } from '../../../types'
 import { authorize, mayGrant, permissions, type Permission } from '../../../server/rbac'
 import { requireTurnstile, turnstilePublic } from '../../../server/turnstile'
-import { setPassword, securityStatus } from '../../../server/security'
+import { securityStatus } from '../../../server/security'
 import { funnelSchema, sourceSchema } from '../../../funnel'
 import { recordView } from '../../../server/funnel'
 import { referralTiersSchema, withdrawalChannelsSchema } from '../../../server/referral-policy'
@@ -125,12 +125,7 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
       result = { demoCode: record ? decrypt(record.code, 'demo-email') : null }
     } else if (path === 'security' && method === 'GET')
       result = await securityStatus(await requireUser())
-    else if (path === 'security/password' && method === 'POST') {
-      result = await setPassword(
-        await requireUser(),
-        z.object({ password: z.string().min(12).max(128) }).parse(data).password,
-      )
-    } else if (path === 'quotes' && method === 'POST') {
+    else if (path === 'quotes' && method === 'POST') {
       await requireTurnstile('purchase', data.turnstileToken)
       const input = z
         .object({
