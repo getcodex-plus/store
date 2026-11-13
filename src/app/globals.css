@@ -1285,6 +1285,106 @@ svg {
   color: var(--muted);
   max-width: 850px;
 }
+.referral-levels.ant-card {
+  margin-block-end: 24px;
+}
+.referral-level-heading,
+.referral-level-label,
+.withdrawal-review {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.referral-level-heading h2 {
+  margin-block: 12px 8px;
+  font-size: 22px;
+}
+.referral-level-heading p {
+  margin: 0;
+}
+.referral-level-rate {
+  font-size: 44px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.referral-level-rate small {
+  font-size: 20px;
+}
+.referral-level-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: 16px;
+  list-style: none;
+  padding: 0;
+  margin-block: 20px;
+}
+.referral-level-list li {
+  padding: 18px;
+  border-radius: 10px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--line);
+}
+.referral-level-list li.current {
+  border-color: var(--ink);
+  background: var(--surface-hover);
+}
+.referral-level-label .ant-tag {
+  margin: 0;
+}
+.referral-level-percent {
+  margin-block: 16px 6px;
+  font-size: 28px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.referral-tier-fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+.withdrawal-summary {
+  padding: 20px;
+  margin-block: 20px 16px;
+  border-radius: 12px;
+  background: var(--surface-subtle);
+}
+.withdrawal-summary > strong {
+  display: block;
+  margin-block: 8px;
+  font-size: 32px;
+  font-variant-numeric: tabular-nums;
+}
+.withdrawal-summary p {
+  color: var(--muted);
+  margin: 0;
+}
+.withdrawal-amount {
+  display: flex;
+  align-items: start;
+  gap: 12px;
+}
+.withdrawal-amount .ant-input-number {
+  min-width: 0;
+  flex: 1;
+}
+.withdrawal-review {
+  margin-block-end: 20px;
+  padding-block: 12px;
+}
+.withdrawal-footnote {
+  margin-block: 12px 0;
+}
+@media (max-width: 560px) {
+  .referral-tier-fields {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  .referral-level-heading {
+    align-items: start;
+  }
+}
 .rules-note h3 {
   font-size: 13px;
 }

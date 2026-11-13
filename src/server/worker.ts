@@ -136,7 +136,7 @@ console.log('GetCodex Plus worker running; mode:', demo ? 'demo' : 'live')
 const exchangeLoop = (async () => {
   while (!stopping) {
     try {
-      await refreshExchangeRate()
+      await Promise.all([refreshExchangeRate(), refreshExchangeRate('USDT')])
     } catch {
       console.error('Exchange rate refresh failed; retrying')
     }

@@ -7,11 +7,17 @@ export const exchangeSources = [
   'https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.json',
   'https://latest.currency-api.pages.dev/v1/currencies/usd.json',
 ] as const
+export const usdtExchangeSources = [
+  'https://latest.currency-api.pages.dev/v1/currencies/usdt.json',
+  'https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usdt.json',
+] as const
+type ExchangeCurrency = 'USD' | 'USDT'
 export interface ExchangeRate {
   rateE8: number
   sourceDate: string
   fetchedAt: string
   expiresAt: string
+  source?: string
 }
 interface RateRow {
   rateE8: string | null
@@ -19,11 +25,16 @@ interface RateRow {
   fetchedAt: string | null
   expiresAt: string | null
   lastError: string | null
+  source: string | null
 }
-export function parseExchangeRate(input: unknown, now = Date.now()): ExchangeRate {
-  const data = input as { date?: string; usd?: { cny?: number } } | null
+export function parseExchangeRate(
+  input: unknown,
+  now = Date.now(),
+  currency: ExchangeCurrency = 'USD',
+): ExchangeRate {
+  const data = input as { date?: string; usd?: { cny?: number }; usdt?: { cny?: number } } | null
   const date = data?.date
-  const rate = data?.usd?.cny
+  const rate = currency === 'USDT' ? data?.usdt?.cny : data?.usd?.cny
   const sourceTime =
     typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)
       ? Date.parse(`${date}T00:00:00Z`)
@@ -54,8 +65,13 @@ export function parseExchangeRate(input: unknown, now = Date.now()): ExchangeRat
     expiresAt: new Date(Math.min(now + 48 * 3600000, sourceTime + 72 * 3600000)).toISOString(),
   }
 }
-export async function exchangeRate(required = false): Promise<ExchangeRate | undefined> {
-  const row = (await rows<RateRow>("SELECT * FROM exchange_rates WHERE id='USD_CNY'"))[0]
+export async function exchangeRate(
+  required = false,
+  currency: ExchangeCurrency = 'USD',
+): Promise<ExchangeRate | undefined> {
+  const row = (
+    await rows<RateRow>('SELECT * FROM exchange_rates WHERE id=$1', [`${currency}_CNY`])
+  )[0]
   if (
     row?.rateE8 &&
     row.sourceDate &&
@@ -68,12 +84,17 @@ export async function exchangeRate(required = false): Promise<ExchangeRate | und
       sourceDate: row.sourceDate,
       fetchedAt: row.fetchedAt,
       expiresAt: row.expiresAt,
+      source: row.source ?? 'Currency API',
     }
   }
   if (required) throw new ApiError(503, '汇率正在更新，请稍后再试')
 }
-export async function exchangeRateStatus(): Promise<AdminData['exchangeRate']> {
-  const row = (await rows<RateRow>("SELECT * FROM exchange_rates WHERE id='USD_CNY'"))[0]
+export async function exchangeRateStatus(
+  currency: ExchangeCurrency = 'USD',
+): Promise<NonNullable<AdminData['exchangeRate']>> {
+  const row = (
+    await rows<RateRow>('SELECT * FROM exchange_rates WHERE id=$1', [`${currency}_CNY`])
+  )[0]
   return {
     rate: row?.rateE8 ? Number(row.rateE8) / 100000000 : null,
     sourceDate: row?.sourceDate ?? null,
@@ -81,21 +102,23 @@ export async function exchangeRateStatus(): Promise<AdminData['exchangeRate']> {
     expiresAt: row?.expiresAt ?? null,
     available: !!row?.expiresAt && Date.parse(row.expiresAt) > Date.now(),
     lastError: row?.lastError ?? null,
+    source: row?.source ?? null,
   }
 }
-export async function requestExchangeRefresh() {
-  await pool.query("UPDATE exchange_rates SET refresh_after=now() WHERE id='USD_CNY'")
+export async function requestExchangeRefresh(currency: ExchangeCurrency = 'USD') {
+  await pool.query('UPDATE exchange_rates SET refresh_after=now() WHERE id=$1', [`${currency}_CNY`])
 }
-export async function refreshExchangeRate() {
+export async function refreshExchangeRate(currency: ExchangeCurrency = 'USD') {
+  const pair = `${currency}_CNY`
   const lease = id('fx_')
   const claim = await pool.query(
     `UPDATE exchange_rates SET lease=$1,locked_until=now()+interval '45 seconds'
-     WHERE id='USD_CNY' AND refresh_after<=now()
+     WHERE id=$2 AND refresh_after<=now()
        AND (locked_until IS NULL OR locked_until<now()) RETURNING id`,
-    [lease],
+    [lease, pair],
   )
   if (!claim.rowCount) return false
-  for (const url of exchangeSources) {
+  for (const url of currency === 'USDT' ? usdtExchangeSources : exchangeSources) {
     try {
       const response = await fetch(url, {
         cache: 'no-store',
@@ -105,12 +128,13 @@ export async function refreshExchangeRate() {
       if (!response.ok) throw new Error('FETCH_FAILED')
       const text = await response.text()
       if (text.length > 100000) throw new Error('INVALID_RESPONSE')
-      const rate = parseExchangeRate(JSON.parse(text))
+      const rate = parseExchangeRate(JSON.parse(text), Date.now(), currency)
+      const source = `Currency API · ${new URL(url).hostname === 'cdn.jsdelivr.net' ? 'jsDelivr' : 'Cloudflare'}`
       const result = await pool.query(
         `UPDATE exchange_rates SET rate_e8=$2,source_date=$3,fetched_at=$4,expires_at=$5,
-         locked_until=null,last_error=null,refresh_after=now()+interval '1 hour'
-         WHERE id='USD_CNY' AND lease=$1 AND (source_date IS NULL OR source_date<=$3) RETURNING id`,
-        [lease, rate.rateE8, rate.sourceDate, rate.fetchedAt, rate.expiresAt],
+         source=$6,locked_until=null,last_error=null,refresh_after=now()+interval '1 hour'
+         WHERE id=$7 AND lease=$1 AND (source_date IS NULL OR source_date<=$3) RETURNING id`,
+        [lease, rate.rateE8, rate.sourceDate, rate.fetchedAt, rate.expiresAt, source, pair],
       )
       if (!result.rowCount) throw new Error('OLDER_SOURCE_DATE')
       return true
@@ -120,8 +144,8 @@ export async function refreshExchangeRate() {
   }
   await pool.query(
     `UPDATE exchange_rates SET locked_until=null,last_error='EXCHANGE_REFRESH_FAILED',
-     refresh_after=now()+interval '5 minutes' WHERE id='USD_CNY' AND lease=$1`,
-    [lease],
+     refresh_after=now()+interval '5 minutes' WHERE id=$2 AND lease=$1`,
+    [lease, pair],
   )
   return true
 }

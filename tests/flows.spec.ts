@@ -206,6 +206,11 @@ test('guest referral is credited before signup and channel limits save and rejec
   await page.goto('/')
   await login(page, testEmail())
   const referrer = await (await page.request.get('/api/bootstrap')).json()
+  const deniedEstimate = await page.request.post('/api/admin/withdrawals/estimate', {
+    headers: { 'X-GetGPT-Request': '1', Origin: 'http://localhost:3000' },
+    data: { id: 'not-visible-to-customers' },
+  })
+  expect(deniedEstimate.status()).toBe(403)
   const guest = await browser.newContext()
   try {
     const guestPage = await guest.newPage()
@@ -242,8 +247,43 @@ test('guest referral is credited before signup and channel limits save and rejec
       await adminPage.getByRole('menuitem', { name: '网站设置' }).click()
       await adminPage.getByLabel('支付宝最低金额（元）').fill('2')
       await adminPage.getByLabel('支付宝最高金额（元）').fill('50')
+      const destinations = [
+        ['alipay', '支付宝'],
+        ['wechat', '微信'],
+        ['ERC20', 'Ethereum'],
+        ['TRC20', 'Tron'],
+        ['BSC', 'BNB Smart Chain'],
+        ['Polygon', 'Polygon'],
+      ]
+      for (const [index, [, label]] of destinations.entries()) {
+        await adminPage
+          .getByLabel(`${label}最低起提（元）`, { exact: true })
+          .fill((11.11 + index).toFixed(2))
+        await adminPage
+          .getByLabel(`${label}手续费（%）`, { exact: true })
+          .fill((1.25 + index).toFixed(2))
+        await adminPage
+          .getByLabel(`${label}固定手续费（元）`, { exact: true })
+          .fill((0.5 + index).toFixed(2))
+      }
+      await adminPage.getByRole('switch', { name: '支付宝提现', exact: true }).uncheck()
+      await adminPage.getByRole('switch', { name: 'USDT提现', exact: true }).check()
+      await adminPage.getByRole('switch', { name: 'BNB Smart Chain提现', exact: true }).check()
+      await adminPage.getByRole('switch', { name: 'Ethereum提现', exact: true }).uncheck()
       await adminPage.getByRole('button', { name: '保存设置', exact: true }).click()
       await expect(adminPage.getByText('已保存', { exact: true }).first()).toBeVisible()
+      const savedSettings = (await (await adminPage.request.get('/api/bootstrap')).json()).settings
+      expect(savedSettings.alipay).toBe(previous.settings.alipay)
+      expect(savedSettings.withdrawalChannels.alipay).toBe(false)
+      expect(savedSettings.withdrawalChannels.networks.ERC20).toBe(false)
+      expect(savedSettings.withdrawalChannels.networks.BSC).toBe(true)
+      for (const [index, [key]] of destinations.entries()) {
+        expect(savedSettings.withdrawalChannels.rules[key]).toEqual({
+          minimum: 1111 + index * 100,
+          feeRateBps: 125 + index * 100,
+          fixedFee: 50 + index * 100,
+        })
+      }
       const response = await page.request.post('/api/orders', {
         headers: { 'X-GetGPT-Request': '1', Origin: 'http://localhost:3000' },
         data: { amount: 100, channel: 'alipay', requestKey: crypto.randomUUID() },

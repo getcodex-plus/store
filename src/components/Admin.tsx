@@ -43,12 +43,20 @@ import {
   FileSearchOutlined,
 } from '@ant-design/icons'
 import { Brand } from './Site'
+import { WithdrawalEstimate } from './WithdrawalEstimate'
 import { useSite } from './Providers'
 import { api, channels, dateTime, money, statuses } from '../lib'
 import { defaultPaymentLimits, planNames, roundingOptions } from '../pricing'
-import type { AdminData, Order, Product, Withdrawal } from '../types'
+import type { AdminData, Order, Product, Withdrawal, WithdrawalChannels } from '../types'
 import type { IntegrationView, IntegrationKind } from '../server/integrations/config'
 import { funnelLabels, sourceLabels } from '../funnel'
+import { defaultReferralTiers, withdrawalStatuses } from '../referral'
+import {
+  withdrawalChannels,
+  withdrawalDestinations,
+  withdrawalFee,
+  usdtNetworkLabels,
+} from '../withdrawals'
 
 type Role = { id: string; name: string; permissions: string[]; protected: boolean }
 type Data = AdminData & { integrations: IntegrationView[]; roles: Role[] }
@@ -137,6 +145,8 @@ export function Admin() {
   const productUpgrade = Form.useWatch('upgrade', productForm)
   const productCurrency = Form.useWatch('priceCurrency', productForm)
   const upgradeFxMode = Form.useWatch('upgradeFxMode', settingsForm)
+  const usdtWithdrawalEnabled = Form.useWatch(['withdrawalChannels', 'usdt'], settingsForm)
+  const withdrawalResult = Form.useWatch('status', withdrawalForm)
   const epayVersion: 'epay_v1' | 'epay_v2' =
     data?.settings.epayVersion ??
     (data?.settings.fiatProvider === 'epay_v2'
@@ -163,9 +173,22 @@ export function Admin() {
     if (data && page === 'settings')
       settingsForm.setFieldsValue({
         ...data.settings,
+        withdrawalChannels: withdrawalChannels(data.settings),
         fiatProvider: data.settings.fiatProvider.startsWith('epay_') ? 'epay' : 'xorpay',
-        ratePercent: data.settings.rateBps / 100,
-        minimumYuan: data.settings.minimumWithdrawal / 100,
+        tierRules: (data.settings.referralTiers ?? defaultReferralTiers).map((tier) => ({
+          ...tier,
+          ratePercent: tier.rateBps / 100,
+        })),
+        withdrawalRules: Object.fromEntries(
+          Object.entries(withdrawalChannels(data.settings).rules).map(([key, rule]) => [
+            key,
+            {
+              minimumYuan: rule.minimum / 100,
+              feePercent: rule.feeRateBps / 100,
+              fixedYuan: rule.fixedFee / 100,
+            },
+          ]),
+        ),
         channelLimits: Object.fromEntries(
           ['alipay', 'wechat', 'crypto'].map((channel) => {
             const limit =
@@ -301,7 +324,8 @@ export function Admin() {
       ['processing', 'completed', 'needs_session', 'failed'].includes(o.status),
     ) || []
   const purchases = paid.filter((o) => o.kind === 'purchase')
-  const pending = data?.withdrawals.filter((w) => w.status === 'pending') || []
+  const pending =
+    data?.withdrawals.filter((w) => ['pending', 'processing'].includes(w.status)) || []
   const email = (id: string) => data?.users.find((u) => u.id === id)?.email || id.slice(0, 14)
   const filtered =
     data?.orders.filter((o) =>
@@ -805,7 +829,7 @@ export function Admin() {
                         dataIndex: 'status',
                         render: (s: string) => (
                           <Tag color={s === 'available' ? 'success' : 'default'}>
-                            {{ available: '可提现', pending: '待结算', reversed: '已冲回' }[s]}
+                            {{ available: '已结算', pending: '待结算', reversed: '已冲回' }[s]}
                           </Tag>
                         ),
                       },
@@ -816,42 +840,69 @@ export function Admin() {
               )}
               {page === 'withdrawals' && (
                 <Card title="提现申请">
+                  <Alert
+                    className="mb-24"
+                    type="info"
+                    showIcon
+                    title="仅使用已结算邀请收益打款"
+                    description="先受理申请，再核对收款信息并人工打款。受理后仅受理人可以登记结果；拒绝申请会释放冻结额度。登记结果不会自动转账。"
+                  />
                   <Table
                     rowKey="id"
                     scroll={{ x: 900 }}
                     dataSource={data.withdrawals}
                     columns={[
                       { title: '申请人', dataIndex: 'userId', render: email },
-                      { title: '金额', dataIndex: 'amount', width: 110, render: money },
+                      { title: '申请金额', dataIndex: 'amount', width: 110, render: money },
+                      { title: '手续费', dataIndex: 'feeAmount', render: money },
+                      { title: '净额（元）', dataIndex: 'netAmount', render: money },
                       { title: '方式', dataIndex: 'method' },
+                      {
+                        title: '收款人',
+                        dataIndex: 'recipientName',
+                        render: (value: string) => value || '历史申请未填写',
+                      },
+                      {
+                        title: '网络',
+                        dataIndex: 'network',
+                        render: (value: Withdrawal['network']) =>
+                          value ? usdtNetworkLabels[value] : '—',
+                      },
                       { title: '收款信息', dataIndex: 'account', ellipsis: true },
                       {
                         title: '状态',
                         dataIndex: 'status',
-                        render: (s: string) => (
-                          <Tag
-                            color={
-                              s === 'pending' ? 'processing' : s === 'paid' ? 'success' : 'default'
-                            }
-                          >
-                            {{ pending: '待审核', paid: '已打款', rejected: '已拒绝' }[s]}
+                        render: (s: Withdrawal['status']) => (
+                          <Tag color={withdrawalStatuses[s].color}>
+                            {withdrawalStatuses[s].text}
                           </Tag>
                         ),
+                      },
+                      { title: '打款流水号', dataIndex: 'payoutReference', ellipsis: true },
+                      {
+                        title: '实际打款',
+                        key: 'paidAmount',
+                        render: (_, w) =>
+                          w.payoutAmount
+                            ? `${w.payoutAmount} ${w.method === 'USDT' ? 'USDT' : 'CNY'}`
+                            : '—',
                       },
                       { title: '申请时间', dataIndex: 'createdAt', render: dateTime },
                       {
                         title: '操作',
                         key: 'action',
                         render: (_, w) =>
-                          w.status === 'pending' && can('withdrawals:write') ? (
+                          ['pending', 'processing'].includes(w.status) &&
+                          can('withdrawals:write') ? (
                             <Button
                               type="link"
+                              disabled={w.status === 'processing' && w.reviewerId !== site.user?.id}
                               onClick={() => {
                                 withdrawalForm.resetFields()
                                 setWithdrawal(w)
                               }}
                             >
-                              审核处理
+                              {w.status === 'processing' ? '登记打款结果' : '审核处理'}
                             </Button>
                           ) : (
                             <span className="tiny muted">{w.note}</span>
@@ -937,9 +988,16 @@ export function Admin() {
                     form={settingsForm}
                     layout="vertical"
                     onFinish={(values) => {
+                      if (
+                        values.withdrawalChannels.usdt &&
+                        !Object.values(values.withdrawalChannels.networks).some(Boolean)
+                      ) {
+                        message.error('开启 USDT 提现时，请至少开启一个收款网络')
+                        return
+                      }
                       const {
-                        ratePercent,
-                        minimumYuan,
+                        tierRules,
+                        withdrawalRules,
                         channelLimits,
                         upgradeFx,
                         upgradeFxMode,
@@ -948,8 +1006,32 @@ export function Admin() {
                         upgradeMinimum,
                         ...rest
                       } = values
+                      const rules = Object.fromEntries(
+                        Object.entries(withdrawalRules).map(([key, value]) => {
+                          const rule = value as {
+                            minimumYuan: number
+                            feePercent: number
+                            fixedYuan: number
+                          }
+                          return [
+                            key,
+                            {
+                              minimum: Math.round(rule.minimumYuan * 100),
+                              feeRateBps: Math.round(rule.feePercent * 100),
+                              fixedFee: Math.round(rule.fixedYuan * 100),
+                            },
+                          ]
+                        }),
+                      ) as WithdrawalChannels['rules']
+                      for (const { key, label } of withdrawalDestinations) {
+                        if (withdrawalFee(rules[key].minimum, rules[key]).netAmount <= 0) {
+                          message.error(`${label}最低起提金额必须高于该金额对应的手续费`)
+                          return
+                        }
+                      }
                       void mutate('settings', {
                         ...rest,
+                        withdrawalChannels: { ...values.withdrawalChannels, rules },
                         paymentLimits: Object.fromEntries(
                           Object.entries(channelLimits).map(([key, value]) => {
                             const limit = value as { min: number; max: number }
@@ -992,33 +1074,78 @@ export function Admin() {
                           serviceFee: 0,
                           minimum: Math.round(upgradeMinimum * 100),
                         },
-                        rateBps: Math.round(ratePercent * 100),
-                        minimumWithdrawal: Math.round(minimumYuan * 100),
+                        referralTiers: tierRules.map(
+                          (tier: {
+                            id: string
+                            name: string
+                            minimumInvites: number
+                            ratePercent: number
+                          }) => ({
+                            id: tier.id,
+                            name: tier.name,
+                            minimumInvites: tier.minimumInvites,
+                            rateBps: Math.round(tier.ratePercent * 100),
+                          }),
+                        ),
+                        rateBps: Math.round(tierRules[0].ratePercent * 100),
                       })
                     }}
                   >
                     <h3>邀请返现</h3>
+                    <p className="muted">
+                      按已结算订单的联系邮箱去重统计有效邀请，游客也计入。默认返现为 3% / 5% / 7% /
+                      9%，最高 9%。 调整只影响新订单，已有订单保留原比例。
+                    </p>
+                    <Form.List name="tierRules">
+                      {(fields) =>
+                        fields.map((field, index) => (
+                          <div className="referral-tier-fields" key={field.key}>
+                            <Form.Item name={[field.name, 'id']} hidden>
+                              <Input />
+                            </Form.Item>
+                            <Form.Item
+                              name={[field.name, 'name']}
+                              label={`等级 ${index + 1} 名称`}
+                              rules={[{ required: true, whitespace: true, max: 20 }]}
+                            >
+                              <Input maxLength={20} />
+                            </Form.Item>
+                            <Form.Item
+                              name={[field.name, 'minimumInvites']}
+                              label={`等级 ${index + 1} 有效邀请（人）`}
+                              rules={[{ required: true }]}
+                            >
+                              <InputNumber
+                                min={0}
+                                max={1000000}
+                                precision={0}
+                                disabled={index === 0}
+                                style={{ width: '100%' }}
+                              />
+                            </Form.Item>
+                            <Form.Item
+                              name={[field.name, 'ratePercent']}
+                              label={`等级 ${index + 1} 返现（%）`}
+                              rules={[{ required: true }]}
+                            >
+                              <InputNumber
+                                min={0}
+                                max={9}
+                                precision={2}
+                                style={{ width: '100%' }}
+                              />
+                            </Form.Item>
+                          </div>
+                        ))
+                      }
+                    </Form.List>
                     <div className="form-two">
-                      <Form.Item
-                        name="ratePercent"
-                        label="返现比例（%）"
-                        rules={[{ required: true }]}
-                      >
-                        <InputNumber min={0} max={50} precision={2} style={{ width: '100%' }} />
-                      </Form.Item>
                       <Form.Item
                         name="settlementDays"
                         label="结算期（天）"
                         rules={[{ required: true }]}
                       >
                         <InputNumber min={0} max={180} style={{ width: '100%' }} />
-                      </Form.Item>
-                      <Form.Item
-                        name="minimumYuan"
-                        label="最低提现（元）"
-                        rules={[{ required: true }]}
-                      >
-                        <InputNumber min={1} precision={2} style={{ width: '100%' }} />
                       </Form.Item>
                       <Form.Item
                         name="firstOrderOnly"
@@ -1028,6 +1155,92 @@ export function Admin() {
                         <Switch />
                       </Form.Item>
                     </div>
+                    <h3>提现渠道</h3>
+                    <p className="muted">
+                      独立控制邀请收益的提现方式，与下方购买付款方式分别设置。关闭后停止接收新申请，已有申请仍可审核处理。
+                    </p>
+                    <p className="muted">
+                      每个渠道和 USDT 网络单独设置起提金额与手续费。手续费 = 申请金额 × 比例 +
+                      固定金额，比例部分四舍五入到分，从申请金额内扣除。 金额均以人民币元计；USDT
+                      按扣费后的净额确认折算数量。新规则只影响新申请。
+                    </p>
+                    <Form.Item
+                      name={['withdrawalChannels', 'usdt']}
+                      label="USDT 提现总开关"
+                      valuePropName="checked"
+                    >
+                      <Switch aria-label="USDT提现" />
+                    </Form.Item>
+                    <div className="form-two">
+                      {withdrawalDestinations.map(({ key, label, network }) => (
+                        <Card
+                          key={key}
+                          size="small"
+                          title={network ? `USDT · ${label}` : label}
+                          extra={
+                            <Form.Item
+                              noStyle
+                              name={
+                                network
+                                  ? ['withdrawalChannels', 'networks', network]
+                                  : ['withdrawalChannels', key]
+                              }
+                              valuePropName="checked"
+                            >
+                              <Switch
+                                aria-label={`${label}提现`}
+                                disabled={
+                                  !can('settings:write') || (!!network && !usdtWithdrawalEnabled)
+                                }
+                              />
+                            </Form.Item>
+                          }
+                        >
+                          <Form.Item
+                            name={['withdrawalRules', key, 'minimumYuan']}
+                            label={`${label}最低起提（元）`}
+                            rules={[{ required: true, type: 'number', min: 1, max: 1000000 }]}
+                          >
+                            <InputNumber
+                              min={1}
+                              max={1000000}
+                              precision={2}
+                              style={{ width: '100%' }}
+                            />
+                          </Form.Item>
+                          <div className="form-two">
+                            <Form.Item
+                              name={['withdrawalRules', key, 'feePercent']}
+                              label={`${label}手续费（%）`}
+                              rules={[{ required: true, type: 'number', min: 0, max: 99.99 }]}
+                            >
+                              <InputNumber
+                                min={0}
+                                max={99.99}
+                                precision={2}
+                                style={{ width: '100%' }}
+                              />
+                            </Form.Item>
+                            <Form.Item
+                              name={['withdrawalRules', key, 'fixedYuan']}
+                              label={`${label}固定手续费（元）`}
+                              rules={[{ required: true, type: 'number', min: 0, max: 1000000 }]}
+                            >
+                              <InputNumber
+                                min={0}
+                                max={1000000}
+                                precision={2}
+                                style={{ width: '100%' }}
+                              />
+                            </Form.Item>
+                          </div>
+                        </Card>
+                      ))}
+                    </div>
+                    <p className="muted">
+                      开启 USDT
+                      提现后，至少启用一个网络。前台仅展示已启用的网络，打款时须按申请记录核对链与资产。
+                    </p>
                     <h3>付款方式</h3>
                     <Form.Item name="emailProvider" label="验证码邮件服务">
                       <Select
@@ -1628,13 +1841,41 @@ export function Admin() {
         <p>
           申请人：{withdrawal && email(withdrawal.userId)}
           <br />
-          金额：{money(withdrawal?.amount || 0)}
+          申请金额：{money(withdrawal?.amount || 0)}
+          <br />
+          手续费：{money(withdrawal?.feeAmount || 0)}
+          {withdrawal ? `（${withdrawal.feeRateBps / 100}% + ${money(withdrawal.fixedFee)}）` : ''}
+          <br />
+          {withdrawal?.method === 'USDT' ? '待折算净额' : '应打款金额'}：
+          {money(withdrawal?.netAmount || 0)}
           <br />
           收款方式：{withdrawal?.method}
+          {withdrawal?.network ? ` · ${usdtNetworkLabels[withdrawal.network]}` : ''}
+          <br />
+          收款人：{withdrawal?.recipientName || '历史申请未填写，请先核实'}
         </p>
         <Card size="small">
           <span className="wrap-anywhere">{withdrawal?.account}</span>
         </Card>
+        {withdrawal?.method === 'USDT' && (
+          <WithdrawalEstimate
+            key={withdrawal.id}
+            withdrawalId={withdrawal.id}
+            canFill={withdrawalResult === 'paid'}
+            onUse={(amount) => withdrawalForm.setFieldValue('payoutAmount', amount)}
+          />
+        )}
+        <Alert
+          className="mt-24"
+          type="info"
+          showIcon
+          title={
+            withdrawal?.status === 'processing'
+              ? '已由你受理，等待实际打款'
+              : '受理后再进行人工打款'
+          }
+          description="请先核对邀请收益与收款信息。只有实际转账成功后，才登记已打款；拒绝前请确认未打款。"
+        />
         <Form
           className="mt-24"
           form={withdrawalForm}
@@ -1646,13 +1887,56 @@ export function Admin() {
           <Form.Item name="status" label="处理结果" rules={[{ required: true }]}>
             <Select
               options={[
-                { value: 'paid', label: '已完成实际打款，登记结果' },
+                ...(withdrawal?.status === 'pending'
+                  ? [{ value: 'processing', label: '受理申请，由我核对并打款' }]
+                  : [{ value: 'paid', label: '已完成实际打款，登记结果' }]),
                 { value: 'rejected', label: '拒绝申请，释放冻结收益' },
               ]}
             />
           </Form.Item>
-          <Form.Item name="note" label="打款流水号 / 拒绝原因" rules={[{ required: true, min: 3 }]}>
-            <Input.TextArea rows={2} />
+          {withdrawalResult === 'paid' && (
+            <>
+              <Form.Item
+                name="payoutReference"
+                label="打款流水号 / 链上交易哈希"
+                preserve={false}
+                rules={[{ required: true, whitespace: true, min: 3, max: 160 }]}
+              >
+                <Input maxLength={160} />
+              </Form.Item>
+              {withdrawal?.method === 'USDT' && (
+                <Form.Item
+                  name="payoutAmount"
+                  label="实际到账 USDT 数量"
+                  preserve={false}
+                  extra="按本单扣除手续费后的人民币净额与申请人确认折算数量，再打款并登记实际到账数量。"
+                  rules={[{ required: true, type: 'number', min: 0.000001, max: 1000000 }]}
+                >
+                  <InputNumber
+                    min={0.000001}
+                    max={1000000}
+                    precision={6}
+                    style={{ width: '100%' }}
+                  />
+                </Form.Item>
+              )}
+            </>
+          )}
+          <Form.Item
+            name="note"
+            label={
+              withdrawalResult === 'rejected' ? '拒绝原因（向申请人展示）' : '处理说明（选填）'
+            }
+            rules={[
+              {
+                required: withdrawalResult === 'rejected',
+                whitespace: true,
+                min: withdrawalResult === 'rejected' ? 3 : 0,
+                max: 300,
+              },
+            ]}
+          >
+            <Input.TextArea rows={2} maxLength={300} />
           </Form.Item>
           <Button type="primary" htmlType="submit" loading={busy} block>
             确认记录处理结果

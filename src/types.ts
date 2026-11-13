@@ -66,18 +66,61 @@ export interface Commission {
   availableAt: string
   createdAt: string
 }
+export type WithdrawalNetwork = 'TRC20' | 'ERC20' | 'BSC' | 'Polygon'
+export type WithdrawalDestination = 'alipay' | 'wechat' | WithdrawalNetwork
+export interface WithdrawalRule {
+  minimum: number
+  feeRateBps: number
+  fixedFee: number
+}
+export interface WithdrawalChannels {
+  alipay: boolean
+  wechat: boolean
+  usdt: boolean
+  networks: Record<WithdrawalNetwork, boolean>
+  rules: Record<WithdrawalDestination, WithdrawalRule>
+}
 export interface Withdrawal {
   id: string
   userId: string
   amount: number
   method: string
   account: string
-  status: 'pending' | 'paid' | 'rejected'
+  recipientName: string
+  network: WithdrawalNetwork | null
+  feeAmount: number
+  feeRateBps: number
+  fixedFee: number
+  netAmount: number
+  status: 'pending' | 'processing' | 'paid' | 'rejected'
   note: string
+  payoutReference: string
+  payoutAmount: string | null
+  reviewerId: string | null
+  reviewedAt: string | null
   createdAt: string
+}
+export interface WithdrawalEstimate {
+  withdrawalId: string
+  netAmount: number
+  estimatedUsdt: string
+  rate: number
+  source: string
+  sourceDate: string
+  fetchedAt: string
+  expiresAt: string
+  refreshFailed: boolean
+}
+export interface ReferralTier {
+  id: string
+  name: string
+  minimumInvites: number
+  rateBps: number
 }
 export interface Settings {
   rateBps: number
+  referralTiers?: ReferralTier[]
+  withdrawalChannels?: WithdrawalChannels
   settlementDays: number
   minimumWithdrawal: number
   firstOrderOnly: boolean
@@ -131,8 +174,19 @@ export interface AccountData {
   commissions: Commission[]
   withdrawals: Withdrawal[]
   invitedCount: number
+  referral: {
+    qualifiedInvites: number
+    current: ReferralTier
+    next: ReferralTier | null
+    remaining: number
+    progress: number
+    tiers: ReferralTier[]
+  }
   available: number
   pending: number
+  settled: number
+  frozen: number
+  shortfall: number
   withdrawn: number
   balance: number
   ledger: WalletEntry[]
@@ -146,6 +200,7 @@ export interface AdminData {
     expiresAt: string | null
     available: boolean
     lastError: string | null
+    source: string | null
   }
   users: User[]
   products: Product[]

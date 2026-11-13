@@ -45,3 +45,16 @@ it('converts fixed USD retail prices precisely before rounding and applies autom
     ),
   ).toBe(7900)
 })
+
+it('reads the USDT/CNY pair directly without treating a USD quote as a USDT quote', () => {
+  const now = Date.parse('2026-11-13T12:00:00Z')
+  const data = { date: '2026-11-13', usd: { cny: 7 }, usdt: { cny: 7.01234567 } }
+  expect(parseExchangeRate(data, now, 'USD').rateE8).toBe(700000000)
+  expect(parseExchangeRate(data, now, 'USDT').rateE8).toBe(701234567)
+  expect(() => parseExchangeRate({ date: data.date, usd: data.usd }, now, 'USDT')).toThrow(
+    'INVALID_EXCHANGE_RATE',
+  )
+  expect(() => parseExchangeRate({ ...data, date: '2026-11-09' }, now, 'USDT')).toThrow(
+    'INVALID_EXCHANGE_RATE',
+  )
+})

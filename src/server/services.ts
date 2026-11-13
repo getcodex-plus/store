@@ -10,6 +10,7 @@ import type {
   Settings,
   User,
   Withdrawal,
+  WithdrawalEstimate,
   WalletEntry,
 } from '../types'
 import { pool, rows, transaction } from './db'
@@ -23,19 +24,51 @@ import {
   type Provider,
   type Receipt,
 } from './integrations/payments'
-import { parseSession } from '../lib'
+import { money, parseSession } from '../lib'
 import { paymentLimitError, costBasedPrice, convertedSubscriptionPrice } from '../pricing'
-import { exchangeRate, exchangeRateStatus, type ExchangeRate } from './exchange-rates'
+import {
+  exchangeRate,
+  exchangeRateStatus,
+  refreshExchangeRate,
+  requestExchangeRefresh,
+  type ExchangeRate,
+} from './exchange-rates'
 import { serviceTerms } from '../product-copy'
 import { analyticsVisitor, funnelReport } from './funnel'
 import type { FunnelSource } from '../funnel'
+import { defaultReferralTiers, referralFunds, referralProgress } from '../referral'
+import { withdrawalReviewSchema, withdrawalSchema } from './referral-policy'
+import {
+  withdrawalChannelError,
+  withdrawalChannels,
+  withdrawalFee,
+  withdrawalRule,
+  estimateUsdtAmount,
+} from '../withdrawals'
 
 export const orderColumns =
   'id,user_id,contact_email,product_id,product_name,email,amount,status,channel,created_at,completed_at,rate_bps,settlement_days,first_order_only,kind,balance_amount,external_amount,service_terms'
 export async function settings(): Promise<Settings> {
   const result = await pool.query('SELECT body FROM settings WHERE id=1')
   if (!result.rows[0]) throw new ApiError(503, '请先初始化数据库')
-  return result.rows[0].body
+  const conf: Settings = result.rows[0].body
+  const referralTiers = conf.referralTiers ?? defaultReferralTiers
+  return {
+    ...conf,
+    referralTiers,
+    rateBps: referralTiers[0].rateBps,
+    withdrawalChannels: withdrawalChannels(conf),
+  }
+}
+async function qualifiedInvites(userId: string, client: PoolClient | typeof pool = pool) {
+  // Contact email remains stable when a guest order is later claimed by its owner.
+  const result = await client.query(
+    `SELECT count(DISTINCT lower(COALESCE(o.contact_email,o.email)))::int AS n
+     FROM commissions c JOIN orders o ON o.id=c.order_id
+     WHERE c.user_id=$1 AND c.status='available' AND o.status='completed' AND o.kind='purchase'`,
+    [userId],
+  )
+  return result.rows[0].n as number
 }
 export async function products(all = false): Promise<Product[]> {
   const catalog = await rows<Product>(
@@ -398,6 +431,9 @@ export async function newOrder(
       )
         inviterId = inviter.id
     }
+    const referralRate = inviterId
+      ? referralProgress(await qualifiedInvites(inviterId, client), conf).current.rateBps
+      : conf.rateBps
     const order = (
       await rows<Order>(
         `INSERT INTO orders(id,user_id,quote_id,product_id,product_name,email,amount,status,channel,rate_bps,settlement_days,first_order_only,provider,integration_id,kind,request_hash,contact_email,guest_browser_digest,aicdk_integration_id,balance_amount,external_amount,inviter_id,buyer_key,service_terms)
@@ -412,7 +448,7 @@ export async function newOrder(
           amount,
           externalAmount === 0 ? 'processing' : 'unpaid',
           externalAmount === 0 ? 'balance' : input.channel,
-          conf.rateBps,
+          referralRate,
           conf.settlementDays,
           conf.firstOrderOnly,
           externalAmount === 0 ? 'balance' : provider,
@@ -614,72 +650,135 @@ export async function completeOrder(orderId: string) {
   })
 }
 export async function account(user: User): Promise<AccountData> {
-  const [orders, commissions, withdrawals, invited, ledger, wallet] = await Promise.all([
-    rows<Order>(
+  const conf = await settings()
+  return transaction(async (client) => {
+    await client.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+    const orders = await rows<Order>(
       `SELECT ${orderColumns} FROM orders WHERE user_id=$1 ORDER BY created_at DESC LIMIT 200`,
       [user.id],
-    ),
-    rows<Commission>('SELECT * FROM commissions WHERE user_id=$1 ORDER BY created_at DESC', [
+      client,
+    )
+    const commissions = await rows<Commission>(
+      'SELECT * FROM commissions WHERE user_id=$1 ORDER BY created_at DESC',
+      [user.id],
+      client,
+    )
+    const withdrawals = await rows<Withdrawal>(
+      'SELECT * FROM withdrawals WHERE user_id=$1 ORDER BY created_at DESC',
+      [user.id],
+      client,
+    )
+    const invited = await client.query('SELECT count(*)::int AS n FROM users WHERE invited_by=$1', [
       user.id,
-    ]),
-    rows<Withdrawal>('SELECT * FROM withdrawals WHERE user_id=$1 ORDER BY created_at DESC', [
-      user.id,
-    ]),
-    pool.query('SELECT count(*)::int AS n FROM users WHERE invited_by=$1', [user.id]),
-    rows<WalletEntry>(
+    ])
+    const ledger = await rows<WalletEntry>(
       'SELECT * FROM wallet_ledger WHERE user_id=$1 ORDER BY created_at DESC LIMIT 200',
       [user.id],
-    ),
-    pool.query('SELECT balance FROM wallets WHERE user_id=$1', [user.id]),
-  ])
-  const earned = commissions
-    .filter((c) => c.status === 'available')
-    .reduce((s, c) => s + c.amount, 0)
-  const held = withdrawals.filter((w) => w.status !== 'rejected').reduce((s, w) => s + w.amount, 0)
+      client,
+    )
+    const wallet = await client.query('SELECT balance FROM wallets WHERE user_id=$1', [user.id])
+    const qualified = await qualifiedInvites(user.id, client)
+    return {
+      orders,
+      commissions,
+      withdrawals: withdrawals.map(withdrawalView),
+      invitedCount: invited.rows[0].n,
+      referral: referralProgress(qualified, conf),
+      ...referralFunds(commissions, withdrawals),
+      balance: wallet.rows[0]?.balance ?? 0,
+      ledger,
+    }
+  })
+}
+
+function withdrawalView(withdrawal: Withdrawal): Withdrawal {
+  // Never expose internal idempotency digests or encrypted payloads in account responses.
   return {
-    orders,
-    commissions,
-    withdrawals: withdrawals.map((w) => ({
-      ...w,
-      account: decrypt(w.account, `withdrawal:${w.userId}`),
-    })),
-    invitedCount: invited.rows[0].n,
-    available: earned - held,
-    pending: commissions.filter((c) => c.status === 'pending').reduce((s, c) => s + c.amount, 0),
-    withdrawn: withdrawals.filter((w) => w.status === 'paid').reduce((s, w) => s + w.amount, 0),
-    balance: wallet.rows[0]?.balance ?? 0,
-    ledger,
+    id: withdrawal.id,
+    userId: withdrawal.userId,
+    amount: withdrawal.amount,
+    method: withdrawal.method,
+    account: decrypt(withdrawal.account, `withdrawal:${withdrawal.userId}`),
+    recipientName: withdrawal.recipientName
+      ? decrypt(withdrawal.recipientName, `withdrawal-name:${withdrawal.userId}`)
+      : '',
+    network: withdrawal.network,
+    feeAmount: withdrawal.feeAmount,
+    feeRateBps: withdrawal.feeRateBps,
+    fixedFee: withdrawal.fixedFee,
+    netAmount: withdrawal.amount - withdrawal.feeAmount,
+    status: withdrawal.status,
+    note: withdrawal.note,
+    payoutReference: withdrawal.payoutReference,
+    payoutAmount: withdrawal.payoutAmount,
+    reviewerId: withdrawal.reviewerId,
+    reviewedAt: withdrawal.reviewedAt,
+    createdAt: withdrawal.createdAt,
   }
 }
-export async function withdraw(
-  user: User,
-  input: { amount: number; method: string; account: string; requestKey: string },
-) {
-  const conf = await settings()
-  if (input.amount < conf.minimumWithdrawal) throw new ApiError(400, '未达到最低提现金额')
+
+async function lockedReferralFunds(client: PoolClient, userId: string) {
+  const commissions = await rows<Commission>(
+    'SELECT amount,status FROM commissions WHERE user_id=$1 FOR UPDATE',
+    [userId],
+    client,
+  )
+  const withdrawals = await rows<Withdrawal>(
+    'SELECT amount,status FROM withdrawals WHERE user_id=$1',
+    [userId],
+    client,
+  )
+  return referralFunds(commissions, withdrawals)
+}
+
+export async function withdraw(user: User, data: unknown) {
+  const input = withdrawalSchema.parse(data)
   return transaction(async (client) => {
     await client.query('SELECT id FROM users WHERE id=$1 FOR UPDATE', [user.id])
     const requestKey = hash(`${user.id}:${input.requestKey}`)
+    const requestHash = hash(
+      JSON.stringify({
+        amount: input.amount,
+        method: input.method,
+        account: input.account,
+        recipientName: input.recipientName,
+        network: input.network,
+        ...(input.expectedFeeAmount ? { expectedFeeAmount: input.expectedFeeAmount } : {}),
+      }),
+    )
     const existing = (
-      await rows<Withdrawal>('SELECT * FROM withdrawals WHERE request_key=$1', [requestKey], client)
+      await rows<Withdrawal & { requestHash: string }>(
+        'SELECT * FROM withdrawals WHERE request_key=$1',
+        [requestKey],
+        client,
+      )
     )[0]
-    if (existing) return existing
-    const earned = (
-      await client.query(
-        "SELECT COALESCE(sum(amount),0)::int AS n FROM commissions WHERE user_id=$1 AND status='available'",
-        [user.id],
-      )
-    ).rows[0].n
-    const held = (
-      await client.query(
-        "SELECT COALESCE(sum(amount),0)::int AS n FROM withdrawals WHERE user_id=$1 AND status<>'rejected'",
-        [user.id],
-      )
-    ).rows[0].n
-    if (input.amount > earned - held) throw new ApiError(409, '可提现收益不足')
-    return (
+    if (existing) {
+      if (existing.requestHash !== requestHash)
+        throw new ApiError(409, '同一请求标识不能用于不同的提现参数，请重新打开申请表')
+      return withdrawalView(existing)
+    }
+    // Serialize new reservations with settings changes. Existing request retries
+    // still resolve after a channel closes without reserving another amount.
+    const configuration = await client.query('SELECT body FROM settings WHERE id=1 FOR SHARE')
+    if (!configuration.rows[0]) throw new ApiError(503, '请先初始化数据库')
+    const conf: Settings = configuration.rows[0].body
+    const channelError = withdrawalChannelError(conf, input.method, input.network)
+    if (channelError) throw new ApiError(409, channelError)
+    const rule = withdrawalRule(conf, input.method, input.network)!
+    if (input.amount < rule.minimum)
+      throw new ApiError(400, `所选提现渠道最低起提 ${money(rule.minimum)}`)
+    const fee = withdrawalFee(input.amount, rule)
+    if (fee.netAmount <= 0) throw new ApiError(400, '扣除手续费后的到账金额必须大于 0')
+    if (input.expectedFeeAmount !== fee.feeAmount)
+      throw new ApiError(409, '提现手续费已调整，请核对新的手续费后重新确认')
+    const funds = await lockedReferralFunds(client, user.id)
+    if (input.amount > funds.available)
+      throw new ApiError(409, '可提现邀请收益不足，请刷新额度；充值和退款余额不可提现')
+    const withdrawal = (
       await rows<Withdrawal>(
-        'INSERT INTO withdrawals(id,user_id,amount,method,account,request_key) VALUES($1,$2,$3,$4,$5,$6) RETURNING *',
+        `INSERT INTO withdrawals(id,user_id,amount,method,account,request_key,request_hash,recipient_name,network,fee_amount,fee_rate_bps,fixed_fee)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
         [
           id('w_'),
           user.id,
@@ -687,10 +786,121 @@ export async function withdraw(
           input.method,
           encrypt(input.account, `withdrawal:${user.id}`),
           requestKey,
+          requestHash,
+          encrypt(input.recipientName, `withdrawal-name:${user.id}`),
+          input.network,
+          fee.feeAmount,
+          fee.feeRateBps,
+          fee.fixedFee,
         ],
         client,
       )
     )[0]
+    return withdrawalView(withdrawal)
+  })
+}
+
+export async function withdrawalPayoutEstimate(
+  withdrawalId: string,
+  refresh = false,
+): Promise<WithdrawalEstimate> {
+  const withdrawal = (
+    await rows<Withdrawal>('SELECT * FROM withdrawals WHERE id=$1', [withdrawalId])
+  )[0]
+  if (!withdrawal) throw new ApiError(404, '提现申请不存在')
+  if (withdrawal.method !== 'USDT') throw new ApiError(400, '此申请无需 USDT 折算')
+  if (!['pending', 'processing'].includes(withdrawal.status))
+    throw new ApiError(409, '此申请已处理，无需估算打款数量')
+  let rate = await exchangeRate(false, 'USDT')
+  if (refresh || !rate) {
+    if (refresh) await requestExchangeRefresh('USDT')
+    await refreshExchangeRate('USDT')
+    rate = await exchangeRate(false, 'USDT')
+  }
+  if (!rate) throw new ApiError(503, 'USDT 参考汇率暂不可用，请稍后刷新；仍可按实际打款数量登记')
+  const netAmount = withdrawal.amount - withdrawal.feeAmount
+  let estimatedUsdt: string
+  try {
+    estimatedUsdt = estimateUsdtAmount(netAmount, rate.rateE8)
+  } catch {
+    throw new ApiError(503, '参考转账数量超出支持范围，请核对汇率后重试')
+  }
+  return {
+    withdrawalId,
+    netAmount,
+    estimatedUsdt,
+    rate: rate.rateE8 / 100000000,
+    source: rate.source ?? 'Currency API',
+    sourceDate: rate.sourceDate,
+    fetchedAt: rate.fetchedAt,
+    expiresAt: rate.expiresAt,
+    refreshFailed: !!(await exchangeRateStatus('USDT')).lastError,
+  }
+}
+
+export async function reviewWithdrawal(actor: User, data: unknown) {
+  const input = withdrawalReviewSchema.parse(data)
+  return transaction(async (client) => {
+    const owner = (await client.query('SELECT user_id FROM withdrawals WHERE id=$1', [input.id]))
+      .rows[0]
+    if (!owner) throw new ApiError(404, '提现申请不存在')
+    // All reservation and review transitions take the same user lock first.
+    await client.query('SELECT id FROM users WHERE id=$1 FOR UPDATE', [owner.user_id])
+    const current = (
+      await rows<Withdrawal>('SELECT * FROM withdrawals WHERE id=$1 FOR UPDATE', [input.id], client)
+    )[0]
+    if (!['pending', 'processing'].includes(current.status))
+      throw new ApiError(409, '该提现已处理，请刷新')
+    if (current.status === 'processing' && current.reviewerId !== actor.id)
+      throw new ApiError(409, '该申请已由其他管理员受理，请由受理人完成处理')
+    if (input.status === 'processing' && current.status !== 'pending')
+      throw new ApiError(409, '该申请已受理，请刷新')
+    if (input.status === 'paid' && current.status !== 'processing')
+      throw new ApiError(409, '请先受理申请，核对收款信息后再登记实际打款')
+    if (input.status !== 'rejected') {
+      const funds = await lockedReferralFunds(client, current.userId)
+      if (funds.shortfall > 0)
+        throw new ApiError(409, '邀请收益发生冲回，额度不足；请先拒绝超额申请释放冻结额度')
+    }
+    let payoutAmount: number | null = null
+    if (input.status === 'paid') {
+      if (current.method === 'USDT' && !input.payoutAmount)
+        throw new ApiError(400, '请填写实际到账 USDT 数量')
+      payoutAmount =
+        current.method === 'USDT' ? input.payoutAmount! : (current.amount - current.feeAmount) / 100
+      if (
+        payoutAmount < 0.000001 ||
+        Math.abs(payoutAmount * 1000000 - Math.round(payoutAmount * 1000000)) > 0.0001
+      )
+        throw new ApiError(400, 'USDT 数量最多保留 6 位小数')
+    }
+    await client.query(
+      `UPDATE withdrawals SET status=$2,note=$3,reviewer_id=$4,reviewed_at=now(),
+       payout_reference=$5,payout_amount=$6 WHERE id=$1`,
+      [
+        input.id,
+        input.status,
+        input.note,
+        actor.id,
+        input.status === 'paid' ? input.payoutReference : '',
+        payoutAmount,
+      ],
+    )
+    await audit(
+      actor.email,
+      {
+        processing: '受理提现，待人工打款',
+        paid: '登记提现打款',
+        rejected: '拒绝提现，释放邀请额度',
+      }[input.status],
+      input.id,
+      client,
+    )
+    return { saved: true }
+  }).catch((error) => {
+    if ((error as { code?: string }).code === '23505')
+      throw new ApiError(409, '此打款流水号已登记，请核对后刷新')
+    throw error
   })
 }
 export async function adminData(
@@ -728,9 +938,7 @@ export async function adminData(
         ? orders.filter((o) => o.kind === 'topup' || o.balanceAmount > 0)
         : [],
     commissions: can('referral:read') ? commissions : [],
-    withdrawals: can('withdrawals:read')
-      ? withdrawals.map((w) => ({ ...w, account: decrypt(w.account, `withdrawal:${w.userId}`) }))
-      : [],
+    withdrawals: can('withdrawals:read') ? withdrawals.map(withdrawalView) : [],
     settings: can('settings:read') ? conf : publicSettings,
     audit: can('audit:read') ? log : [],
     inventory: can('products:read') ? inventory : [],

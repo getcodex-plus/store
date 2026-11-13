@@ -3,6 +3,8 @@ import { getMigrations } from 'better-auth/db/migration'
 import { auth } from '../src/server/better-auth'
 import { pool, transaction } from '../src/server/db'
 import { defaultPaymentLimits } from '../src/pricing'
+import { defaultReferralTiers } from '../src/referral'
+import { defaultWithdrawalChannels, withdrawalChannels } from '../src/withdrawals'
 
 await transaction(async (client) => {
   await client.query(await readFile(new URL('../src/server/schema.sql', import.meta.url), 'utf8'))
@@ -112,7 +114,9 @@ await transaction(async (client) => {
   )
   await client.query('INSERT INTO settings(id,body) VALUES(1,$1) ON CONFLICT DO NOTHING', [
     JSON.stringify({
-      rateBps: 500,
+      rateBps: 300,
+      referralTiers: defaultReferralTiers,
+      withdrawalChannels: defaultWithdrawalChannels,
       settlementDays: 7,
       minimumWithdrawal: 5000,
       firstOrderOnly: true,
@@ -133,6 +137,18 @@ await transaction(async (client) => {
       },
     }),
   ])
+  await client.query(
+    `UPDATE settings SET body=body||jsonb_build_object('rateBps',300,'referralTiers',$1::jsonb)
+     WHERE NOT(body ? 'referralTiers')`,
+    [JSON.stringify(defaultReferralTiers)],
+  )
+  const previousSettings = (await client.query('SELECT body FROM settings WHERE id=1 FOR UPDATE'))
+    .rows[0].body
+  await client.query(
+    `UPDATE settings SET body=jsonb_set(body,'{withdrawalChannels}',$1::jsonb)
+     WHERE id=1 AND body->'withdrawalChannels' IS DISTINCT FROM $1::jsonb`,
+    [JSON.stringify(withdrawalChannels(previousSettings))],
+  )
   await client.query(
     `UPDATE settings SET body=body||'{"emailProvider":"resend"}'::jsonb WHERE NOT(body ? 'emailProvider')`,
   )

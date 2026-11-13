@@ -55,6 +55,25 @@ CREATE TABLE IF NOT EXISTS withdrawals (
 CREATE TABLE IF NOT EXISTS audit (
   id text PRIMARY KEY, actor text NOT NULL, action text NOT NULL, target text NOT NULL, created_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE withdrawals DROP CONSTRAINT IF EXISTS withdrawals_status_check;
+ALTER TABLE withdrawals ADD CONSTRAINT withdrawals_status_check
+  CHECK(status IN ('pending','processing','paid','rejected'));
+ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS recipient_name text NOT NULL DEFAULT '';
+ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS network text;
+ALTER TABLE withdrawals DROP CONSTRAINT IF EXISTS withdrawals_network_check;
+ALTER TABLE withdrawals ADD CONSTRAINT withdrawals_network_check
+  CHECK(network IN ('TRC20','ERC20','BSC','Polygon'));
+ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS request_hash text NOT NULL DEFAULT '';
+ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS fee_amount integer NOT NULL DEFAULT 0 CHECK(fee_amount>=0 AND fee_amount<amount);
+ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS fee_rate_bps integer NOT NULL DEFAULT 0 CHECK(fee_rate_bps>=0 AND fee_rate_bps<10000);
+ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS fixed_fee integer NOT NULL DEFAULT 0 CHECK(fixed_fee>=0);
+ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS payout_reference text NOT NULL DEFAULT '';
+ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS payout_amount numeric(20,6) CHECK(payout_amount>0);
+ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS reviewer_id text REFERENCES users(id);
+ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS reviewed_at timestamptz;
+CREATE INDEX IF NOT EXISTS withdrawals_user ON withdrawals(user_id,created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS withdrawals_payout_reference
+  ON withdrawals(method,COALESCE(network,''),payout_reference) WHERE payout_reference<>'';
 CREATE TABLE IF NOT EXISTS jobs (
   id text PRIMARY KEY, order_id text UNIQUE NOT NULL REFERENCES orders(id),
   attempts integer NOT NULL DEFAULT 0, run_at timestamptz NOT NULL DEFAULT now(),
@@ -171,6 +190,10 @@ CREATE TABLE IF NOT EXISTS exchange_rates (
  last_error text
 );
 INSERT INTO exchange_rates(id) VALUES('USD_CNY') ON CONFLICT DO NOTHING;
+ALTER TABLE exchange_rates DROP CONSTRAINT IF EXISTS exchange_rates_id_check;
+ALTER TABLE exchange_rates ADD CONSTRAINT exchange_rates_id_check CHECK(id IN ('USD_CNY','USDT_CNY'));
+ALTER TABLE exchange_rates ADD COLUMN IF NOT EXISTS source text;
+INSERT INTO exchange_rates(id) VALUES('USDT_CNY') ON CONFLICT DO NOTHING;
 
 -- UI presents EPay as one service; historical order provider IDs stay unchanged.
 UPDATE settings SET body=body || jsonb_build_object('epayVersion',

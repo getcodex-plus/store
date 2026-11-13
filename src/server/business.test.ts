@@ -17,7 +17,12 @@ import {
   paymentInfo,
   quote as createQuote,
   products,
+  account,
+  reviewWithdrawal,
+  withdrawalPayoutEstimate,
 } from './services'
+import { defaultReferralTiers } from '../referral'
+import { withdrawalChannels, withdrawalDestinations, withdrawalFee } from '../withdrawals'
 import { id, encrypt } from './crypto'
 import { demoSession } from '../lib'
 import { analyticsVisitor, recordView } from './funnel'
@@ -29,6 +34,7 @@ import {
   exchangeSources,
   refreshExchangeRate,
   requestExchangeRefresh,
+  usdtExchangeSources,
 } from './exchange-rates'
 const suite = process.env.TEST_DATABASE_URL ? describe : describe.skip
 suite('PostgreSQL payment, wallet and authorization invariants', () => {
@@ -76,7 +82,8 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
       `INSERT INTO settings(id,body) VALUES(1,$1) ON CONFLICT(id) DO UPDATE SET body=excluded.body`,
       [
         JSON.stringify({
-          rateBps: 500,
+          rateBps: 300,
+          referralTiers: defaultReferralTiers,
           settlementDays: 0,
           minimumWithdrawal: 100,
           firstOrderOnly: true,
@@ -234,7 +241,7 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
     expect(
       (await pool.query('SELECT amount FROM commissions WHERE order_id=$1', [success.value.id]))
         .rows[0].amount,
-    ).toBe(300)
+    ).toBe(180)
   })
   it('never reuses an idempotency key for different monetary parameters', async () => {
     const requestKey = id()
@@ -247,7 +254,13 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
   })
   it('prevents concurrent withdrawals from spending the same commission', async () => {
     await pool.query("UPDATE commissions SET status='available' WHERE user_id=$1", [inviter.id])
-    const request = { amount: 300, method: '支付宝', account: 'private-payout-account' }
+    const request = {
+      amount: 180,
+      method: '支付宝',
+      account: 'private-payout-account',
+      recipientName: '测试收款人',
+      confirmed: true,
+    }
     const results = await Promise.allSettled([
       withdraw(inviter, { ...request, requestKey: id() }),
       withdraw(inviter, { ...request, requestKey: id() }),
@@ -664,7 +677,7 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
       referralOwner.id,
     ])
     expect(commissions.rows).toHaveLength(1)
-    expect(commissions.rows[0].amount).toBe(300)
+    expect(commissions.rows[0].amount).toBe(180)
     const claimed = await fixtureUser(guestEmail)
     await pool.query(
       'UPDATE orders SET user_id=$1,guest_browser_digest=null WHERE contact_email=$2',
@@ -697,5 +710,498 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
       (await pool.query('SELECT count(*)::int n FROM commissions WHERE order_id=$1', [self.id]))
         .rows[0].n,
     ).toBe(0)
+  })
+  async function referralOrder(owner: User, contactEmail = `${id()}@guest.example.com`) {
+    const order = await newOrder(null, browser, {
+      quoteId: await quote(`${id()}@recharge.example.com`),
+      channel: 'alipay',
+      requestKey: id(),
+      contactEmail,
+      referralCode: owner.referralCode,
+    })
+    await acceptPayment('xorpay', null, {
+      orderId: order.id,
+      transactionId: id(),
+      amount: order.amount,
+      paid: true,
+    })
+    await completeOrder(order.id)
+    return order
+  }
+  it('counts settled guest referrals, locks tier rates on creation and recalculates after reversals', async () => {
+    const owner = await fixtureUser(`${id()}@example.com`)
+    const delivered = []
+    for (let i = 0; i < 5; i++) delivered.push(await referralOrder(owner))
+    expect((await account(owner)).referral).toMatchObject({
+      qualifiedInvites: 0,
+      current: { rateBps: 300 },
+    })
+    const oldRateOrder = await newOrder(null, browser, {
+      quoteId: await quote(`${id()}@recharge.example.com`),
+      channel: 'alipay',
+      requestKey: id(),
+      contactEmail: `${id()}@guest.example.com`,
+      referralCode: owner.referralCode,
+    })
+    await pool.query("UPDATE commissions SET status='available' WHERE user_id=$1", [owner.id])
+    expect((await account(owner)).referral).toMatchObject({
+      qualifiedInvites: 5,
+      current: { rateBps: 500 },
+    })
+    const nextOrder = await referralOrder(owner)
+    expect(nextOrder.rateBps).toBe(500)
+    await acceptPayment('xorpay', null, {
+      orderId: oldRateOrder.id,
+      transactionId: id(),
+      amount: oldRateOrder.amount,
+      paid: true,
+    })
+    await completeOrder(oldRateOrder.id)
+    expect(
+      (await pool.query('SELECT amount FROM commissions WHERE order_id=$1', [oldRateOrder.id]))
+        .rows[0].amount,
+    ).toBe(180)
+    // Claiming a guest order does not change the identity counted for the tier.
+    const contact = (
+      await pool.query('SELECT contact_email FROM orders WHERE id=$1', [delivered[0].id])
+    ).rows[0].contact_email
+    const claimed = await fixtureUser(contact)
+    await pool.query('UPDATE orders SET user_id=$1 WHERE id=$2', [claimed.id, delivered[0].id])
+    const previous = (await pool.query('SELECT body FROM settings WHERE id=1')).rows[0].body
+    try {
+      await pool.query(
+        `UPDATE settings SET body=jsonb_set(body,'{firstOrderOnly}','false') WHERE id=1`,
+      )
+      const repeat = await referralOrder(owner, contact)
+      await pool.query("UPDATE commissions SET status='available' WHERE order_id=$1", [repeat.id])
+      expect((await account(owner)).referral.qualifiedInvites).toBe(5)
+    } finally {
+      await pool.query('UPDATE settings SET body=$1 WHERE id=1', [JSON.stringify(previous)])
+    }
+    await pool.query("UPDATE commissions SET status='reversed' WHERE order_id=$1", [
+      delivered[1].id,
+    ])
+    expect((await account(owner)).referral).toMatchObject({
+      qualifiedInvites: 4,
+      current: { rateBps: 300 },
+    })
+  })
+
+  it('never withdraws topups, refunds or unsettled rewards; retries reserve funds exactly once', async () => {
+    const owner = await fundedBuyer(50000)
+    const input = {
+      amount: 100,
+      method: '支付宝',
+      account: 'pay@example.com',
+      recipientName: '测试收款人',
+      confirmed: true,
+      requestKey: id(),
+    }
+    await expect(withdraw(owner, input)).rejects.toThrow('邀请收益不足')
+    const failed = await newOrder(owner, browser, {
+      quoteId: await quote(),
+      channel: 'alipay',
+      requestKey: id(),
+    })
+    await acceptPayment('xorpay', null, {
+      orderId: failed.id,
+      transactionId: id(),
+      amount: failed.amount,
+      paid: true,
+    })
+    await pool.query("UPDATE orders SET status='failed' WHERE id=$1", [failed.id])
+    await refundFailedOrder(failed.id, 'test')
+    await expect(withdraw(owner, input)).rejects.toThrow('邀请收益不足')
+    await referralOrder(owner)
+    await expect(withdraw(owner, input)).rejects.toThrow('邀请收益不足')
+    await pool.query("UPDATE commissions SET status='available' WHERE user_id=$1", [owner.id])
+    await expect(withdraw(owner, { ...input, amount: 181 })).rejects.toThrow('邀请收益不足')
+    const requests = await Promise.all(Array.from({ length: 8 }, () => withdraw(owner, input)))
+    expect(new Set(requests.map((w) => w.id)).size).toBe(1)
+    await expect(withdraw(owner, { ...input, amount: 120 })).rejects.toThrow('不同的提现参数')
+    await expect(withdraw(owner, { ...input, account: 'different@example.com' })).rejects.toThrow(
+      '不同的提现参数',
+    )
+    const view = await account(owner)
+    expect(view).toMatchObject({
+      balance: 56000,
+      settled: 180,
+      frozen: 100,
+      available: 80,
+      withdrawn: 0,
+    })
+    expect(view.withdrawals[0].recipientName).toBe(input.recipientName)
+    expect(view.withdrawals[0]).not.toHaveProperty('requestHash')
+    const stored = (
+      await pool.query('SELECT recipient_name,account FROM withdrawals WHERE id=$1', [
+        requests[0].id,
+      ])
+    ).rows[0]
+    expect(stored.recipient_name).not.toContain(input.recipientName)
+    expect(stored.account).not.toContain(input.account)
+  })
+
+  it('serializes reviewers, releases rejection holds and records payout proof only after acceptance', async () => {
+    const owner = await fixtureUser(`${id()}@example.com`)
+    const reviewers = [
+      await fixtureUser(`${id()}@example.com`),
+      await fixtureUser(`${id()}@example.com`),
+    ]
+    await referralOrder(owner)
+    await pool.query("UPDATE commissions SET status='available' WHERE user_id=$1", [owner.id])
+    const request = {
+      amount: 180,
+      method: '支付宝',
+      account: 'pay@example.com',
+      recipientName: '测试收款人',
+      confirmed: true,
+    }
+    const w = await withdraw(owner, { ...request, requestKey: id() })
+    await expect(
+      reviewWithdrawal(reviewers[0], { id: w.id, status: 'paid', payoutReference: id() }),
+    ).rejects.toThrow('请先受理')
+    const results = await Promise.allSettled(
+      reviewers.map((reviewer) => reviewWithdrawal(reviewer, { id: w.id, status: 'processing' })),
+    )
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1)
+    const winner = reviewers[results.findIndex((result) => result.status === 'fulfilled')]
+    const loser = reviewers.find((reviewer) => reviewer.id !== winner.id)!
+    await expect(
+      reviewWithdrawal(loser, { id: w.id, status: 'rejected', note: '账号有误' }),
+    ).rejects.toThrow('其他管理员')
+    await reviewWithdrawal(winner, { id: w.id, status: 'rejected', note: '账号有误请重新申请' })
+    expect(await account(owner)).toMatchObject({ available: 180, frozen: 0, withdrawn: 0 })
+    const retry = await withdraw(owner, { ...request, requestKey: id() })
+    await reviewWithdrawal(winner, { id: retry.id, status: 'processing' })
+    const reference = id('transfer_')
+    await reviewWithdrawal(winner, { id: retry.id, status: 'paid', payoutReference: reference })
+    expect(await account(owner)).toMatchObject({ available: 0, frozen: 0, withdrawn: 180 })
+    const paid = (await account(owner)).withdrawals.find((entry) => entry.id === retry.id)!
+    expect(paid.payoutReference).toBe(reference)
+    expect(Number(paid.payoutAmount)).toBe(1.8)
+    await expect(
+      reviewWithdrawal(winner, { id: retry.id, status: 'rejected', note: '不能重复' }),
+    ).rejects.toThrow('已处理')
+    await referralOrder(owner)
+    await pool.query("UPDATE commissions SET status='available' WHERE user_id=$1", [owner.id])
+    const duplicate = await withdraw(owner, { ...request, requestKey: id() })
+    await reviewWithdrawal(winner, { id: duplicate.id, status: 'processing' })
+    await expect(
+      reviewWithdrawal(winner, {
+        id: duplicate.id,
+        status: 'paid',
+        payoutReference: reference,
+      }),
+    ).rejects.toThrow('流水号已登记')
+    expect(
+      (await account(owner)).withdrawals.find((entry) => entry.id === duplicate.id)?.status,
+    ).toBe('processing')
+  })
+
+  it('blocks payouts after reward reversals and requires actual USDT quantity', async () => {
+    const owner = await fixtureUser(`${id()}@example.com`)
+    const reviewer = await fixtureUser(`${id()}@example.com`)
+    const order = await referralOrder(owner)
+    await pool.query("UPDATE commissions SET status='available' WHERE user_id=$1", [owner.id])
+    const w = await withdraw(owner, {
+      amount: 180,
+      method: 'USDT',
+      network: 'ERC20',
+      account: `0x${'a'.repeat(40)}`,
+      recipientName: '测试收款人',
+      confirmed: true,
+      requestKey: id(),
+    })
+    await reviewWithdrawal(reviewer, { id: w.id, status: 'processing' })
+    await expect(
+      reviewWithdrawal(reviewer, { id: w.id, status: 'paid', payoutReference: id() }),
+    ).rejects.toThrow('USDT 数量')
+    await pool.query("UPDATE commissions SET status='reversed' WHERE order_id=$1", [order.id])
+    await expect(
+      reviewWithdrawal(reviewer, {
+        id: w.id,
+        status: 'paid',
+        payoutReference: id(),
+        payoutAmount: 0.25,
+      }),
+    ).rejects.toThrow('发生冲回')
+    expect(await account(owner)).toMatchObject({ available: 0, shortfall: 180 })
+    await reviewWithdrawal(reviewer, { id: w.id, status: 'rejected', note: '收益已冲回' })
+    expect(await account(owner)).toMatchObject({ available: 0, shortfall: 0, frozen: 0 })
+    await referralOrder(owner)
+    await pool.query(
+      "UPDATE commissions SET status='available' WHERE user_id=$1 AND status='pending'",
+      [owner.id],
+    )
+    const retry = await withdraw(owner, {
+      amount: 180,
+      method: 'USDT',
+      network: 'ERC20',
+      account: `0x${'a'.repeat(40)}`,
+      recipientName: '测试收款人',
+      confirmed: true,
+      requestKey: id(),
+    })
+    await reviewWithdrawal(reviewer, { id: retry.id, status: 'processing' })
+    await reviewWithdrawal(reviewer, {
+      id: retry.id,
+      status: 'paid',
+      payoutReference: id(),
+      payoutAmount: 0.250001,
+    })
+    expect(
+      (await account(owner)).withdrawals.find((entry) => entry.id === retry.id)?.payoutAmount,
+    ).toBe('0.250001')
+  })
+
+  it('enforces each destination minimum and fee, and rejection releases the entire reservation', async () => {
+    const owner = await fixtureUser(`${id()}@example.com`)
+    const reviewer = await fixtureUser(`${id()}@example.com`)
+    await referralOrder(owner)
+    await pool.query("UPDATE commissions SET status='available' WHERE user_id=$1", [owner.id])
+    const previous = (await pool.query('SELECT body FROM settings WHERE id=1')).rows[0].body
+    const configured = withdrawalChannels(previous)
+    withdrawalDestinations.forEach(({ key }, index) => {
+      configured.rules[key] = {
+        minimum: 100 + index * 10,
+        feeRateBps: (index + 1) * 100,
+        fixedFee: index + 1,
+      }
+    })
+    try {
+      await pool.query('UPDATE settings SET body=$1 WHERE id=1', [
+        JSON.stringify({ ...previous, withdrawalChannels: configured }),
+      ])
+      for (const { key, method, network } of withdrawalDestinations) {
+        const rule = configured.rules[key]
+        const fee = withdrawalFee(rule.minimum, rule)
+        const input = {
+          amount: rule.minimum,
+          method,
+          network,
+          account:
+            method === 'USDT'
+              ? network === 'TRC20'
+                ? `T${'a'.repeat(33)}`
+                : `0x${'a'.repeat(40)}`
+              : 'pay@example.com',
+          recipientName: '测试收款人',
+          confirmed: true,
+          requestKey: id(),
+          expectedFeeAmount: fee.feeAmount,
+        }
+        await expect(withdraw(owner, { ...input, amount: rule.minimum - 1 })).rejects.toThrow(
+          '最低起提',
+        )
+        await expect(withdraw(owner, { ...input, expectedFeeAmount: 0 })).rejects.toThrow(
+          '手续费已调整',
+        )
+        expect((await account(owner)).frozen).toBe(0)
+        const saved = await withdraw(owner, { ...input, feeAmount: 0, netAmount: 100000 })
+        expect(saved).toMatchObject({ amount: rule.minimum, network, ...fee })
+        expect((await account(owner)).frozen).toBe(rule.minimum)
+        await expect(
+          withdraw(owner, { ...input, expectedFeeAmount: fee.feeAmount + 1 }),
+        ).rejects.toThrow('不同的提现参数')
+        await reviewWithdrawal(reviewer, {
+          id: saved.id,
+          status: 'rejected',
+          note: '测试释放全部额度',
+        })
+        expect(await account(owner)).toMatchObject({ frozen: 0, available: 180, withdrawn: 0 })
+      }
+    } finally {
+      await pool.query('UPDATE settings SET body=$1 WHERE id=1', [JSON.stringify(previous)])
+    }
+  })
+
+  it('blocks closed channels and networks but preserves retries and review of existing USDT requests', async () => {
+    const owner = await fixtureUser(`${id()}@example.com`)
+    const reviewer = await fixtureUser(`${id()}@example.com`)
+    await referralOrder(owner)
+    await pool.query("UPDATE commissions SET status='available' WHERE user_id=$1", [owner.id])
+    const previous = (await pool.query('SELECT body FROM settings WHERE id=1')).rows[0].body
+    const configured = withdrawalChannels(previous)
+    configured.alipay = false
+    configured.wechat = false
+    configured.networks = { ERC20: false, TRC20: false, BSC: true, Polygon: true }
+    const saveConfig = () =>
+      pool.query('UPDATE settings SET body=$1 WHERE id=1', [
+        JSON.stringify({
+          ...previous,
+          alipay: false,
+          wechat: false,
+          crypto: false,
+          withdrawalChannels: configured,
+        }),
+      ])
+    const input = {
+      amount: 180,
+      method: 'USDT',
+      account: `0x${'a'.repeat(40)}`,
+      recipientName: '测试收款人',
+      confirmed: true,
+      requestKey: id(),
+    }
+    try {
+      await saveConfig()
+      for (const method of ['支付宝', '微信'])
+        await expect(withdraw(owner, { ...input, method })).rejects.toThrow('渠道暂未开放')
+      await expect(withdraw(owner, { ...input, network: 'ERC20' })).rejects.toThrow('网络暂未开放')
+      expect((await account(owner)).frozen).toBe(0)
+      for (const network of ['BSC', 'Polygon'] as const) {
+        configured.usdt = true
+        await saveConfig()
+        const request = { ...input, network, requestKey: id() }
+        const saved = await withdraw(owner, request)
+        expect(saved.network).toBe(network)
+        configured.usdt = false
+        await saveConfig()
+        expect((await withdraw(owner, request)).id).toBe(saved.id)
+        await expect(withdraw(owner, { ...request, requestKey: id() })).rejects.toThrow(
+          '渠道暂未开放',
+        )
+        await reviewWithdrawal(reviewer, { id: saved.id, status: 'processing' })
+        if (network === 'BSC')
+          await reviewWithdrawal(reviewer, {
+            id: saved.id,
+            status: 'rejected',
+            note: '测试释放额度',
+          })
+        else
+          await reviewWithdrawal(reviewer, {
+            id: saved.id,
+            status: 'paid',
+            payoutReference: id(),
+            payoutAmount: 0.25,
+          })
+      }
+      expect(await account(owner)).toMatchObject({ frozen: 0, available: 0, withdrawn: 180 })
+    } finally {
+      await pool.query('UPDATE settings SET body=$1 WHERE id=1', [JSON.stringify(previous)])
+    }
+  })
+
+  it('snapshots fees before settings change and pays the saved net amount in CNY', async () => {
+    const owner = await fixtureUser(`${id()}@example.com`)
+    const reviewer = await fixtureUser(`${id()}@example.com`)
+    await referralOrder(owner)
+    await pool.query("UPDATE commissions SET status='available' WHERE user_id=$1", [owner.id])
+    const previous = (await pool.query('SELECT body FROM settings WHERE id=1')).rows[0].body
+    const configured = withdrawalChannels(previous)
+    configured.rules.alipay = { minimum: 100, feeRateBps: 250, fixedFee: 15 }
+    const saveConfig = () =>
+      pool.query('UPDATE settings SET body=$1 WHERE id=1', [
+        JSON.stringify({ ...previous, withdrawalChannels: configured }),
+      ])
+    try {
+      await saveConfig()
+      const request = {
+        amount: 180,
+        method: '支付宝',
+        account: 'pay@example.com',
+        recipientName: '测试收款人',
+        confirmed: true,
+        requestKey: id(),
+        expectedFeeAmount: 20,
+      }
+      const saved = await withdraw(owner, request)
+      expect(saved).toMatchObject({ feeAmount: 20, netAmount: 160, feeRateBps: 250, fixedFee: 15 })
+      configured.rules.alipay = { minimum: 500, feeRateBps: 500, fixedFee: 30 }
+      await saveConfig()
+      expect(await withdraw(owner, request)).toEqual(saved)
+      await reviewWithdrawal(reviewer, { id: saved.id, status: 'processing' })
+      await reviewWithdrawal(reviewer, { id: saved.id, status: 'paid', payoutReference: id() })
+      const view = await account(owner)
+      expect(view).toMatchObject({ available: 0, withdrawn: 180, frozen: 0 })
+      expect(view.withdrawals[0]).toMatchObject({
+        feeAmount: 20,
+        netAmount: 160,
+        payoutAmount: '1.600000',
+      })
+    } finally {
+      await pool.query('UPDATE settings SET body=$1 WHERE id=1', [JSON.stringify(previous)])
+    }
+  })
+
+  it('estimates USDT from the saved net amount, isolates FX caches and refuses expired rates', async () => {
+    const owner = await fixtureUser(`${id()}@example.com`)
+    await referralOrder(owner)
+    await pool.query("UPDATE commissions SET status='available' WHERE user_id=$1", [owner.id])
+    const previous = (await pool.query('SELECT body FROM settings WHERE id=1')).rows[0].body
+    const usdBefore = (await pool.query("SELECT * FROM exchange_rates WHERE id='USD_CNY'")).rows[0]
+    const configured = withdrawalChannels(previous)
+    configured.rules.BSC = { minimum: 100, feeRateBps: 250, fixedFee: 15 }
+    const sourceDate = new Date().toISOString().slice(0, 10)
+    const fetcher = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ date: sourceDate, usdt: { cny: 8 }, usd: { cny: 7 } })),
+    )
+    try {
+      await pool.query('UPDATE settings SET body=$1 WHERE id=1', [
+        JSON.stringify({ ...previous, withdrawalChannels: configured }),
+      ])
+      await pool.query(
+        "UPDATE exchange_rates SET rate_e8=null,expires_at=null,refresh_after=now(),locked_until=null WHERE id='USDT_CNY'",
+      )
+      const saved = await withdraw(owner, {
+        amount: 180,
+        method: 'USDT',
+        network: 'BSC',
+        account: `0x${'a'.repeat(40)}`,
+        recipientName: '测试收款人',
+        confirmed: true,
+        requestKey: id(),
+        expectedFeeAmount: 20,
+      })
+      vi.stubGlobal('fetch', fetcher)
+      const estimates = await Promise.allSettled(
+        Array.from({ length: 8 }, () => withdrawalPayoutEstimate(saved.id)),
+      )
+      expect(fetcher).toHaveBeenCalledTimes(1)
+      const first = estimates.find((result) => result.status === 'fulfilled')
+      expect(first?.status).toBe('fulfilled')
+      if (first?.status !== 'fulfilled') throw new Error('No estimate returned')
+      expect(first.value).toMatchObject({
+        withdrawalId: saved.id,
+        netAmount: 160,
+        estimatedUsdt: '0.200000',
+        rate: 8,
+        sourceDate,
+        refreshFailed: false,
+      })
+      expect(await withdrawalPayoutEstimate(saved.id)).toEqual(first.value)
+      expect(fetcher).toHaveBeenCalledTimes(1)
+      fetcher.mockResolvedValue(
+        new Response(JSON.stringify({ date: sourceDate, usdt: { cny: 5 } })),
+      )
+      const refreshed = await withdrawalPayoutEstimate(saved.id, true)
+      expect(refreshed).toMatchObject({ rate: 5, estimatedUsdt: '0.320000' })
+      expect(fetcher.mock.calls.map((args) => (args as unknown[])[0])).toEqual([
+        usdtExchangeSources[0],
+        usdtExchangeSources[0],
+      ])
+      fetcher.mockRejectedValue(new Error('private network error'))
+      expect(await withdrawalPayoutEstimate(saved.id, true)).toMatchObject({
+        rate: 5,
+        estimatedUsdt: '0.320000',
+        refreshFailed: true,
+      })
+      await pool.query(
+        "UPDATE exchange_rates SET expires_at=now()-interval '1 second' WHERE id='USDT_CNY'",
+      )
+      await expect(withdrawalPayoutEstimate(saved.id, true)).rejects.toThrow('参考汇率暂不可用')
+      expect((await pool.query("SELECT * FROM exchange_rates WHERE id='USD_CNY'")).rows[0]).toEqual(
+        usdBefore,
+      )
+      expect((await account(owner)).withdrawals[0]).toMatchObject({
+        status: 'pending',
+        payoutAmount: null,
+        feeAmount: 20,
+      })
+    } finally {
+      vi.unstubAllGlobals()
+      await pool.query('UPDATE settings SET body=$1 WHERE id=1', [JSON.stringify(previous)])
+    }
   })
 })

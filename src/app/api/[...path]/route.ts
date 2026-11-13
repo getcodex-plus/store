@@ -26,6 +26,8 @@ import {
   withdraw,
   acceptPayment,
   refundFailedOrder,
+  reviewWithdrawal,
+  withdrawalPayoutEstimate,
 } from '../../../server/services'
 import { pool, rows, transaction } from '../../../server/db'
 import { normalizeDemoSession } from '../../../lib'
@@ -39,6 +41,9 @@ import { requireTurnstile, turnstilePublic } from '../../../server/turnstile'
 import { setPassword, securityStatus } from '../../../server/security'
 import { funnelSchema, sourceSchema } from '../../../funnel'
 import { recordView } from '../../../server/funnel'
+import { referralTiersSchema, withdrawalChannelsSchema } from '../../../server/referral-policy'
+import { defaultReferralTiers } from '../../../referral'
+import { withdrawalChannels } from '../../../withdrawals'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -212,18 +217,7 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
     else if (path === 'wallet/withdraw' && method === 'POST') {
       const user = await requireUser()
       await requireRecent(user)
-      await withdraw(
-        user,
-        z
-          .object({
-            amount: z.number().int().positive().max(100000000),
-            method: z.enum(['支付宝', '微信', 'USDT']),
-            account: z.string().trim().min(3).max(250),
-            requestKey: z.string().min(16).max(128),
-          })
-          .parse(data),
-      )
-      result = { submitted: true }
+      result = { submitted: true, withdrawal: await withdraw(user, data) }
     } else if (path.startsWith('admin')) {
       const admin = await requireUser(true)
       const permissionMap: Record<string, Permission> = {
@@ -234,6 +228,7 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
         'admin/exchange-rates/refresh': 'settings:write',
         'admin/users': 'users:write',
         'admin/withdrawals': 'withdrawals:write',
+        'admin/withdrawals/estimate': 'withdrawals:write',
         'admin/orders/retry': 'orders:write',
         'admin/orders/refund': 'orders:write',
         'admin/roles': 'roles:write',
@@ -345,8 +340,10 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
         const conf = z
           .object({
             rateBps: z.number().int().min(0).max(5000),
+            referralTiers: referralTiersSchema.optional(),
+            withdrawalChannels: withdrawalChannelsSchema.optional(),
             settlementDays: z.number().int().min(0).max(180),
-            minimumWithdrawal: z.number().int().min(100).max(100000000),
+            minimumWithdrawal: z.number().int().min(100).max(100000000).optional(),
             firstOrderOnly: z.boolean(),
             supportEmail: z.union([z.email(), z.literal('')]),
             sessionGuideUrl: z
@@ -400,9 +397,14 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
             .rows[0].body
           const version =
             current.epayVersion ?? (current.fiatProvider === 'epay_v2' ? 'epay_v2' : 'epay_v1')
+          const referralTiers = conf.referralTiers ?? current.referralTiers ?? defaultReferralTiers
           await client.query('UPDATE settings SET body=$1 WHERE id=1', [
             JSON.stringify({
               ...conf,
+              referralTiers,
+              withdrawalChannels: conf.withdrawalChannels ?? withdrawalChannels(current),
+              minimumWithdrawal: conf.minimumWithdrawal ?? current.minimumWithdrawal,
+              rateBps: referralTiers[0].rateBps,
               epayVersion: version,
               fiatProvider: conf.fiatProvider === 'xorpay' ? 'xorpay' : version,
             }),
@@ -439,28 +441,15 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
           await audit(admin.email, input.disabled ? '停用用户' : '启用用户', input.id, client)
         })
         result = { saved: true }
-      } else if (path === 'admin/withdrawals' && method === 'POST') {
+      } else if (path === 'admin/withdrawals/estimate' && method === 'POST') {
         const input = z
-          .object({
-            id: z.string(),
-            status: z.enum(['paid', 'rejected']),
-            note: z.string().trim().min(3).max(300),
-          })
+          .object({ id: z.string().min(1), refresh: z.boolean().default(false) })
           .parse(data)
-        await transaction(async (client) => {
-          const changed = await client.query(
-            "UPDATE withdrawals SET status=$2,note=$3 WHERE id=$1 AND status='pending' RETURNING id",
-            [input.id, input.status, input.note],
-          )
-          if (!changed.rowCount) throw new ApiError(409, '该提现已处理，请刷新')
-          await audit(
-            admin.email,
-            input.status === 'paid' ? '登记提现打款' : '拒绝提现',
-            input.id,
-            client,
-          )
-        })
-        result = { saved: true }
+        await rateLimit(`withdrawal-estimate:${admin.id}`, 30, 60)
+        if (input.refresh) await rateLimit(`withdrawal-fx-refresh:${admin.id}`, 6, 60)
+        result = await withdrawalPayoutEstimate(input.id, input.refresh)
+      } else if (path === 'admin/withdrawals' && method === 'POST') {
+        result = await reviewWithdrawal(admin, data)
       } else if (path === 'admin/orders/retry' && method === 'POST') {
         const input = z.object({ id: z.string() }).parse(data)
         await transaction(async (client) => {
