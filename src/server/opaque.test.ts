@@ -1,6 +1,7 @@
 import { prepareTestDatabase, cleanupTestDatabase, testQuery } from './database-test-support'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { client, ready } from '@serenity-kit/opaque'
+import { URI } from 'otpauth'
 
 vi.hoisted(() => {
   if (process.env.TEST_DATABASE_URL) {
@@ -21,7 +22,7 @@ const nextSecret = 'synthetic-replacement-password'
 
 class Browser {
   cookies = new Map([['getgpt_browser', id()]])
-  async request(path: string, body?: object) {
+  async request(path: string, body?: object, headers?: Record<string, string>) {
     const response = await auth.handler(
       new Request(`http://localhost:3000/api/auth${path}`, {
         method: body ? 'POST' : 'GET',
@@ -29,6 +30,7 @@ class Browser {
           origin: 'http://localhost:3000',
           'content-type': 'application/json',
           cookie: [...this.cookies].map(([key, value]) => `${key}=${value}`).join('; '),
+          ...headers,
         },
         ...(body ? { body: JSON.stringify(body) } : {}),
       }),
@@ -39,7 +41,7 @@ class Browser {
     }
     return response
   }
-  async emailLogin(email: string) {
+  async emailCode(email: string) {
     expect(
       (await this.request('/email-otp/send-verification-otp', { email, type: 'sign-in' })).status,
     ).toBe(200)
@@ -48,10 +50,15 @@ class Browser {
         Prisma.sql`SELECT code FROM demo_mailbox WHERE browser_digest=${hash(this.cookies.get('getgpt_browser')!)} AND email=${email}`,
       )
     ).rows[0]
-    expect(
-      (await this.request('/sign-in/email-otp', { email, otp: decrypt(row.code, 'demo-email') }))
-        .status,
-    ).toBe(200)
+    return decrypt(row.code, 'demo-email')
+  }
+  async emailLogin(email: string) {
+    const response = await this.request('/sign-in/email-otp', {
+      email,
+      otp: await this.emailCode(email),
+    })
+    expect(response.status).toBe(200)
+    return response.json()
   }
 }
 
@@ -72,8 +79,16 @@ async function prepareLogin(browser: Browser, email: string, password = secret) 
 }
 
 async function prepareEnrollment(browser: Browser, password = secret) {
+  return prepareRegistration(browser, 'enroll', password)
+}
+
+async function prepareReset(browser: Browser) {
+  return prepareRegistration(browser, 'resetPassword', nextSecret)
+}
+
+async function prepareRegistration(browser: Browser, operation: string, password: string) {
   const start = client.startRegistration({ password })
-  const response = await browser.request('/opaque/enroll/challenge', {
+  const response = await browser.request(`/opaque/${operation}/challenge`, {
     registrationRequest: start.registrationRequest,
   })
   expect(response.status).toBe(200)
@@ -274,5 +289,182 @@ suite('OPAQUE authentication against PostgreSQL', () => {
       Prisma.sql`UPDATE auth_session SET "createdAt"=now()-interval '11 minutes' WHERE "userId"=${userId}`,
     )
     expect((await browser.request('/opaque/changePassword/complete', change)).status).toBe(403)
+  })
+
+  it('resets with email verification without the old password and revokes every session and old challenge', async () => {
+    const { browser, email, userId } = await fixture()
+    const other = new Browser()
+    await other.emailLogin(email)
+    const outstanding = await prepareLogin(new Browser(), email)
+    const reset = await prepareReset(browser)
+    expect((await browser.request('/opaque/resetPassword/complete', reset)).status).toBe(200)
+    expect(await (await browser.request('/get-session')).json()).toBeNull()
+    expect(await (await other.request('/get-session')).json()).toBeNull()
+    expect((await new Browser().request('/sign-in/opaque/complete', outstanding)).status).toBe(401)
+    expect((await prepareLogin(new Browser(), email)).loginResult).toBeUndefined()
+    const fresh = new Browser()
+    expect(
+      (
+        await fresh.request(
+          '/sign-in/opaque/complete',
+          await prepareLogin(fresh, email, nextSecret),
+        )
+      ).status,
+    ).toBe(200)
+    const accounts = (
+      await testQuery(
+        Prisma.sql`SELECT "providerId",password FROM auth_account WHERE "userId"=${userId}`,
+      )
+    ).rows
+    expect(accounts).toEqual([{ providerId: 'opaque', password: null }])
+  })
+
+  it('requires a recent independent verification and rejects password-only and unauthenticated sessions', async () => {
+    const { browser, email, userId } = await fixture()
+    const registration = client.startRegistration({ password: nextSecret })
+    const body = { registrationRequest: registration.registrationRequest }
+    const other = new Browser()
+    expect((await other.request('/opaque/resetPassword/challenge', body)).status).toBe(403)
+    await other.request('/sign-in/opaque/complete', await prepareLogin(other, email))
+    expect((await other.request('/opaque/resetPassword/challenge', body)).status).toBe(403)
+    const reset = await prepareReset(browser)
+    expect((await other.request('/opaque/resetPassword/complete', reset)).status).toBe(401)
+    const stale = await prepareReset(browser)
+    await testQuery(
+      Prisma.sql`UPDATE auth_session SET "createdAt"=now()-interval '11 minutes' WHERE "userId"=${userId}`,
+    )
+    expect((await browser.request('/opaque/resetPassword/challenge', body)).status).toBe(403)
+    expect((await browser.request('/opaque/resetPassword/complete', stale)).status).toBe(403)
+  })
+
+  it('binds reset tickets to purpose, session and expiration and rejects replay', async () => {
+    const { browser, email } = await fixture()
+    const wrongPurpose = await prepareReset(browser)
+    expect((await browser.request('/opaque/enroll/complete', wrongPurpose)).status).toBe(401)
+    const other = new Browser()
+    await other.emailLogin(email)
+    expect(
+      (await other.request('/opaque/resetPassword/complete', await prepareReset(browser))).status,
+    ).toBe(401)
+    const expired = await prepareReset(browser)
+    await testQuery(
+      Prisma.sql`UPDATE auth_verification SET "expiresAt"=now()-interval '1 second' WHERE identifier=${`opaque:${hash(expired.state)}`}`,
+    )
+    expect((await browser.request('/opaque/resetPassword/complete', expired)).status).toBe(401)
+    const reset = await prepareReset(browser)
+    const statuses = await Promise.all([
+      browser.request('/opaque/resetPassword/complete', reset),
+      browser.request('/opaque/resetPassword/complete', reset),
+    ])
+    expect(statuses.map((response) => response.status).sort()).toEqual([200, 401])
+    await browser.emailLogin(email)
+    expect((await browser.request('/opaque/resetPassword/complete', reset)).status).toBe(401)
+  })
+
+  it('rechecks disabled users, credential versions and session assurance at reset completion', async () => {
+    const { browser, userId, email } = await fixture()
+    const disabled = await prepareReset(browser)
+    await testQuery(Prisma.sql`UPDATE users SET disabled=true WHERE id=${userId}`)
+    expect((await browser.request('/opaque/resetPassword/complete', disabled)).status).toBe(403)
+    await testQuery(Prisma.sql`UPDATE users SET disabled=false WHERE id=${userId}`)
+    const downgraded = await prepareReset(browser)
+    await testQuery(Prisma.sql`UPDATE auth_session SET method='password' WHERE "userId"=${userId}`)
+    expect((await browser.request('/opaque/resetPassword/complete', downgraded)).status).toBe(403)
+    await browser.emailLogin(email)
+    const changed = await prepareReset(browser)
+    expect(
+      (await browser.request('/opaque/changePassword/complete', await prepareChange(browser)))
+        .status,
+    ).toBe(200)
+    expect((await browser.request('/opaque/resetPassword/complete', changed)).status).toBe(401)
+  })
+
+  it('rejects cross-account reset tickets and cross-origin reset requests', async () => {
+    const { browser } = await fixture()
+    const { browser: other } = await fixture()
+    expect(
+      (await other.request('/opaque/resetPassword/complete', await prepareReset(browser))).status,
+    ).toBe(401)
+    const reset = await prepareReset(browser)
+    expect(
+      (
+        await browser.request('/opaque/resetPassword/complete', reset, {
+          origin: 'https://evil.example',
+        })
+      ).status,
+    ).toBe(403)
+    expect((await browser.request('/opaque/resetPassword/complete', reset)).status).toBe(200)
+  })
+
+  it('keeps MFA required before and after a password reset', async () => {
+    const { browser, email, userId } = await fixture()
+    expect((await browser.request('/two-factor/enable', { method: 'otp' })).status).toBe(200)
+    const setup = await browser.request('/two-factor/enable', {})
+    expect(setup.status).toBe(200)
+    const totp = URI.parse((await setup.json()).totpURI)
+    expect(
+      (await browser.request('/two-factor/verify-totp', { code: totp.generate() })).status,
+    ).toBe(200)
+    const recovery = new Browser()
+    expect(await recovery.emailLogin(email)).toMatchObject({ twoFactorRedirect: true })
+    expect(await (await recovery.request('/get-session')).json()).toBeNull()
+    const request = {
+      registrationRequest: client.startRegistration({ password: nextSecret }).registrationRequest,
+    }
+    expect((await recovery.request('/opaque/resetPassword/challenge', request)).status).toBe(403)
+    expect((await recovery.request('/two-factor/verify-totp', { code: 'invalid' })).ok).toBe(false)
+    expect((await recovery.request('/opaque/resetPassword/challenge', request)).status).toBe(403)
+    expect(
+      (await recovery.request('/two-factor/verify-totp', { code: totp.generate() })).status,
+    ).toBe(200)
+    expect(
+      (await recovery.request('/opaque/resetPassword/complete', await prepareReset(recovery)))
+        .status,
+    ).toBe(200)
+    expect(
+      (await testQuery(Prisma.sql`SELECT two_factor_enabled FROM users WHERE id=${userId}`)).rows[0]
+        .two_factor_enabled,
+    ).toBe(true)
+    expect(
+      (
+        await testQuery(
+          Prisma.sql`SELECT id FROM "twoFactor" WHERE "userId"=${userId} AND verified=true`,
+        )
+      ).rows,
+    ).toHaveLength(1)
+    const fresh = new Browser()
+    const login = await fresh.request(
+      '/sign-in/opaque/complete',
+      await prepareLogin(fresh, email, nextSecret),
+    )
+    expect(await login.json()).toMatchObject({ twoFactorRedirect: true })
+    expect(await (await fresh.request('/get-session')).json()).toBeNull()
+  })
+
+  it('does not silently register an unknown email during recovery and consumes the email OTP', async () => {
+    const email = `${id('recovery-')}@example.com`
+    const browser = new Browser()
+    const otp = await browser.emailCode(email)
+    const headers = { 'x-getgpt-recovery': '1' }
+    const result = await browser.request('/sign-in/email-otp', { email, otp }, headers)
+    expect(result.status).toBe(400)
+    expect(await result.json()).toMatchObject({
+      message: '此邮箱尚未注册，请返回登录页面使用邮箱验证码注册',
+    })
+    expect(
+      (await testQuery(Prisma.sql`SELECT id FROM users WHERE email=${email}`)).rows,
+    ).toHaveLength(0)
+    expect((await browser.request('/sign-in/email-otp', { email, otp }, headers)).ok).toBe(false)
+  })
+
+  it('does not use reset to create a credential for an account without a password', async () => {
+    const { browser } = await fixture(false)
+    const response = await browser.request('/opaque/resetPassword/challenge', {
+      registrationRequest: client.startRegistration({ password: nextSecret }).registrationRequest,
+    })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({
+      message: '此账号尚未设置密码，请在账号安全页面设置登录密码',
+    })
   })
 })

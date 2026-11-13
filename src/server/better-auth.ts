@@ -116,6 +116,8 @@ const sensitivePaths = new Set([
   '/opaque/enroll/complete',
   '/opaque/changePassword/challenge',
   '/opaque/changePassword/complete',
+  '/opaque/resetPassword/challenge',
+  '/opaque/resetPassword/complete',
   '/update-user',
 ])
 const disabledPasswordPaths = new Set([
@@ -139,7 +141,7 @@ const policy: BetterAuthPlugin = {
           validateRuntime()
           if (disabledPasswordPaths.has(ctx.path))
             throw new APIError('FORBIDDEN', {
-              message: '请使用密码登录，或通过邮箱验证码登录后设置密码',
+              message: '请使用密码登录；忘记密码请通过登录窗口中的“忘记密码”验证身份后重置',
             })
           if (
             ctx.path.startsWith('/two-factor/') &&
@@ -243,6 +245,8 @@ export const auth = betterAuth({
   database: prismaAdapter(db, { provider: 'postgresql', transaction: true }),
   trustedOrigins: [appUrl],
   advanced: {
+    disableOriginCheck: false,
+    disableCSRFCheck: false,
     cookiePrefix: 'getgpt',
     useSecureCookies: !demo,
     database: { generateId: () => id('a_') },
@@ -296,6 +300,12 @@ export const auth = betterAuth({
     user: {
       create: {
         before: async (user, ctx) => {
+          // Email OTP has already been verified here. Recovery must not silently
+          // register a new account when the user entered a different address.
+          if (ctx?.path === '/sign-in/email-otp' && ctx.headers?.get('x-getgpt-recovery') === '1')
+            throw new APIError('BAD_REQUEST', {
+              message: '此邮箱尚未注册，请返回登录页面使用邮箱验证码注册',
+            })
           const referral = ctx?.headers?.get('x-getgpt-referral')?.slice(0, 40)
           const adapter = await hookAdapter(ctx?.context)
           const inviter = referral

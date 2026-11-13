@@ -204,6 +204,14 @@ export function Security() {
             </Space.Compact>
           </Card>
           <Card title={data.password ? '修改登录密码' : '设置登录密码'}>
+            {data.password && (
+              <p>
+                不记得当前密码？
+                <Button type="link" onClick={() => openLogin(true, 'reset')}>
+                  验证身份并重置密码
+                </Button>
+              </p>
+            )}
             <Form
               form={form}
               layout="vertical"

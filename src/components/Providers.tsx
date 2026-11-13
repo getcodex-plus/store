@@ -12,20 +12,27 @@ interface Context {
   error: string
   refresh: () => Promise<void>
   loginOpen: boolean
-  openLogin: (open: boolean) => void
+  loginIntent: 'login' | 'reset'
+  openLogin: (open: boolean, intent?: 'login' | 'reset') => void
 }
 const State = createContext<Context>({
   data: null,
   error: '',
   refresh: async () => {},
   loginOpen: false,
+  loginIntent: 'login',
   openLogin: () => {},
 })
 export const useSite = () => useContext(State)
 function StateProvider({ children, nonce }: { children: React.ReactNode; nonce?: string }) {
   const [data, setData] = useState<Bootstrap | null>(null)
   const [error, setError] = useState('')
-  const [loginOpen, openLogin] = useState(false)
+  const [loginOpen, setLoginOpen] = useState(false)
+  const [loginIntent, setLoginIntent] = useState<'login' | 'reset'>('login')
+  const openLogin = useCallback((open: boolean, intent: 'login' | 'reset' = 'login') => {
+    if (open) setLoginIntent(intent)
+    setLoginOpen(open)
+  }, [])
   const refresh = useCallback(async () => {
     try {
       setData(await api<Bootstrap>('/bootstrap'))
@@ -51,7 +58,7 @@ function StateProvider({ children, nonce }: { children: React.ReactNode; nonce?:
     }
   }, [refresh])
   return (
-    <State.Provider value={{ data, error, refresh, loginOpen, openLogin, nonce }}>
+    <State.Provider value={{ data, error, refresh, loginOpen, loginIntent, openLogin, nonce }}>
       {children}
     </State.Provider>
   )

@@ -44,11 +44,11 @@ export async function signInOpaque(email: string, password: string, headers?: He
   })
 }
 
-export async function enrollOpaque(password: string) {
+async function registerOpaque(password: string, operation: 'enroll' | 'resetPassword') {
   checkPassword(password)
   const client = await cryptography()
   const { clientRegistrationState, registrationRequest } = client.startRegistration({ password })
-  const { challenge, state } = await post<Challenge>('/opaque/enroll/challenge', {
+  const { challenge, state } = await post<Challenge>(`/opaque/${operation}/challenge`, {
     registrationRequest,
   })
   const { registrationRecord } = client.finishRegistration({
@@ -56,7 +56,15 @@ export async function enrollOpaque(password: string) {
     clientRegistrationState,
     registrationResponse: challenge,
   })
-  return post('/opaque/enroll/complete', { registrationRecord, state })
+  return post(`/opaque/${operation}/complete`, { registrationRecord, state })
+}
+
+export async function enrollOpaque(password: string) {
+  return registerOpaque(password, 'enroll')
+}
+
+export async function resetOpaquePassword(password: string) {
+  return registerOpaque(password, 'resetPassword')
 }
 
 export async function changeOpaquePassword(currentPassword: string, newPassword: string) {

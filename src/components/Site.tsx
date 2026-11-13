@@ -29,6 +29,7 @@ import { useBotCheck } from './BotCheck'
 import { useSite } from './Providers'
 import { api } from '../lib'
 import { BrandMark } from './BrandMark'
+import { PasswordResetForm } from './PasswordResetForm'
 
 export function Brand({ light = false }: { light?: boolean }) {
   return (
@@ -47,7 +48,12 @@ export function Brand({ light = false }: { light?: boolean }) {
   )
 }
 export function LoginDialog() {
-  const { data, loginOpen, openLogin, refresh } = useSite()
+  const { loginOpen, loginIntent } = useSite()
+  return loginOpen ? <LoginDialogContent key={loginIntent} /> : null
+}
+
+function LoginDialogContent() {
+  const { data, loginOpen, loginIntent, openLogin, refresh } = useSite()
   const bot = useBotCheck('login', loginOpen)
   const botOptions = () => ({ headers: { 'x-turnstile-token': bot.token() || '' } })
   const { message } = App.useApp()
@@ -57,6 +63,8 @@ export function LoginDialog() {
   const [busy, setBusy] = useState(false)
   const [countdown, setCountdown] = useState(0)
   const [mode, setMode] = useState('email')
+  const [recovery, setRecovery] = useState(loginIntent === 'reset')
+  const [recoveryEmail, setRecoveryEmail] = useState<string | null>(null)
   const [mfa, setMfa] = useState('')
   const [mfaCode, setMfaCode] = useState('')
   const [mfaMethods, setMfaMethods] = useState<string[]>([])
@@ -85,6 +93,13 @@ export function LoginDialog() {
       return
     }
     await refresh()
+    if (recovery) {
+      const session = authResult(await authClient.getSession())
+      if (!session) throw new Error('验证已失效，请重新验证身份')
+      setMfa('')
+      setRecoveryEmail(session.user.email)
+      return
+    }
     openLogin(false)
     message.success('登录成功')
     form.resetFields()
@@ -160,6 +175,7 @@ export function LoginDialog() {
         headers: {
           ...botOptions().headers,
           ...(referral ? { 'x-getgpt-referral': referral } : {}),
+          ...(recovery ? { 'x-getgpt-recovery': '1' } : {}),
         },
       }
       const result =
@@ -181,15 +197,34 @@ export function LoginDialog() {
   }
   return (
     <Modal
-      title="欢迎来到 GetCodex Plus"
+      title={recovery ? '重置登录密码' : '欢迎来到 GetCodex Plus'}
       open={loginOpen}
-      onCancel={() => openLogin(false)}
+      onCancel={() => {
+        openLogin(false)
+        void refresh()
+      }}
       footer={null}
       width={420}
       destroyOnHidden
     >
-      {bot.widget}
-      {mfa ? (
+      {!recoveryEmail && bot.widget}
+      {recoveryEmail ? (
+        <PasswordResetForm
+          email={recoveryEmail}
+          onVerifyAgain={() => {
+            setRecoveryEmail(null)
+            setSent(false)
+            setDemoCode('')
+            setMfaCode('')
+            form.resetFields(['code', 'password'])
+          }}
+          onComplete={async () => {
+            await refresh()
+            openLogin(false)
+            message.success('密码已重置，所有会话已注销，请使用新密码重新登录')
+          }}
+        />
+      ) : mfa ? (
         <>
           <h3>完成二步验证</h3>
           {mfaMethods.includes('totp') && mfaMethods.includes('otp') && (
@@ -268,25 +303,38 @@ export function LoginDialog() {
             完成二步验证
           </Button>
           <Button className="mt-24" block onClick={() => setMfa('')}>
-            返回登录
+            {recovery ? '返回身份验证' : '返回登录'}
           </Button>
         </>
       ) : (
         <>
-          <p className="muted">新用户可通过邮箱验证码创建账号。</p>
+          <p className="muted">
+            {recovery
+              ? '通过邮箱验证码或 Passkey 登录，完成账号所需的二步验证后，即可设置新密码。'
+              : '新用户可通过邮箱验证码创建账号。'}
+          </p>
           <Button block icon={<KeyOutlined />} onClick={passkey} loading={busy}>
             使用 Passkey 登录
           </Button>
           <Divider plain>或</Divider>
-          <Tabs
-            activeKey={mode}
-            onChange={setMode}
-            items={[
-              { key: 'email', label: '邮箱验证码' },
-              { key: 'password', label: '密码登录' },
-            ]}
-          />
-          <Form form={form} layout="vertical" onFinish={submit} requiredMark={false}>
+          {!recovery && (
+            <Tabs
+              activeKey={mode}
+              onChange={setMode}
+              items={[
+                { key: 'email', label: '邮箱验证码' },
+                { key: 'password', label: '密码登录' },
+              ]}
+            />
+          )}
+          <Form
+            name="account-login"
+            form={form}
+            layout="vertical"
+            onFinish={submit}
+            requiredMark={false}
+            initialValues={{ email: recovery ? data?.user?.email : undefined }}
+          >
             <Form.Item
               name="email"
               label="邮箱地址"
@@ -335,7 +383,19 @@ export function LoginDialog() {
               />
             )}
             <Button type="primary" htmlType="submit" block loading={busy} className="mt-20">
-              登录 / 注册
+              {recovery ? '验证身份并继续' : '登录 / 注册'}
+            </Button>
+            <Button
+              block
+              type="link"
+              disabled={busy}
+              onClick={() => {
+                setRecovery(!recovery)
+                setMode('email')
+                form.resetFields(['password'])
+              }}
+            >
+              {recovery ? '返回登录' : '忘记密码？'}
             </Button>
             {data?.mode === 'demo' && (
               <p className="tiny muted">
