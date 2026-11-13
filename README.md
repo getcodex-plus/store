@@ -2,13 +2,15 @@
 
 官网域名：`getcodex.plus`。正式部署时设置 `APP_URL=https://getcodex.plus`，本地开发继续使用 `http://localhost:3000`。
 
+项目目录与包名统一为 `getcodex-plus`。
+
 面向终端用户的 GPT 充值与升级网站。Bun + Next.js App Router + React + Ant Design + PostgreSQL，账户基于 Better Auth；已有 AICDK 负责真实兑换执行。
 
 商业内容、SEO 配置、服务说明快照及购买阶段统计见 [增长与 SEO 说明](docs/growth-and-seo.md)。正式上线前需在后台填写真实服务期限、支持邮箱及可用的账号操作指引；示例数据不会自动变成服务承诺。
 
 ## 本地运行
 
-需要 Bun 1.4.4+、Node.js 22.12+（测试工具兼容）和 PostgreSQL 18。依赖已锁定，使用 `bun install --frozen-lockfile` 安装。
+需要 Bun 1.4.4+、Node.js 22.12+（运行 Next.js 开发服务和测试工具）和 PostgreSQL 18。依赖已锁定，使用 `bun install --frozen-lockfile` 安装。
 
 ```sh
 cp .env.example .env
