@@ -1,0 +1,19 @@
+services:
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: getgpt
+      # Local development only; never expose this database beyond loopback.
+      POSTGRES_HOST_AUTH_METHOD: trust
+      POSTGRES_DB: getgpt
+    ports:
+      - "127.0.0.1:55439:5432"
+    volumes:
+      - getgpt-db:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U getgpt -d getgpt"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+volumes:
+  getgpt-db:
