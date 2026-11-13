@@ -1,11 +1,16 @@
+import { prepareTestDatabase, cleanupTestDatabase, testQuery } from './database-test-support'
 import { afterAll, beforeAll, describe, it, expect, vi } from 'vitest'
-import { readFile } from 'node:fs/promises'
 vi.hoisted(() => {
-  if (process.env.TEST_DATABASE_URL) process.env.DATABASE_URL = process.env.TEST_DATABASE_URL
+  if (process.env.TEST_DATABASE_URL) {
+    const url = new URL(process.env.TEST_DATABASE_URL)
+    url.searchParams.set('schema', `test_business_${crypto.randomUUID().replaceAll('-', '')}`)
+    process.env.DATABASE_URL = url.toString()
+  }
   process.env.APP_MODE = 'demo'
   process.env.ENCRYPTION_KEY = 'ab'.repeat(32)
 })
-import { pool, rows } from './db'
+import { db, Prisma } from './db'
+import { userView } from './data'
 import {
   accessibleOrder,
   acceptPayment,
@@ -23,7 +28,7 @@ import {
 } from './services'
 import { defaultReferralTiers } from '../referral'
 import { withdrawalChannels, withdrawalDestinations, withdrawalFee } from '../withdrawals'
-import { id, encrypt } from './crypto'
+import { id } from './crypto'
 import { demoSession } from '../lib'
 import { analyticsVisitor, recordView } from './funnel'
 import { authorize, permissionsFor } from './rbac'
@@ -41,18 +46,21 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
   let user: User, inviter: User
   const browser = 'test-browser'
   async function fixtureUser(email: string, invitedBy?: string) {
-    return (
-      await rows<User>(
-        'INSERT INTO users(id,email,referral_code,invited_by) VALUES($1,$2,$3,$4) RETURNING *',
-        [id('u_'), email, id().slice(0, 10), invitedBy ?? null],
-      )
-    )[0]
+    return userView(
+      await db.user.create({
+        data: {
+          id: id('u_'),
+          email,
+          referralCode: id().slice(0, 10),
+          invitedBy: invitedBy ?? null,
+        },
+      }),
+    )
   }
   async function quote(email = `${user.id}@recharge.example.com`) {
     const key = id('q_')
-    await pool.query(
-      "INSERT INTO quotes(id,browser_digest,product_id,email,amount,expires_at) VALUES($1,$2,'test-plus',$3,6000,now()+interval '15 minutes')",
-      [key, browser, email],
+    await testQuery(
+      Prisma.sql`INSERT INTO quotes(id,browser_digest,product_id,email,amount,expires_at) VALUES(${key},${browser},'test-plus',${email},6000,now()+interval '15 minutes')`,
     )
     return key
   }
@@ -74,39 +82,35 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
     const db = new URL(process.env.TEST_DATABASE_URL!).pathname
     if (!db.endsWith('_test'))
       throw new Error('Integration tests require a dedicated database ending in _test')
-    await pool.query(await readFile(new URL('./schema.sql', import.meta.url), 'utf8'))
-    await pool.query(
-      "INSERT INTO products(id,name,subtitle,description,price,features,plan) VALUES('test-plus','Test Plus','','',6000,'[]','plus') ON CONFLICT DO NOTHING",
+    await prepareTestDatabase()
+    await testQuery(
+      Prisma.sql`INSERT INTO products(id,name,subtitle,description,price,features,plan) VALUES('test-plus','Test Plus','','',6000,'[]','plus') ON CONFLICT DO NOTHING`,
     )
-    await pool.query(
-      `INSERT INTO settings(id,body) VALUES(1,$1) ON CONFLICT(id) DO UPDATE SET body=excluded.body`,
-      [
-        JSON.stringify({
-          rateBps: 300,
-          referralTiers: defaultReferralTiers,
-          settlementDays: 0,
-          minimumWithdrawal: 100,
-          firstOrderOnly: true,
-          supportEmail: '',
-          alipay: true,
-          wechat: true,
-          crypto: true,
-          fiatProvider: 'xorpay',
-        }),
-      ],
+    await testQuery(
+      Prisma.sql`INSERT INTO settings(id,body) VALUES(1,${JSON.stringify({
+        rateBps: 300,
+        referralTiers: defaultReferralTiers,
+        settlementDays: 0,
+        minimumWithdrawal: 100,
+        firstOrderOnly: true,
+        supportEmail: '',
+        alipay: true,
+        wechat: true,
+        crypto: true,
+        fiatProvider: 'xorpay',
+      })}) ON CONFLICT(id) DO UPDATE SET body=excluded.body`,
     )
     inviter = await fixtureUser(`${id()}@example.com`)
     user = await fixtureUser(`${id()}@example.com`, inviter.id)
-  })
+  }, 30_000)
   afterAll(async () => {
-    await pool.end()
+    await cleanupTestDatabase()
   })
   it('preserves accepted service terms and records only one authoritative event per order stage', async () => {
     const buyer = await fixtureUser(`${id()}@example.com`)
     const productId = id('metrics_')
-    await pool.query(
-      "INSERT INTO products(id,name,subtitle,description,price,features,plan,service_terms) VALUES($1,'Metrics test','','',6000,'[]','plus','已确认的演示服务说明')",
-      [productId],
+    await testQuery(
+      Prisma.sql`INSERT INTO products(id,name,subtitle,description,price,features,plan,service_terms) VALUES(${productId},'Metrics test','','',6000,'[]','plus','已确认的演示服务说明')`,
     )
     const visitor = id('browser_')
     await recordView(visitor, 'checkout_view', productId, 'google')
@@ -115,7 +119,7 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
       source: 'google',
       analytics: true,
     })
-    await pool.query("UPDATE products SET service_terms='后续变更' WHERE id=$1", [productId])
+    await testQuery(Prisma.sql`UPDATE products SET service_terms='后续变更' WHERE id=${productId}`)
     const order = await newOrder(buyer, visitor, {
       quoteId: q.id,
       channel: 'alipay',
@@ -129,9 +133,8 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
     await completeOrder(order.id)
     await completeOrder(order.id)
     const events = (
-      await pool.query(
-        'SELECT event,source,count(*)::int AS n FROM funnel_events WHERE visitor_key=$1 GROUP BY event,source',
-        [analyticsVisitor(visitor)],
+      await testQuery(
+        Prisma.sql`SELECT event,source,count(*)::int AS n FROM funnel_events WHERE visitor_key=${analyticsVisitor(visitor)} GROUP BY event,source`,
       )
     ).rows
     expect(events.map((e) => e.event).sort()).toEqual(
@@ -146,8 +149,11 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
     expect(events.every((e) => e.n === 1 && e.source === 'google')).toBe(true)
     const privateQuote = await createQuote(productId, demoSession('private@example.com'), visitor)
     expect(
-      (await pool.query('SELECT analytics_visitor FROM quotes WHERE id=$1', [privateQuote.id]))
-        .rows[0].analytics_visitor,
+      (
+        await testQuery(
+          Prisma.sql`SELECT analytics_visitor FROM quotes WHERE id=${privateQuote.id}`,
+        )
+      ).rows[0].analytics_visitor,
     ).toBeNull()
   })
   it('isolates guest orders and preserves a separate contact email', async () => {
@@ -183,8 +189,11 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
     await completeOrder(order.id)
     expect((await accessibleOrder(null, browser, order.id)).status).toBe('completed')
     expect(
-      (await pool.query('SELECT count(*)::int n FROM email_outbox WHERE order_id=$1', [order.id]))
-        .rows[0].n,
+      (
+        await testQuery(
+          Prisma.sql`SELECT count(*)::int n FROM email_outbox WHERE order_id=${order.id}`,
+        )
+      ).rows[0].n,
     ).toBe(3)
   })
   it('rejects amount, provider and revision substitution before changing state', async () => {
@@ -193,23 +202,27 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
     await expect(acceptPayment('xorpay', null, { ...receipt, amount: 1 })).rejects.toThrow('不匹配')
     await expect(acceptPayment('epay_v1', null, receipt)).rejects.toThrow('归属')
     await expect(acceptPayment('xorpay', 'other-config', receipt)).rejects.toThrow('归属')
-    expect((await pool.query('SELECT status FROM orders WHERE id=$1', [o.id])).rows[0].status).toBe(
-      'unpaid',
-    )
+    expect(
+      (await testQuery(Prisma.sql`SELECT status FROM orders WHERE id=${o.id}`)).rows[0].status,
+    ).toBe('unpaid')
   })
   it('credits a recharge only once under 12 concurrent identical callbacks', async () => {
     const o = await topup()
     const receipt = { orderId: o.id, transactionId: id(), amount: o.amount, paid: true }
     await Promise.all(Array.from({ length: 12 }, () => acceptPayment('xorpay', null, receipt)))
     expect(
-      (await pool.query('SELECT balance FROM wallets WHERE user_id=$1', [user.id])).rows[0].balance,
+      (await testQuery(Prisma.sql`SELECT balance FROM wallets WHERE user_id=${user.id}`)).rows[0]
+        .balance,
     ).toBe(10000)
     expect(
-      (await pool.query('SELECT count(*)::int n FROM wallet_ledger WHERE order_id=$1', [o.id]))
-        .rows[0].n,
+      (
+        await testQuery(
+          Prisma.sql`SELECT count(*)::int n FROM wallet_ledger WHERE order_id=${o.id}`,
+        )
+      ).rows[0].n,
     ).toBe(1)
     expect(
-      (await pool.query('SELECT count(*)::int n FROM commissions WHERE order_id=$1', [o.id]))
+      (await testQuery(Prisma.sql`SELECT count(*)::int n FROM commissions WHERE order_id=${o.id}`))
         .rows[0].n,
     ).toBe(0)
     const other = await topup()
@@ -227,20 +240,24 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1)
     expect(results.filter((r) => r.status === 'rejected')).toHaveLength(1)
     expect(
-      (await pool.query('SELECT balance FROM wallets WHERE user_id=$1', [user.id])).rows[0].balance,
+      (await testQuery(Prisma.sql`SELECT balance FROM wallets WHERE user_id=${user.id}`)).rows[0]
+        .balance,
     ).toBe(4000)
     const success = results.find((r) => r.status === 'fulfilled') as PromiseFulfilledResult<Order>
     await Promise.all(Array.from({ length: 8 }, () => completeOrder(success.value.id)))
     expect(
       (
-        await pool.query('SELECT count(*)::int n FROM commissions WHERE order_id=$1', [
-          success.value.id,
-        ])
+        await testQuery(
+          Prisma.sql`SELECT count(*)::int n FROM commissions WHERE order_id=${success.value.id}`,
+        )
       ).rows[0].n,
     ).toBe(1)
     expect(
-      (await pool.query('SELECT amount FROM commissions WHERE order_id=$1', [success.value.id]))
-        .rows[0].amount,
+      (
+        await testQuery(
+          Prisma.sql`SELECT amount FROM commissions WHERE order_id=${success.value.id}`,
+        )
+      ).rows[0].amount,
     ).toBe(180)
   })
   it('never reuses an idempotency key for different monetary parameters', async () => {
@@ -253,7 +270,9 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
     ).rejects.toThrow('不同的订单参数')
   })
   it('prevents concurrent withdrawals from spending the same commission', async () => {
-    await pool.query("UPDATE commissions SET status='available' WHERE user_id=$1", [inviter.id])
+    await testQuery(
+      Prisma.sql`UPDATE commissions SET status='available' WHERE user_id=${inviter.id}`,
+    )
     const request = {
       amount: 180,
       method: '支付宝',
@@ -267,7 +286,7 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
     ])
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1)
     const stored = (
-      await pool.query('SELECT account FROM withdrawals WHERE user_id=$1', [inviter.id])
+      await testQuery(Prisma.sql`SELECT account FROM withdrawals WHERE user_id=${inviter.id}`)
     ).rows[0]
     expect(stored.account).not.toContain(request.account)
   })
@@ -284,39 +303,39 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
       amount: o.amount,
       paid: true,
     })
-    await pool.query("UPDATE orders SET status='failed' WHERE id=$1", [o.id])
+    await testQuery(Prisma.sql`UPDATE orders SET status='failed' WHERE id=${o.id}`)
     await Promise.all([refundFailedOrder(o.id, 'test'), refundFailedOrder(o.id, 'test')])
     expect(
       (
-        await pool.query(
-          "SELECT count(*)::int n FROM wallet_ledger WHERE order_id=$1 AND kind='refund'",
-          [o.id],
+        await testQuery(
+          Prisma.sql`SELECT count(*)::int n FROM wallet_ledger WHERE order_id=${o.id} AND kind='refund'`,
         )
       ).rows[0].n,
     ).toBe(1)
   })
   it('enforces roles on the server and changes permissions immediately', async () => {
     const roleId = id('role_')
-    await pool.query('INSERT INTO roles(id,name,permissions) VALUES($1,$2,$3)', [
-      roleId,
-      'Support',
-      JSON.stringify(['admin:access', 'orders:read']),
-    ])
-    await pool.query('INSERT INTO user_roles(user_id,role_id) VALUES($1,$2)', [user.id, roleId])
+    await testQuery(
+      Prisma.sql`INSERT INTO roles(id,name,permissions) VALUES(${roleId},${'Support'},${JSON.stringify(['admin:access', 'orders:read'])})`,
+    )
+    await testQuery(
+      Prisma.sql`INSERT INTO user_roles(user_id,role_id) VALUES(${user.id},${roleId})`,
+    )
     const permissions = await permissionsFor(user)
     expect(() => authorize({ ...user, permissions }, 'orders:read')).not.toThrow()
     expect(() => authorize({ ...user, permissions }, 'integrations:write')).toThrow()
-    await pool.query('DELETE FROM user_roles WHERE user_id=$1', [user.id])
+    await testQuery(Prisma.sql`DELETE FROM user_roles WHERE user_id=${user.id}`)
     expect(await permissionsFor(user)).toEqual([])
   })
   it('locks upgrade retail prices in expiring server quotes instead of trusting later catalog prices', async () => {
-    await pool.query(
-      "INSERT INTO products(id,name,subtitle,description,price,features,plan,upgrade,pricing_mode) VALUES('test-upgrade','Upgrade','','',1,'[]','promax',true,'markup') ON CONFLICT DO NOTHING",
+    await testQuery(
+      Prisma.sql`INSERT INTO products(id,name,subtitle,description,price,features,plan,upgrade,pricing_mode) VALUES('test-upgrade','Upgrade','','',1,'[]','promax',true,'markup') ON CONFLICT DO NOTHING`,
     )
-    const previous = (await pool.query('SELECT body FROM settings WHERE id=1')).rows[0].body
+    const previous = (await testQuery(Prisma.sql`SELECT body FROM settings WHERE id=1`)).rows[0]
+      .body
     try {
-      await pool.query(
-        `UPDATE settings SET body=body||'{"upgradePricing":{"fxMode":"manual","fxRateBps":70000,"markupBps":1000,"serviceFee":500,"minimum":100,"targets":{"promax":{"markupBps":2000,"serviceFee":500,"minimumProfit":2000}}}}'::jsonb WHERE id=1`,
+      await testQuery(
+        Prisma.sql`UPDATE settings SET body=body||'{"upgradePricing":{"fxMode":"manual","fxRateBps":70000,"markupBps":1000,"serviceFee":500,"minimum":100,"targets":{"promax":{"markupBps":2000,"serviceFee":500,"minimumProfit":2000}}}}'::jsonb WHERE id=1`,
       )
       const priced = await createQuote(
         'test-upgrade',
@@ -329,8 +348,8 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
       )
       expect(priced.amount).toBe(9000)
       expect(priced.targetPlan).toBe('promax')
-      await pool.query(
-        `UPDATE settings SET body=jsonb_set(body,'{upgradePricing,serviceFee}','90000') WHERE id=1`,
+      await testQuery(
+        Prisma.sql`UPDATE settings SET body=jsonb_set(body,'{upgradePricing,serviceFee}','90000') WHERE id=1`,
       )
       const order = await newOrder(user, browser, {
         quoteId: priced.id,
@@ -339,25 +358,24 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
       })
       expect(order.amount).toBe(9000)
       const snapshot = (
-        await pool.query('SELECT pricing_snapshot FROM quotes WHERE id=$1', [priced.id])
+        await testQuery(Prisma.sql`SELECT pricing_snapshot FROM quotes WHERE id=${priced.id}`)
       ).rows[0].pricing_snapshot
       expect(snapshot.serviceFee).toBe(500)
       const stale = await quote()
-      await pool.query("UPDATE quotes SET expires_at=now()-interval '1 minute' WHERE id=$1", [
-        stale,
-      ])
+      await testQuery(
+        Prisma.sql`UPDATE quotes SET expires_at=now()-interval '1 minute' WHERE id=${stale}`,
+      )
       await expect(
         newOrder(user, browser, { quoteId: stale, channel: 'alipay', requestKey: id() }),
       ).rejects.toThrow('已过期')
     } finally {
-      await pool.query('UPDATE settings SET body=$1 WHERE id=1', [JSON.stringify(previous)])
+      await testQuery(Prisma.sql`UPDATE settings SET body=${JSON.stringify(previous)} WHERE id=1`)
     }
   })
   it('uses exact fixed subscription prices and preserves confirmed quotes after price changes', async () => {
     const productId = id('p_')
-    await pool.query(
-      "INSERT INTO products(id,name,subtitle,description,price,features,plan,pricing_mode) VALUES($1,'Recharge','','',4937,'[]','go','fixed')",
-      [productId],
+    await testQuery(
+      Prisma.sql`INSERT INTO products(id,name,subtitle,description,price,features,plan,pricing_mode) VALUES(${productId},'Recharge','','',4937,'[]','go','fixed')`,
     )
     const session = JSON.stringify({
       user: { email: `${id()}@example.com` },
@@ -368,10 +386,10 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
     expect(fixed.amount).toBe(4937)
     expect((await products()).find((p) => p.id === productId)?.price).toBe(4937)
     const snapshot = (
-      await pool.query('SELECT pricing_snapshot FROM quotes WHERE id=$1', [fixed.id])
+      await testQuery(Prisma.sql`SELECT pricing_snapshot FROM quotes WHERE id=${fixed.id}`)
     ).rows[0].pricing_snapshot
     expect(snapshot).toEqual({ mode: 'fixed', price: 4937 })
-    await pool.query('UPDATE products SET price=5279 WHERE id=$1', [productId])
+    await testQuery(Prisma.sql`UPDATE products SET price=5279 WHERE id=${productId}`)
     expect((await createQuote(productId, session, browser)).amount).toBe(5279)
     const order = await newOrder(user, browser, {
       quoteId: fixed.id,
@@ -380,20 +398,19 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
     })
     expect(order.amount).toBe(4937)
     await expect(
-      pool.query("UPDATE products SET pricing_mode='markup' WHERE id=$1", [productId]),
+      testQuery(Prisma.sql`UPDATE products SET pricing_mode='markup' WHERE id=${productId}`),
     ).rejects.toThrow()
     await expect(
-      pool.query('UPDATE products SET upgrade=true WHERE id=$1', [productId]),
+      testQuery(Prisma.sql`UPDATE products SET upgrade=true WHERE id=${productId}`),
     ).rejects.toThrow()
   })
   it('refreshes FX once in the background, serves cached retail prices and preserves locked quote amounts', async () => {
     const productId = id('usd_')
-    await pool.query(
-      "INSERT INTO products(id,name,subtitle,description,price,features,plan,price_currency,rounding_step) VALUES($1,'USD','','',2000,'[]','plus','USD',100)",
-      [productId],
+    await testQuery(
+      Prisma.sql`INSERT INTO products(id,name,subtitle,description,price,features,plan,price_currency,rounding_step) VALUES(${productId},'USD','','',2000,'[]','plus','USD',100)`,
     )
-    await pool.query(
-      'UPDATE exchange_rates SET rate_e8=null,source_date=null,fetched_at=null,expires_at=null,locked_until=null,refresh_after=now()',
+    await testQuery(
+      Prisma.sql`UPDATE exchange_rates SET rate_e8=null,source_date=null,fetched_at=null,expires_at=null,locked_until=null,refresh_after=now()`,
     )
     const session = JSON.stringify({
       user: { email: `${id()}@example.com` },
@@ -426,7 +443,7 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
       expect(fetcher).toHaveBeenCalledTimes(3)
       expect(await exchangeRate(true)).toEqual(before)
       expect((await createQuote(productId, session, browser)).amount).toBe(14300)
-      await pool.query("UPDATE exchange_rates SET expires_at=now()-interval '1 second'")
+      await testQuery(Prisma.sql`UPDATE exchange_rates SET expires_at=now()-interval '1 second'`)
       await expect(createQuote(productId, session, browser)).rejects.toThrow('汇率正在更新')
       expect((await products()).find((p) => p.id === productId)?.priceStatus).toBe('pending')
       fetcher.mockReset()
@@ -449,10 +466,11 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
     }
   })
   it('selects EPay protocol atomically while preserving historical configuration and isolating secrets', async () => {
-    const previous = (await pool.query('SELECT body FROM settings WHERE id=1')).rows[0].body
+    const previous = (await testQuery(Prisma.sql`SELECT body FROM settings WHERE id=1`)).rows[0]
+      .body
     try {
-      await pool.query(
-        `UPDATE settings SET body=body||'{"fiatProvider":"epay_v1"}'::jsonb WHERE id=1`,
+      await testQuery(
+        Prisma.sql`UPDATE settings SET body=body||'{"fiatProvider":"epay_v1"}'::jsonb WHERE id=1`,
       )
       await saveIntegration(
         {
@@ -476,7 +494,8 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
         ),
       ).rejects.toThrow('完整配置')
       expect(
-        (await pool.query('SELECT body FROM settings WHERE id=1')).rows[0].body.epayVersion,
+        (await testQuery(Prisma.sql`SELECT body FROM settings WHERE id=1`)).rows[0].body
+          .epayVersion,
       ).toBe('epay_v1')
       await saveIntegration(
         {
@@ -487,12 +506,15 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
         },
         user.email,
       )
-      const switched = (await pool.query('SELECT body FROM settings WHERE id=1')).rows[0].body
+      const switched = (await testQuery(Prisma.sql`SELECT body FROM settings WHERE id=1`)).rows[0]
+        .body
       expect(switched.epayVersion).toBe('epay_v2')
       expect(switched.fiatProvider).toBe('epay_v2')
       expect(await integration('epay_v1', v1.id)).toEqual(v1)
       const v2 = (
-        await pool.query("SELECT id FROM integrations WHERE provider='epay_v2' AND active=true")
+        await testQuery(
+          Prisma.sql`SELECT id FROM integrations WHERE provider='epay_v2' AND active=true`,
+        )
       ).rows[0].id
       expect((await integration('epay_v2', v2)).key).toBeUndefined()
       await saveIntegration(
@@ -507,7 +529,7 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
       expect((await integration('epay_v1')).key).toBe('test-md5-key')
       expect(await integration('epay_v1', v1.id)).toEqual(v1)
     } finally {
-      await pool.query('UPDATE settings SET body=$1 WHERE id=1', [JSON.stringify(previous)])
+      await testQuery(Prisma.sql`UPDATE settings SET body=${JSON.stringify(previous)} WHERE id=1`)
     }
   })
   it('splits payment atomically and accepts only the external amount, then refunds the total once', async () => {
@@ -526,7 +548,7 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
     expect(order.balanceAmount).toBe(4000)
     expect(order.externalAmount).toBe(2000)
     expect(
-      (await pool.query('SELECT balance FROM wallets WHERE user_id=$1', [buyer.id])).rows[0]
+      (await testQuery(Prisma.sql`SELECT balance FROM wallets WHERE user_id=${buyer.id}`)).rows[0]
         .balance,
     ).toBe(0)
     const receipt = { orderId: order.id, transactionId: id(), amount: 2000, paid: true }
@@ -535,13 +557,13 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
     )
     await Promise.all(Array.from({ length: 6 }, () => acceptPayment('xorpay', null, receipt)))
     expect(
-      (await pool.query('SELECT count(*)::int n FROM jobs WHERE order_id=$1', [order.id])).rows[0]
-        .n,
+      (await testQuery(Prisma.sql`SELECT count(*)::int n FROM jobs WHERE order_id=${order.id}`))
+        .rows[0].n,
     ).toBe(1)
-    await pool.query("UPDATE orders SET status='failed' WHERE id=$1", [order.id])
+    await testQuery(Prisma.sql`UPDATE orders SET status='failed' WHERE id=${order.id}`)
     await Promise.all([refundFailedOrder(order.id, 'test'), refundFailedOrder(order.id, 'test')])
     expect(
-      (await pool.query('SELECT balance FROM wallets WHERE user_id=$1', [buyer.id])).rows[0]
+      (await testQuery(Prisma.sql`SELECT balance FROM wallets WHERE user_id=${buyer.id}`)).rows[0]
         .balance,
     ).toBe(6000)
   })
@@ -559,7 +581,7 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
       cancelOrder(buyer, browser, order.id),
     ])
     expect(
-      (await pool.query('SELECT balance FROM wallets WHERE user_id=$1', [buyer.id])).rows[0]
+      (await testQuery(Prisma.sql`SELECT balance FROM wallets WHERE user_id=${buyer.id}`)).rows[0]
         .balance,
     ).toBe(4000)
     await expect(
@@ -582,8 +604,8 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
   })
   it('enforces external payment limits before any wallet debit or order insertion', async () => {
     const buyer = await fundedBuyer()
-    await pool.query(
-      `UPDATE settings SET body=body||'{"paymentLimits":{"alipay":{"min":1000,"max":3000}}}'::jsonb WHERE id=1`,
+    await testQuery(
+      Prisma.sql`UPDATE settings SET body=body||'{"paymentLimits":{"alipay":{"min":1000,"max":3000}}}'::jsonb WHERE id=1`,
     )
     try {
       const quoteId = await quote()
@@ -596,7 +618,7 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
         }),
       ).rejects.toThrow('单笔支付范围')
       expect(
-        (await pool.query('SELECT balance FROM wallets WHERE user_id=$1', [buyer.id])).rows[0]
+        (await testQuery(Prisma.sql`SELECT balance FROM wallets WHERE user_id=${buyer.id}`)).rows[0]
           .balance,
       ).toBe(4000)
       const order = await newOrder(buyer, browser, {
@@ -610,7 +632,7 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
         newOrder(buyer, browser, { amount: 500, channel: 'alipay', requestKey: id() }),
       ).rejects.toThrow('单笔支付范围')
     } finally {
-      await pool.query("UPDATE settings SET body=body-'paymentLimits' WHERE id=1")
+      await testQuery(Prisma.sql`UPDATE settings SET body=body-'paymentLimits' WHERE id=1`)
     }
   })
   it('prevents concurrent split orders from overspending and supports full balance offsets', async () => {
@@ -627,7 +649,7 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
     )
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1)
     expect(
-      (await pool.query('SELECT balance FROM wallets WHERE user_id=$1', [buyer.id])).rows[0]
+      (await testQuery(Prisma.sql`SELECT balance FROM wallets WHERE user_id=${buyer.id}`)).rows[0]
         .balance,
     ).toBe(1000)
     const fullyFunded = await fundedBuyer(6000)
@@ -673,22 +695,21 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
         paid: true,
       })
     await Promise.all(orders.map((o) => completeOrder(o.id)))
-    const commissions = await pool.query('SELECT * FROM commissions WHERE user_id=$1', [
-      referralOwner.id,
-    ])
+    const commissions = await testQuery(
+      Prisma.sql`SELECT * FROM commissions WHERE user_id=${referralOwner.id}`,
+    )
     expect(commissions.rows).toHaveLength(1)
     expect(commissions.rows[0].amount).toBe(180)
     const claimed = await fixtureUser(guestEmail)
-    await pool.query(
-      'UPDATE orders SET user_id=$1,guest_browser_digest=null WHERE contact_email=$2',
-      [claimed.id, guestEmail],
+    await testQuery(
+      Prisma.sql`UPDATE orders SET user_id=${claimed.id},guest_browser_digest=null WHERE contact_email=${guestEmail}`,
     )
     await Promise.all(orders.map((o) => completeOrder(o.id)))
     expect(
       (
-        await pool.query('SELECT count(*)::int n FROM commissions WHERE user_id=$1', [
-          referralOwner.id,
-        ])
+        await testQuery(
+          Prisma.sql`SELECT count(*)::int n FROM commissions WHERE user_id=${referralOwner.id}`,
+        )
       ).rows[0].n,
     ).toBe(1)
     await expect(accessibleOrder(null, browser, orders[0].id)).rejects.toThrow('未找到')
@@ -707,8 +728,11 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
     })
     await completeOrder(self.id)
     expect(
-      (await pool.query('SELECT count(*)::int n FROM commissions WHERE order_id=$1', [self.id]))
-        .rows[0].n,
+      (
+        await testQuery(
+          Prisma.sql`SELECT count(*)::int n FROM commissions WHERE order_id=${self.id}`,
+        )
+      ).rows[0].n,
     ).toBe(0)
   })
   async function referralOrder(owner: User, contactEmail = `${id()}@guest.example.com`) {
@@ -743,7 +767,7 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
       contactEmail: `${id()}@guest.example.com`,
       referralCode: owner.referralCode,
     })
-    await pool.query("UPDATE commissions SET status='available' WHERE user_id=$1", [owner.id])
+    await testQuery(Prisma.sql`UPDATE commissions SET status='available' WHERE user_id=${owner.id}`)
     expect((await account(owner)).referral).toMatchObject({
       qualifiedInvites: 5,
       current: { rateBps: 500 },
@@ -758,29 +782,35 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
     })
     await completeOrder(oldRateOrder.id)
     expect(
-      (await pool.query('SELECT amount FROM commissions WHERE order_id=$1', [oldRateOrder.id]))
-        .rows[0].amount,
+      (
+        await testQuery(
+          Prisma.sql`SELECT amount FROM commissions WHERE order_id=${oldRateOrder.id}`,
+        )
+      ).rows[0].amount,
     ).toBe(180)
     // Claiming a guest order does not change the identity counted for the tier.
     const contact = (
-      await pool.query('SELECT contact_email FROM orders WHERE id=$1', [delivered[0].id])
+      await testQuery(Prisma.sql`SELECT contact_email FROM orders WHERE id=${delivered[0].id}`)
     ).rows[0].contact_email
     const claimed = await fixtureUser(contact)
-    await pool.query('UPDATE orders SET user_id=$1 WHERE id=$2', [claimed.id, delivered[0].id])
-    const previous = (await pool.query('SELECT body FROM settings WHERE id=1')).rows[0].body
+    await testQuery(Prisma.sql`UPDATE orders SET user_id=${claimed.id} WHERE id=${delivered[0].id}`)
+    const previous = (await testQuery(Prisma.sql`SELECT body FROM settings WHERE id=1`)).rows[0]
+      .body
     try {
-      await pool.query(
-        `UPDATE settings SET body=jsonb_set(body,'{firstOrderOnly}','false') WHERE id=1`,
+      await testQuery(
+        Prisma.sql`UPDATE settings SET body=jsonb_set(body,'{firstOrderOnly}','false') WHERE id=1`,
       )
       const repeat = await referralOrder(owner, contact)
-      await pool.query("UPDATE commissions SET status='available' WHERE order_id=$1", [repeat.id])
+      await testQuery(
+        Prisma.sql`UPDATE commissions SET status='available' WHERE order_id=${repeat.id}`,
+      )
       expect((await account(owner)).referral.qualifiedInvites).toBe(5)
     } finally {
-      await pool.query('UPDATE settings SET body=$1 WHERE id=1', [JSON.stringify(previous)])
+      await testQuery(Prisma.sql`UPDATE settings SET body=${JSON.stringify(previous)} WHERE id=1`)
     }
-    await pool.query("UPDATE commissions SET status='reversed' WHERE order_id=$1", [
-      delivered[1].id,
-    ])
+    await testQuery(
+      Prisma.sql`UPDATE commissions SET status='reversed' WHERE order_id=${delivered[1].id}`,
+    )
     expect((await account(owner)).referral).toMatchObject({
       qualifiedInvites: 4,
       current: { rateBps: 300 },
@@ -809,12 +839,12 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
       amount: failed.amount,
       paid: true,
     })
-    await pool.query("UPDATE orders SET status='failed' WHERE id=$1", [failed.id])
+    await testQuery(Prisma.sql`UPDATE orders SET status='failed' WHERE id=${failed.id}`)
     await refundFailedOrder(failed.id, 'test')
     await expect(withdraw(owner, input)).rejects.toThrow('邀请收益不足')
     await referralOrder(owner)
     await expect(withdraw(owner, input)).rejects.toThrow('邀请收益不足')
-    await pool.query("UPDATE commissions SET status='available' WHERE user_id=$1", [owner.id])
+    await testQuery(Prisma.sql`UPDATE commissions SET status='available' WHERE user_id=${owner.id}`)
     await expect(withdraw(owner, { ...input, amount: 181 })).rejects.toThrow('邀请收益不足')
     const requests = await Promise.all(Array.from({ length: 8 }, () => withdraw(owner, input)))
     expect(new Set(requests.map((w) => w.id)).size).toBe(1)
@@ -833,9 +863,9 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
     expect(view.withdrawals[0].recipientName).toBe(input.recipientName)
     expect(view.withdrawals[0]).not.toHaveProperty('requestHash')
     const stored = (
-      await pool.query('SELECT recipient_name,account FROM withdrawals WHERE id=$1', [
-        requests[0].id,
-      ])
+      await testQuery(
+        Prisma.sql`SELECT recipient_name,account FROM withdrawals WHERE id=${requests[0].id}`,
+      )
     ).rows[0]
     expect(stored.recipient_name).not.toContain(input.recipientName)
     expect(stored.account).not.toContain(input.account)
@@ -848,7 +878,7 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
       await fixtureUser(`${id()}@example.com`),
     ]
     await referralOrder(owner)
-    await pool.query("UPDATE commissions SET status='available' WHERE user_id=$1", [owner.id])
+    await testQuery(Prisma.sql`UPDATE commissions SET status='available' WHERE user_id=${owner.id}`)
     const request = {
       amount: 180,
       method: '支付宝',
@@ -883,7 +913,7 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
       reviewWithdrawal(winner, { id: retry.id, status: 'rejected', note: '不能重复' }),
     ).rejects.toThrow('已处理')
     await referralOrder(owner)
-    await pool.query("UPDATE commissions SET status='available' WHERE user_id=$1", [owner.id])
+    await testQuery(Prisma.sql`UPDATE commissions SET status='available' WHERE user_id=${owner.id}`)
     const duplicate = await withdraw(owner, { ...request, requestKey: id() })
     await reviewWithdrawal(winner, { id: duplicate.id, status: 'processing' })
     await expect(
@@ -902,7 +932,7 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
     const owner = await fixtureUser(`${id()}@example.com`)
     const reviewer = await fixtureUser(`${id()}@example.com`)
     const order = await referralOrder(owner)
-    await pool.query("UPDATE commissions SET status='available' WHERE user_id=$1", [owner.id])
+    await testQuery(Prisma.sql`UPDATE commissions SET status='available' WHERE user_id=${owner.id}`)
     const w = await withdraw(owner, {
       amount: 180,
       method: 'USDT',
@@ -916,7 +946,7 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
     await expect(
       reviewWithdrawal(reviewer, { id: w.id, status: 'paid', payoutReference: id() }),
     ).rejects.toThrow('USDT 数量')
-    await pool.query("UPDATE commissions SET status='reversed' WHERE order_id=$1", [order.id])
+    await testQuery(Prisma.sql`UPDATE commissions SET status='reversed' WHERE order_id=${order.id}`)
     await expect(
       reviewWithdrawal(reviewer, {
         id: w.id,
@@ -929,9 +959,8 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
     await reviewWithdrawal(reviewer, { id: w.id, status: 'rejected', note: '收益已冲回' })
     expect(await account(owner)).toMatchObject({ available: 0, shortfall: 0, frozen: 0 })
     await referralOrder(owner)
-    await pool.query(
-      "UPDATE commissions SET status='available' WHERE user_id=$1 AND status='pending'",
-      [owner.id],
+    await testQuery(
+      Prisma.sql`UPDATE commissions SET status='available' WHERE user_id=${owner.id} AND status='pending'`,
     )
     const retry = await withdraw(owner, {
       amount: 180,
@@ -958,8 +987,9 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
     const owner = await fixtureUser(`${id()}@example.com`)
     const reviewer = await fixtureUser(`${id()}@example.com`)
     await referralOrder(owner)
-    await pool.query("UPDATE commissions SET status='available' WHERE user_id=$1", [owner.id])
-    const previous = (await pool.query('SELECT body FROM settings WHERE id=1')).rows[0].body
+    await testQuery(Prisma.sql`UPDATE commissions SET status='available' WHERE user_id=${owner.id}`)
+    const previous = (await testQuery(Prisma.sql`SELECT body FROM settings WHERE id=1`)).rows[0]
+      .body
     const configured = withdrawalChannels(previous)
     withdrawalDestinations.forEach(({ key }, index) => {
       configured.rules[key] = {
@@ -969,9 +999,9 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
       }
     })
     try {
-      await pool.query('UPDATE settings SET body=$1 WHERE id=1', [
-        JSON.stringify({ ...previous, withdrawalChannels: configured }),
-      ])
+      await testQuery(
+        Prisma.sql`UPDATE settings SET body=${JSON.stringify({ ...previous, withdrawalChannels: configured })} WHERE id=1`,
+      )
       for (const { key, method, network } of withdrawalDestinations) {
         const rule = configured.rules[key]
         const fee = withdrawalFee(rule.minimum, rule)
@@ -1011,7 +1041,7 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
         expect(await account(owner)).toMatchObject({ frozen: 0, available: 180, withdrawn: 0 })
       }
     } finally {
-      await pool.query('UPDATE settings SET body=$1 WHERE id=1', [JSON.stringify(previous)])
+      await testQuery(Prisma.sql`UPDATE settings SET body=${JSON.stringify(previous)} WHERE id=1`)
     }
   })
 
@@ -1019,22 +1049,23 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
     const owner = await fixtureUser(`${id()}@example.com`)
     const reviewer = await fixtureUser(`${id()}@example.com`)
     await referralOrder(owner)
-    await pool.query("UPDATE commissions SET status='available' WHERE user_id=$1", [owner.id])
-    const previous = (await pool.query('SELECT body FROM settings WHERE id=1')).rows[0].body
+    await testQuery(Prisma.sql`UPDATE commissions SET status='available' WHERE user_id=${owner.id}`)
+    const previous = (await testQuery(Prisma.sql`SELECT body FROM settings WHERE id=1`)).rows[0]
+      .body
     const configured = withdrawalChannels(previous)
     configured.alipay = false
     configured.wechat = false
     configured.networks = { ERC20: false, TRC20: false, BSC: true, Polygon: true }
     const saveConfig = () =>
-      pool.query('UPDATE settings SET body=$1 WHERE id=1', [
-        JSON.stringify({
+      testQuery(
+        Prisma.sql`UPDATE settings SET body=${JSON.stringify({
           ...previous,
           alipay: false,
           wechat: false,
           crypto: false,
           withdrawalChannels: configured,
-        }),
-      ])
+        })} WHERE id=1`,
+      )
     const input = {
       amount: 180,
       method: 'USDT',
@@ -1078,7 +1109,7 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
       }
       expect(await account(owner)).toMatchObject({ frozen: 0, available: 0, withdrawn: 180 })
     } finally {
-      await pool.query('UPDATE settings SET body=$1 WHERE id=1', [JSON.stringify(previous)])
+      await testQuery(Prisma.sql`UPDATE settings SET body=${JSON.stringify(previous)} WHERE id=1`)
     }
   })
 
@@ -1086,14 +1117,15 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
     const owner = await fixtureUser(`${id()}@example.com`)
     const reviewer = await fixtureUser(`${id()}@example.com`)
     await referralOrder(owner)
-    await pool.query("UPDATE commissions SET status='available' WHERE user_id=$1", [owner.id])
-    const previous = (await pool.query('SELECT body FROM settings WHERE id=1')).rows[0].body
+    await testQuery(Prisma.sql`UPDATE commissions SET status='available' WHERE user_id=${owner.id}`)
+    const previous = (await testQuery(Prisma.sql`SELECT body FROM settings WHERE id=1`)).rows[0]
+      .body
     const configured = withdrawalChannels(previous)
     configured.rules.alipay = { minimum: 100, feeRateBps: 250, fixedFee: 15 }
     const saveConfig = () =>
-      pool.query('UPDATE settings SET body=$1 WHERE id=1', [
-        JSON.stringify({ ...previous, withdrawalChannels: configured }),
-      ])
+      testQuery(
+        Prisma.sql`UPDATE settings SET body=${JSON.stringify({ ...previous, withdrawalChannels: configured })} WHERE id=1`,
+      )
     try {
       await saveConfig()
       const request = {
@@ -1120,16 +1152,18 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
         payoutAmount: '1.600000',
       })
     } finally {
-      await pool.query('UPDATE settings SET body=$1 WHERE id=1', [JSON.stringify(previous)])
+      await testQuery(Prisma.sql`UPDATE settings SET body=${JSON.stringify(previous)} WHERE id=1`)
     }
   })
 
   it('estimates USDT from the saved net amount, isolates FX caches and refuses expired rates', async () => {
     const owner = await fixtureUser(`${id()}@example.com`)
     await referralOrder(owner)
-    await pool.query("UPDATE commissions SET status='available' WHERE user_id=$1", [owner.id])
-    const previous = (await pool.query('SELECT body FROM settings WHERE id=1')).rows[0].body
-    const usdBefore = (await pool.query("SELECT * FROM exchange_rates WHERE id='USD_CNY'")).rows[0]
+    await testQuery(Prisma.sql`UPDATE commissions SET status='available' WHERE user_id=${owner.id}`)
+    const previous = (await testQuery(Prisma.sql`SELECT body FROM settings WHERE id=1`)).rows[0]
+      .body
+    const usdBefore = (await testQuery(Prisma.sql`SELECT * FROM exchange_rates WHERE id='USD_CNY'`))
+      .rows[0]
     const configured = withdrawalChannels(previous)
     configured.rules.BSC = { minimum: 100, feeRateBps: 250, fixedFee: 15 }
     const sourceDate = new Date().toISOString().slice(0, 10)
@@ -1138,11 +1172,11 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
         new Response(JSON.stringify({ date: sourceDate, usdt: { cny: 8 }, usd: { cny: 7 } })),
     )
     try {
-      await pool.query('UPDATE settings SET body=$1 WHERE id=1', [
-        JSON.stringify({ ...previous, withdrawalChannels: configured }),
-      ])
-      await pool.query(
-        "UPDATE exchange_rates SET rate_e8=null,expires_at=null,refresh_after=now(),locked_until=null WHERE id='USDT_CNY'",
+      await testQuery(
+        Prisma.sql`UPDATE settings SET body=${JSON.stringify({ ...previous, withdrawalChannels: configured })} WHERE id=1`,
+      )
+      await testQuery(
+        Prisma.sql`UPDATE exchange_rates SET rate_e8=null,expires_at=null,refresh_after=now(),locked_until=null WHERE id='USDT_CNY'`,
       )
       const saved = await withdraw(owner, {
         amount: 180,
@@ -1187,13 +1221,13 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
         estimatedUsdt: '0.320000',
         refreshFailed: true,
       })
-      await pool.query(
-        "UPDATE exchange_rates SET expires_at=now()-interval '1 second' WHERE id='USDT_CNY'",
+      await testQuery(
+        Prisma.sql`UPDATE exchange_rates SET expires_at=now()-interval '1 second' WHERE id='USDT_CNY'`,
       )
       await expect(withdrawalPayoutEstimate(saved.id, true)).rejects.toThrow('参考汇率暂不可用')
-      expect((await pool.query("SELECT * FROM exchange_rates WHERE id='USD_CNY'")).rows[0]).toEqual(
-        usdBefore,
-      )
+      expect(
+        (await testQuery(Prisma.sql`SELECT * FROM exchange_rates WHERE id='USD_CNY'`)).rows[0],
+      ).toEqual(usdBefore)
       expect((await account(owner)).withdrawals[0]).toMatchObject({
         status: 'pending',
         payoutAmount: null,
@@ -1201,7 +1235,7 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
       })
     } finally {
       vi.unstubAllGlobals()
-      await pool.query('UPDATE settings SET body=$1 WHERE id=1', [JSON.stringify(previous)])
+      await testQuery(Prisma.sql`UPDATE settings SET body=${JSON.stringify(previous)} WHERE id=1`)
     }
   })
 })

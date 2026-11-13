@@ -1,0 +1,462 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+  runtime      = "nodejs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Audit {
+  id        String   @id
+  actor     String
+  action    String
+  target    String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("audit")
+}
+
+model AuthAccount {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime? @db.Timestamptz(6)
+  refreshTokenExpiresAt DateTime? @db.Timestamptz(6)
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt             DateTime  @db.Timestamptz(6)
+  registrationRecord    String?   @unique
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([userId])
+  @@map("auth_account")
+}
+
+model AuthPasskey {
+  id           String    @id
+  name         String?
+  publicKey    String
+  userId       String
+  credentialID String
+  counter      Int
+  deviceType   String
+  backedUp     Boolean
+  transports   String?
+  createdAt    DateTime? @db.Timestamptz(6)
+  aaguid       String?
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([credentialID])
+  @@index([userId])
+  @@map("auth_passkey")
+}
+
+model AuthRateLimit {
+  id          String @id
+  key         String @unique
+  count       Int
+  lastRequest BigInt
+
+  @@map("auth_rate_limit")
+}
+
+model AuthSession {
+  id        String   @id
+  expiresAt DateTime @db.Timestamptz(6)
+  token     String   @unique
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @db.Timestamptz(6)
+  ipAddress String?
+  userAgent String?
+  userId    String
+  method    String?
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([userId])
+  @@map("auth_session")
+}
+
+model AuthVerification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime @db.Timestamptz(6)
+  createdAt  DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt  DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([identifier])
+  @@map("auth_verification")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model Commission {
+  id          String   @id
+  userId      String   @map("user_id")
+  orderId     String   @unique @map("order_id")
+  amount      Int
+  status      String
+  availableAt DateTime @map("available_at") @db.Timestamptz(6)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user        User     @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([userId], map: "commissions_user")
+  @@map("commissions")
+}
+
+model DemoMailbox {
+  browserDigest String   @map("browser_digest")
+  email         String
+  code          String
+  expiresAt     DateTime @map("expires_at") @db.Timestamptz(6)
+
+  @@id([browserDigest, email])
+  @@map("demo_mailbox")
+}
+
+model EmailOutbox {
+  id       String    @id
+  orderId  String    @map("order_id")
+  status   String
+  attempts Int       @default(0)
+  runAt    DateTime  @default(now()) @map("run_at") @db.Timestamptz(6)
+  sentAt   DateTime? @map("sent_at") @db.Timestamptz(6)
+  order    Order     @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([orderId, status])
+  @@map("email_outbox")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model ExchangeRate {
+  id           String    @id
+  rateE8       BigInt?   @map("rate_e8")
+  sourceDate   String?   @map("source_date")
+  fetchedAt    DateTime? @map("fetched_at") @db.Timestamptz(6)
+  expiresAt    DateTime? @map("expires_at") @db.Timestamptz(6)
+  refreshAfter DateTime  @default(now()) @map("refresh_after") @db.Timestamptz(6)
+  lockedUntil  DateTime? @map("locked_until") @db.Timestamptz(6)
+  lease        String?
+  lastError    String?   @map("last_error")
+  source       String?
+
+  @@map("exchange_rates")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model FunnelEvent {
+  id         String   @id
+  event      String
+  visitorKey String   @map("visitor_key")
+  productId  String   @map("product_id")
+  source     String
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([createdAt], map: "funnel_events_date")
+  @@map("funnel_events")
+}
+
+model Integration {
+  id            String   @id
+  provider      String
+  public        Json
+  secret        String
+  enabled       Boolean  @default(false)
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  aicdkOrders   Order[]  @relation("orders_aicdk_integration_idTointegrations")
+  paymentOrders Order[]  @relation("orders_integration_idTointegrations")
+  quotes        Quote[]
+
+  @@map("integrations")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model Inventory {
+  id            String    @id
+  productId     String    @map("product_id")
+  code          String
+  fingerprint   String    @unique
+  status        String    @default("available")
+  reservedUntil DateTime? @map("reserved_until") @db.Timestamptz(6)
+  product       Product   @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  quotes        Quote[]
+
+  @@map("inventory")
+}
+
+model Job {
+  id          String    @id
+  orderId     String    @unique @map("order_id")
+  attempts    Int       @default(0)
+  runAt       DateTime  @default(now()) @map("run_at") @db.Timestamptz(6)
+  lockedUntil DateTime? @map("locked_until") @db.Timestamptz(6)
+  lease       String?
+  lastError   String?   @map("last_error")
+  done        Boolean   @default(false)
+  order       Order     @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("jobs")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model Order {
+  id                  String         @id
+  userId              String?        @map("user_id")
+  quoteId             String?        @unique @map("quote_id")
+  kind                String         @default("purchase")
+  requestHash         String         @default("") @map("request_hash")
+  productId           String?        @map("product_id")
+  productName         String         @map("product_name")
+  email               String
+  amount              Int
+  status              String
+  channel             String
+  createdAt           DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  completedAt         DateTime?      @map("completed_at") @db.Timestamptz(6)
+  rateBps             Int            @map("rate_bps")
+  settlementDays      Int            @map("settlement_days")
+  firstOrderOnly      Boolean        @map("first_order_only")
+  provider            String
+  integrationId       String?        @map("integration_id")
+  paymentId           String?        @map("payment_id")
+  paymentUrl          String?        @map("payment_url")
+  paymentAttempted    Boolean        @default(false) @map("payment_attempted")
+  redemptionId        String?        @map("redemption_id")
+  fulfillmentAttempt  Int            @default(0) @map("fulfillment_attempt")
+  failureReason       String?        @map("failure_reason")
+  contactEmail        String?        @map("contact_email")
+  guestBrowserDigest  String?        @map("guest_browser_digest")
+  aicdkIntegrationId  String?        @map("aicdk_integration_id")
+  balanceAmount       Int            @default(0) @map("balance_amount")
+  externalAmount      Int            @map("external_amount")
+  inviterId           String?        @map("inviter_id")
+  buyerKey            String?        @map("buyer_key")
+  serviceTerms        String         @default("") @map("service_terms")
+  fulfillmentStatus   String?        @map("fulfillment_status")
+  redemptionVersion   Int            @default(0) @map("redemption_version")
+  submissionAttempted Boolean        @default(false) @map("submission_attempted")
+  commission          Commission?
+  emailOutbox         EmailOutbox[]
+  job                 Job?
+  aicdkIntegration    Integration?   @relation("orders_aicdk_integration_idTointegrations", fields: [aicdkIntegrationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  paymentIntegration  Integration?   @relation("orders_integration_idTointegrations", fields: [integrationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  inviter             User?          @relation("orders_inviter_idTousers", fields: [inviterId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  product             Product?       @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  quote               Quote?         @relation(fields: [quoteId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user                User?          @relation("orders_user_idTousers", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  paymentEvents       PaymentEvent[]
+  walletEntries       WalletEntry[]
+
+  @@index([userId, createdAt(sort: Desc)], map: "orders_user")
+  @@map("orders")
+}
+
+model PaymentEvent {
+  provider      String
+  transactionId String   @map("transaction_id")
+  orderId       String   @map("order_id")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  order         Order    @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([provider, transactionId])
+  @@map("payment_events")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model Product {
+  id            String      @id
+  name          String
+  subtitle      String
+  description   String
+  price         Int
+  features      Json
+  plan          String
+  enabled       Boolean     @default(true)
+  featured      Boolean     @default(false)
+  upgrade       Boolean     @default(false)
+  pricingMode   String      @default("fixed") @map("pricing_mode")
+  pricing       Json?
+  priceCurrency String      @default("CNY") @map("price_currency")
+  roundingStep  Int         @default(100) @map("rounding_step")
+  serviceTerms  String      @default("") @map("service_terms")
+  inventory     Inventory[]
+  order         Order[]
+  quotes        Quote[]
+
+  @@map("products")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model Quote {
+  id                 String       @id
+  browserDigest      String       @map("browser_digest")
+  productId          String       @map("product_id")
+  email              String
+  amount             Int
+  inventoryId        String?      @map("inventory_id")
+  preflightToken     String?      @map("preflight_token")
+  status             String       @default("ready")
+  expiresAt          DateTime     @map("expires_at") @db.Timestamptz(6)
+  aicdkIntegrationId String?      @map("aicdk_integration_id")
+  pricingSnapshot    Json?        @map("pricing_snapshot")
+  currentPlan        String?      @map("current_plan")
+  targetPlan         String?      @map("target_plan")
+  serviceTerms       String       @default("") @map("service_terms")
+  analyticsVisitor   String?      @map("analytics_visitor")
+  attributionSource  String       @default("direct") @map("attribution_source")
+  flowVersion        Int          @default(2) @map("flow_version")
+  preflightExpiresAt DateTime?    @map("preflight_expires_at") @db.Timestamptz(6)
+  order              Order?
+  aicdkIntegration   Integration? @relation(fields: [aicdkIntegrationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  inventory          Inventory?   @relation(fields: [inventoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  product            Product      @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("quotes")
+}
+
+model RateLimit {
+  key       String   @id
+  count     Int      @default(1)
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+
+  @@map("rate_limits")
+}
+
+model Role {
+  id          String     @id
+  name        String
+  permissions Json
+  protected   Boolean    @default(false)
+  userRoles   UserRole[]
+
+  @@map("roles")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model Setting {
+  id   Int  @id
+  body Json
+
+  @@map("settings")
+}
+
+model TwoFactor {
+  id                      String    @id
+  secret                  String
+  backupCodes             String
+  userId                  String
+  verified                Boolean?
+  failedVerificationCount Int?
+  lockedUntil             DateTime? @db.Timestamptz(6)
+  user                    User      @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([secret])
+  @@index([userId])
+  @@map("twoFactor")
+}
+
+model UserRole {
+  userId String @map("user_id")
+  roleId String @map("role_id")
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user   User   @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model User {
+  id                  String        @id
+  email               String        @unique
+  role                String        @default("user")
+  referralCode        String        @unique @map("referral_code")
+  invitedBy           String?       @map("invited_by")
+  disabled            Boolean       @default(false)
+  createdAt           DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  name                String        @default("")
+  emailVerified       Boolean       @default(false) @map("email_verified")
+  updatedAt           DateTime      @default(now()) @map("updated_at") @db.Timestamptz(6)
+  image               String?
+  twoFactorEnabled    Boolean?      @default(false) @map("two_factor_enabled")
+  accounts            AuthAccount[]
+  passkeys            AuthPasskey[]
+  sessions            AuthSession[]
+  commissions         Commission[]
+  invitedOrders       Order[]       @relation("orders_inviter_idTousers")
+  orders              Order[]       @relation("orders_user_idTousers")
+  twoFactors          TwoFactor[]
+  userRoles           UserRole[]
+  inviter             User?         @relation("usersTousers", fields: [invitedBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  invitees            User[]        @relation("usersTousers")
+  walletEntries       WalletEntry[]
+  wallet              Wallet?
+  reviewedWithdrawals Withdrawal[]  @relation("withdrawals_reviewer_idTousers")
+  withdrawals         Withdrawal[]  @relation("withdrawals_user_idTousers")
+
+  @@map("users")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model WalletEntry {
+  id           String   @id
+  userId       String   @map("user_id")
+  amount       Int
+  balanceAfter Int      @map("balance_after")
+  kind         String
+  orderId      String   @map("order_id")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  order        Order    @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user         User     @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([orderId, kind])
+  @@index([userId, createdAt(sort: Desc)], map: "wallet_ledger_user")
+  @@map("wallet_ledger")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model Wallet {
+  userId  String @id @map("user_id")
+  balance Int    @default(0)
+  user    User   @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("wallets")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model Withdrawal {
+  id              String    @id
+  userId          String    @map("user_id")
+  amount          Int
+  method          String
+  account         String
+  status          String    @default("pending")
+  note            String    @default("")
+  requestKey      String    @unique @map("request_key")
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  recipientName   String    @default("") @map("recipient_name")
+  network         String?
+  requestHash     String    @default("") @map("request_hash")
+  feeAmount       Int       @default(0) @map("fee_amount")
+  feeRateBps      Int       @default(0) @map("fee_rate_bps")
+  fixedFee        Int       @default(0) @map("fixed_fee")
+  payoutReference String    @default("") @map("payout_reference")
+  payoutAmount    Decimal?  @map("payout_amount") @db.Decimal(20, 6)
+  reviewerId      String?   @map("reviewer_id")
+  reviewedAt      DateTime? @map("reviewed_at") @db.Timestamptz(6)
+  reviewer        User?     @relation("withdrawals_reviewer_idTousers", fields: [reviewerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user            User      @relation("withdrawals_user_idTousers", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([userId, createdAt(sort: Desc)], map: "withdrawals_user")
+  @@map("withdrawals")
+}

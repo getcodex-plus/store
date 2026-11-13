@@ -1,18 +1,18 @@
+import { prepareTestDatabase, cleanupTestDatabase, testQuery } from './database-test-support'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
-import { readFile } from 'node:fs/promises'
 
-const testSchema = vi.hoisted(() => {
+vi.hoisted(() => {
   process.env.APP_MODE = 'live'
   process.env.ENCRYPTION_KEY = 'cd'.repeat(32)
-  const schema = `aicdk_${crypto.randomUUID().replaceAll('-', '')}`
+  const schema = `test_aicdk_${crypto.randomUUID().replaceAll('-', '')}`
   if (process.env.TEST_DATABASE_URL) {
     const url = new URL(process.env.TEST_DATABASE_URL)
-    url.searchParams.set('options', `-csearch_path=${schema},public`)
+    url.searchParams.set('schema', schema)
     process.env.DATABASE_URL = url.toString()
   }
-  return schema
 })
-import { pool, rows, transaction } from './db'
+import { db, Prisma, transaction } from './db'
+import { userView, paymentOrderView } from './data'
 import { id, encrypt, hash } from './crypto'
 import {
   importInventory,
@@ -26,7 +26,6 @@ import { fulfillOrder } from './fulfillment'
 import { saveIntegration } from './integrations/config'
 import { permissions } from './rbac'
 import type { User } from '../types'
-import type { PaymentOrder } from './integrations/payments'
 
 const suite = process.env.TEST_DATABASE_URL ? describe : describe.skip
 const email = 'recharge@example.com'
@@ -68,12 +67,11 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
   beforeAll(async () => {
     if (!new URL(process.env.TEST_DATABASE_URL!).pathname.endsWith('_test'))
       throw new Error('Dedicated _test database required')
-    await pool.query(`CREATE SCHEMA "${testSchema}"`)
-    await pool.query(await readFile(new URL('./schema.sql', import.meta.url), 'utf8'))
-    await pool.query(`INSERT INTO products(id,name,subtitle,description,price,features,plan,upgrade,pricing_mode)
+    await prepareTestDatabase()
+    await testQuery(Prisma.sql`INSERT INTO products(id,name,subtitle,description,price,features,plan,upgrade,pricing_mode)
       VALUES('upgrade','Upgrade','','',100,'[]','pro20',true,'markup'),('plus','Plus','','',12900,'[]','plus',false,'fixed')`)
-    await pool.query('INSERT INTO settings(id,body) VALUES(1,$1)', [
-      JSON.stringify({
+    await testQuery(
+      Prisma.sql`INSERT INTO settings(id,body) VALUES(1,${JSON.stringify({
         rateBps: 300,
         settlementDays: 7,
         minimumWithdrawal: 100,
@@ -93,8 +91,8 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
             pro20: { markupBps: 2500, serviceFee: 0, minimumProfit: 1000, roundingStep: 100 },
           },
         },
-      }),
-    ])
+      })})`,
+    )
     await saveIntegration(
       {
         provider: 'aicdk',
@@ -104,21 +102,17 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
       },
       'test',
     )
-    user = (
-      await rows<User>('INSERT INTO users(id,email,referral_code) VALUES($1,$2,$3) RETURNING *', [
-        id('u_'),
-        'buyer@example.com',
-        id().slice(0, 12),
-      ])
-    )[0]
+    user = userView(
+      await db.user.create({
+        data: { id: id('u_'), email: 'buyer@example.com', referralCode: id().slice(0, 12) },
+      }),
+    )
     user.permissions = [...permissions]
-    await pool.query('INSERT INTO wallets(user_id,balance) VALUES($1,1000000)', [user.id])
-  })
+    await testQuery(Prisma.sql`INSERT INTO wallets(user_id,balance) VALUES(${user.id},1000000)`)
+  }, 30_000)
   afterEach(() => vi.unstubAllGlobals())
   afterAll(async () => {
-    if (new URL(process.env.TEST_DATABASE_URL!).pathname.endsWith('_test'))
-      await pool.query(`DROP SCHEMA IF EXISTS "${testSchema}" CASCADE`)
-    await pool.end()
+    await cleanupTestDatabase()
   })
   function stub(check: unknown = accountResult, preflight: unknown = ready) {
     const fetcher = vi.fn(async (url: string) => {
@@ -160,15 +154,33 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
     status,
   })
   async function internal(orderId: string) {
-    return (await rows<PaymentOrder>('SELECT * FROM orders WHERE id=$1', [orderId]))[0]
+    return paymentOrderView(await db.order.findUniqueOrThrow({ where: { id: orderId } }))
   }
+  it('keeps the order transaction alive during a slow upstream preflight', async () => {
+    const q = await stockedQuote()
+    const fetcher = stub()
+    const response = fetcher.getMockImplementation()!
+    fetcher.mockImplementationOnce(async (url: string) => {
+      await new Promise((resolve) => setTimeout(resolve, 10_500))
+      return response(url)
+    })
+    const order = await newOrder(user, browser, {
+      quoteId: q.id,
+      channel: 'balance',
+      requestKey: id(),
+      session,
+    })
+    expect(order.status).toBe('processing')
+    expect(await db.walletEntry.count({ where: { orderId: order.id, kind: 'purchase' } })).toBe(1)
+    expect((await db.quote.findUniqueOrThrow({ where: { id: q.id } })).inventoryId).toBeTruthy()
+  }, 20_000)
   it('checks and quotes without inventory, and persists no Session or redemption authorization', async () => {
     const fetcher = stub()
     const result = await quote('upgrade', session, browser)
     expect(result.amount).toBe(8800)
     expect(fetcher).toHaveBeenCalledTimes(1)
     expect(fetcher.mock.calls[0][0]).toContain('/account-checks')
-    const stored = (await pool.query('SELECT * FROM quotes WHERE id=$1', [result.id])).rows[0]
+    const stored = (await testQuery(Prisma.sql`SELECT * FROM quotes WHERE id=${result.id}`)).rows[0]
     expect(stored.inventory_id).toBeNull()
     expect(stored.preflight_token).toBeNull()
     expect(stored.flow_version).toBe(2)
@@ -210,7 +222,7 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
     await expect(quote('upgrade', session, browser)).rejects.toThrow('暂不可用')
   })
   it('quotes zero-decimal currency through its own cached exchange rate', async () => {
-    await pool.query(`INSERT INTO exchange_rates(id,rate_e8,source_date,fetched_at,expires_at)
+    await testQuery(Prisma.sql`INSERT INTO exchange_rates(id,rate_e8,source_date,fetched_at,expires_at)
       VALUES('JPY_CNY',5000000,to_char(now(),'YYYY-MM-DD'),now(),now()+interval '1 day')`)
     stub({
       ...accountResult,
@@ -240,13 +252,16 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
     ])
     expect(a.id).toBe(b.id)
     expect(fetcher).toHaveBeenCalledTimes(2)
-    const stored = (await pool.query('SELECT * FROM quotes WHERE id=$1', [q.id])).rows[0]
+    const stored = (await testQuery(Prisma.sql`SELECT * FROM quotes WHERE id=${q.id}`)).rows[0]
     expect(stored.inventory_id).toBeTruthy()
     expect(openCredential(stored.preflight_token, 'preflight', q.id)).toBe(ready.preflight_token)
     expect(JSON.stringify(a)).not.toContain('synthetic')
     expect(
-      (await pool.query('SELECT count(*)::int AS n FROM wallet_ledger WHERE order_id=$1', [a.id]))
-        .rows[0].n,
+      (
+        await testQuery(
+          Prisma.sql`SELECT count(*)::int AS n FROM wallet_ledger WHERE order_id=${a.id}`,
+        )
+      ).rows[0].n,
     ).toBe(1)
     const admin = await adminData(user)
     expect(JSON.stringify(admin)).not.toContain('synthetic')
@@ -255,17 +270,19 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
   it('rolls back allocation and balance when a card quote costs more than the accepted price', async () => {
     const q = await stockedQuote()
     stub(accountResult, { ...ready, quote: { ...providerQuote, amount_minor: 9000 } })
-    const before = (await pool.query('SELECT balance FROM wallets WHERE user_id=$1', [user.id]))
-      .rows[0].balance
+    const before = (
+      await testQuery(Prisma.sql`SELECT balance FROM wallets WHERE user_id=${user.id}`)
+    ).rows[0].balance
     await expect(
       newOrder(user, browser, { quoteId: q.id, channel: 'balance', requestKey: id(), session }),
     ).rejects.toThrow('成本')
     expect(
-      (await pool.query('SELECT inventory_id FROM quotes WHERE id=$1', [q.id])).rows[0]
+      (await testQuery(Prisma.sql`SELECT inventory_id FROM quotes WHERE id=${q.id}`)).rows[0]
         .inventory_id,
     ).toBeNull()
     expect(
-      (await pool.query('SELECT balance FROM wallets WHERE user_id=$1', [user.id])).rows[0].balance,
+      (await testQuery(Prisma.sql`SELECT balance FROM wallets WHERE user_id=${user.id}`)).rows[0]
+        .balance,
     ).toBe(before)
   })
   it('does not touch the upstream card APIs for missing or mismatched confirmation credentials', async () => {
@@ -299,7 +316,7 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
     expect(await fulfillOrder(order.id)).toBe(false)
     expect((await internal(order.id)).status).toBe('processing')
     expect(
-      (await pool.query('SELECT preflight_token FROM quotes WHERE id=$1', [q.id])).rows[0]
+      (await testQuery(Prisma.sql`SELECT preflight_token FROM quotes WHERE id=${q.id}`)).rows[0]
         .preflight_token,
     ).toBeNull()
     expect(await fulfillOrder(order.id)).toBe(true)
@@ -318,9 +335,8 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
     vi.stubGlobal('fetch', fetcher)
     await expect(fulfillOrder(order.id)).rejects.toMatchObject({ uncertain: true })
     expect((await internal(order.id)).submissionAttempted).toBe(true)
-    await pool.query(
-      "UPDATE quotes SET preflight_expires_at=now()-interval '1 minute' WHERE id=$1",
-      [q.id],
+    await testQuery(
+      Prisma.sql`UPDATE quotes SET preflight_expires_at=now()-interval '1 minute' WHERE id=${q.id}`,
     )
     expect(await fulfillOrder(order.id)).toBe(false)
     expect(fetcher.mock.calls[1][1].body).toBe(fetcher.mock.calls[3][1].body)
@@ -357,9 +373,8 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
   })
   it('refreshes an existing order with PUT and never selects a replacement card', async () => {
     const { order } = await purchase()
-    await pool.query(
-      "UPDATE orders SET status='needs_session',redemption_id=$2,redemption_version=1 WHERE id=$1",
-      [order.id, `ord_${order.id}`],
+    await testQuery(
+      Prisma.sql`UPDATE orders SET status='needs_session',redemption_id=${`ord_${order.id}`},redemption_version=1 WHERE id=${order.id}`,
     )
     const fetcher = vi
       .fn()
@@ -375,15 +390,14 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
   })
   it('does not submit an unattempted expired ticket or refresh an uncertain submission', async () => {
     const { order, q } = await purchase()
-    await pool.query(
-      "UPDATE quotes SET preflight_expires_at=now()-interval '1 minute' WHERE id=$1",
-      [q.id],
+    await testQuery(
+      Prisma.sql`UPDATE quotes SET preflight_expires_at=now()-interval '1 minute' WHERE id=${q.id}`,
     )
     const fetcher = stub()
     expect(await fulfillOrder(order.id)).toBe(true)
     expect((await internal(order.id)).status).toBe('needs_session')
     expect(fetcher.mock.calls.every(([url]) => url.includes('/redemptions?'))).toBe(true)
-    await pool.query('UPDATE orders SET submission_attempted=true WHERE id=$1', [order.id])
+    await testQuery(Prisma.sql`UPDATE orders SET submission_attempted=true WHERE id=${order.id}`)
     fetcher.mockClear()
     await expect(confirmSession(user, order.id, session, browser)).rejects.toThrow('仍待核对')
     expect(fetcher.mock.calls.every(([url]) => url.includes('/redemptions?'))).toBe(true)
@@ -396,10 +410,9 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
     )
     await expect(fulfillOrder(order.id)).rejects.toThrow('不匹配')
     expect((await internal(order.id)).redemptionId).toBeNull()
-    await pool.query('UPDATE orders SET redemption_id=$2,redemption_version=4 WHERE id=$1', [
-      order.id,
-      `ord_${order.id}`,
-    ])
+    await testQuery(
+      Prisma.sql`UPDATE orders SET redemption_id=${`ord_${order.id}`},redemption_version=4 WHERE id=${order.id}`,
+    )
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(ok(remote(order.id, 'completed', 3))))
     await expect(fulfillOrder(order.id)).rejects.toMatchObject({
       code: 'UPSTREAM_INVALID_RESPONSE',
@@ -410,34 +423,32 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
     const itemId = id('legacy_'),
       code = 'synthetic-legacy-card',
       quoteId = id('q_')
-    await pool.query('INSERT INTO inventory(id,product_id,code,fingerprint) VALUES($1,$2,$3,$4)', [
-      itemId,
-      'upgrade',
-      encrypt(code, 'getgpt'),
-      hash(code),
-    ])
-    await pool.query(
-      "INSERT INTO quotes(id,browser_digest,product_id,email,amount,preflight_token,expires_at,flow_version) VALUES($1,$2,'upgrade',$3,8800,$4,now()+interval '9 minutes',1)",
-      [quoteId, browser, email, encrypt('legacy-ticket', 'getgpt')],
+    await testQuery(
+      Prisma.sql`INSERT INTO inventory(id,product_id,code,fingerprint) VALUES(${itemId},${'upgrade'},${encrypt(code, 'getgpt')},${hash(code)})`,
+    )
+    await testQuery(
+      Prisma.sql`INSERT INTO quotes(id,browser_digest,product_id,email,amount,preflight_token,expires_at,flow_version) VALUES(${quoteId},${browser},'upgrade',${email},8800,${encrypt('legacy-ticket', 'getgpt')},now()+interval '9 minutes',1)`,
     )
     await expect(importInventory('upgrade', [code], user.email)).rejects.toThrow('迁移')
     await transaction(migrateCredentialStorage)
-    const row = (await pool.query('SELECT code,fingerprint FROM inventory WHERE id=$1', [itemId]))
-      .rows[0]
+    const row = (
+      await testQuery(Prisma.sql`SELECT code,fingerprint FROM inventory WHERE id=${itemId}`)
+    ).rows[0]
     expect(row.fingerprint).toBe(inventoryFingerprint(code))
     expect(openCredential(row.code, 'inventory', itemId)).toBe(code)
     expect(() => openCredential(row.code, 'preflight', itemId)).toThrow()
     expect(() => openCredential(row.code, 'inventory', 'another-row')).toThrow()
-    const token = (await pool.query('SELECT preflight_token FROM quotes WHERE id=$1', [quoteId]))
-      .rows[0].preflight_token
+    const token = (
+      await testQuery(Prisma.sql`SELECT preflight_token FROM quotes WHERE id=${quoteId}`)
+    ).rows[0].preflight_token
     expect(openCredential(token, 'preflight', quoteId)).toBe('legacy-ticket')
     await transaction(migrateCredentialStorage)
     await importInventory('upgrade', [code, code], user.email)
     expect(
       (
-        await pool.query('SELECT count(*)::int AS n FROM inventory WHERE fingerprint=$1', [
-          inventoryFingerprint(code),
-        ])
+        await testQuery(
+          Prisma.sql`SELECT count(*)::int AS n FROM inventory WHERE fingerprint=${inventoryFingerprint(code)}`,
+        )
       ).rows[0].n,
     ).toBe(1)
     expect(sealCredential(code, 'inventory', itemId)).not.toBe(row.code)

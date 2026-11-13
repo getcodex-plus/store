@@ -80,9 +80,11 @@ localStorage 或 sessionStorage。用户刷新页面后需重新检查账号。
 
 ## 升级已有部署
 
+以下描述的是 AICDK v2 的历史数据转换。当前版本已采用 Prisma，`db:migrate` 不再自动执行重加密。首次接管和适用的兼容桥见 [Prisma 数据库运行手册](prisma-migration.md)；未达到密文/认证前置条件的更早版本须先用相应历史版本完成升级。
+
 1. 备份数据库及当前 `ENCRYPTION_KEY`、`BETTER_AUTH_SECRET`。本次迁移不轮换密钥。
 2. 停止 Web 和 worker，避免旧代码继续写入旧格式或与迁移混跑。
-3. 在原部署环境执行 `bun run db:migrate`。迁移会：
+3. 在采用 Prisma 之前的对应 AICDK v2 版本中执行其数据库升级入口。历史升级会：
    - 添加报价流程版本、预检有效期、上游状态/版本和提交尝试标记；
    - 保留旧报价的版本、原配置 ID、兑换 ID、客户请求 ID、尝试编号和订单金额；
    - 在一个事务中重加密旧卡密、旧预检令牌，并重建规范化的 HMAC 去重指纹；

@@ -1,4 +1,6 @@
-import { pool, rows, transaction } from './db'
+import { db, transaction } from './db'
+import { paymentOrderView, quoteView } from './data'
+import { lockRow } from './database-sql'
 import { demo } from './config'
 import { openCredential } from './credential-storage'
 import { completeOrder, type StoredQuote } from './services'
@@ -15,22 +17,30 @@ import {
 
 async function needSession(order: PaymentOrder) {
   await transaction(async (client) => {
-    const updated = await client.query(
-      "UPDATE orders SET status='needs_session',submission_attempted=false WHERE id=$1 AND status='processing' AND redemption_id IS NULL AND fulfillment_attempt=$2 RETURNING quote_id",
-      [order.id, order.fulfillmentAttempt],
-    )
-    if (updated.rowCount)
-      await client.query('UPDATE quotes SET preflight_token=null WHERE id=$1', [order.quoteId])
+    const updated = await client.order.updateMany({
+      where: {
+        id: order.id,
+        status: 'processing',
+        redemptionId: null,
+        fulfillmentAttempt: order.fulfillmentAttempt,
+      },
+      data: { status: 'needs_session', submissionAttempted: false },
+    })
+    if (updated.count && order.quoteId)
+      await client.quote.updateMany({
+        where: { id: order.quoteId },
+        data: { preflightToken: null },
+      })
   })
 }
 
 async function recordResult(order: PaymentOrder, quote: StoredQuote, result: Redemption) {
   validateFulfillment(result, quote, order.id)
   const accepted = await transaction(async (client) => {
-    const current = (
-      await rows<PaymentOrder>('SELECT * FROM orders WHERE id=$1 FOR UPDATE', [order.id], client)
-    )[0]
-    if (!current || !['processing', 'needs_session'].includes(current.status)) return false
+    await lockRow(client, 'orders', order.id)
+    const record = await client.order.findUnique({ where: { id: order.id } })
+    if (!record || !['processing', 'needs_session'].includes(record.status)) return false
+    const current = paymentOrderView(record)
     if (
       (current.redemptionId && current.redemptionId !== result.id) ||
       result.version < current.redemptionVersion ||
@@ -46,12 +56,16 @@ async function recordResult(order: PaymentOrder, quote: StoredQuote, result: Red
         : ['failed', 'cancelled'].includes(result.status)
           ? 'failed'
           : 'processing'
-    await client.query(
-      'UPDATE orders SET redemption_id=$2,redemption_version=$3,fulfillment_status=$4,status=$5 WHERE id=$1',
-      [order.id, result.id, result.version, result.status, status],
-    )
-    // A known upstream order is recovered by ID from now on; the ticket is obsolete.
-    await client.query('UPDATE quotes SET preflight_token=null WHERE id=$1', [quote.id])
+    await client.order.update({
+      where: { id: order.id },
+      data: {
+        redemptionId: result.id,
+        redemptionVersion: result.version,
+        fulfillmentStatus: result.status,
+        status,
+      },
+    })
+    await client.quote.update({ where: { id: quote.id }, data: { preflightToken: null } })
     return true
   })
   if (accepted && result.status === 'completed') await completeOrder(order.id)
@@ -61,7 +75,8 @@ async function recordResult(order: PaymentOrder, quote: StoredQuote, result: Red
 // Returns true only when this job can stop polling. Network ambiguity never
 // releases a card, refunds an order, or changes the submission key/body.
 export async function fulfillOrder(orderId: string): Promise<boolean> {
-  const order = (await rows<PaymentOrder>('SELECT * FROM orders WHERE id=$1', [orderId]))[0]
+  const stored = await db.order.findUnique({ where: { id: orderId } })
+  const order = stored ? paymentOrderView(stored) : null
   if (
     !order ||
     ['completed', 'failed', 'refunded', 'cancelled', 'needs_session'].includes(order.status)
@@ -74,7 +89,10 @@ export async function fulfillOrder(orderId: string): Promise<boolean> {
   }
   if (!order.aicdkIntegrationId) throw new UpstreamError('UPSTREAM_INVALID_RESPONSE', 30, true)
   const binding = await resolveAicdk(order.aicdkIntegrationId)
-  const quote = (await rows<StoredQuote>('SELECT * FROM quotes WHERE id=$1', [order.quoteId]))[0]
+  const storedQuote = order.quoteId
+    ? await db.quote.findUnique({ where: { id: order.quoteId } })
+    : null
+  const quote = storedQuote ? quoteView(storedQuote) : null
   if (!quote) throw new UpstreamError('UPSTREAM_INVALID_RESPONSE', 30, true)
   let result = order.redemptionId
     ? await getRedemption(order.redemptionId, binding)
@@ -88,11 +106,16 @@ export async function fulfillOrder(orderId: string): Promise<boolean> {
     // An attempted request may have reached AICDK. Even an expired ticket must
     // be replayed unchanged; its durable receipt may contain the accepted order.
     if (!quote.preflightToken) throw new UpstreamError('OUTCOME_UNKNOWN', 30, true)
-    const claimed = await pool.query(
-      "UPDATE orders SET submission_attempted=true WHERE id=$1 AND status='processing' AND redemption_id IS NULL AND fulfillment_attempt=$2 RETURNING id",
-      [order.id, order.fulfillmentAttempt],
-    )
-    if (!claimed.rowCount) return false
+    const claimed = await db.order.updateMany({
+      where: {
+        id: order.id,
+        status: 'processing',
+        redemptionId: null,
+        fulfillmentAttempt: order.fulfillmentAttempt,
+      },
+      data: { submissionAttempted: true },
+    })
+    if (!claimed.count) return false
     try {
       result = await submitRedemption(
         openCredential(quote.preflightToken, 'preflight', quote.id),
@@ -124,10 +147,10 @@ export async function fulfillOrder(orderId: string): Promise<boolean> {
         }
       } else {
         if (error instanceof UpstreamError && error.uncertain)
-          await pool.query(
-            "UPDATE orders SET fulfillment_status='uncertain' WHERE id=$1 AND status='processing' AND redemption_id IS NULL",
-            [order.id],
-          )
+          await db.order.updateMany({
+            where: { id: order.id, status: 'processing', redemptionId: null },
+            data: { fulfillmentStatus: 'uncertain' },
+          })
         throw error
       }
     }

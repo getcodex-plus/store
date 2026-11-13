@@ -1,5 +1,6 @@
 import { cookies, headers } from 'next/headers'
-import { pool, rows } from './db'
+import { db } from './db'
+import { userView } from './data'
 import { ApiError, demo } from './config'
 import { hash, id } from './crypto'
 import type { User } from '../types'
@@ -9,28 +10,30 @@ import { auth, permittedSession } from './better-auth'
 export async function currentUser(): Promise<User | null> {
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session) return null
-  const record = (
-    await rows<User & { twoFactorEnabled: boolean; hasPasskey: boolean; hasTotp: boolean }>(
-      'SELECT u.*,EXISTS(SELECT 1 FROM auth_passkey p WHERE p."userId"=u.id) AS has_passkey,EXISTS(SELECT 1 FROM "twoFactor" t WHERE t."userId"=u.id AND t.verified=true) AS has_totp FROM users u WHERE u.id=$1 AND disabled=false',
-      [session.user.id],
-    )
-  )[0]
+  const record = await db.user.findFirst({
+    where: { id: session.user.id, disabled: false },
+    include: {
+      passkeys: { select: { id: true } },
+      twoFactors: { where: { verified: true }, select: { id: true } },
+    },
+  })
   if (
     !record ||
     !permittedSession(
       session.session.method || 'unknown',
-      record.hasPasskey,
-      record.twoFactorEnabled,
-      record.hasTotp,
+      record.passkeys.length > 0,
+      !!record.twoFactorEnabled,
+      record.twoFactors.length > 0,
     )
   )
     return null
   if (session.user.emailVerified)
-    await pool.query(
-      'UPDATE orders SET user_id=$1,guest_browser_digest=null WHERE user_id IS NULL AND contact_email=$2',
-      [record.id, record.email],
-    )
-  return { ...record, permissions: await permissionsFor(record) }
+    await db.order.updateMany({
+      where: { userId: null, contactEmail: record.email },
+      data: { userId: record.id, guestBrowserDigest: null },
+    })
+  const user = userView(record)
+  return { ...user, permissions: await permissionsFor(user) }
 }
 export async function requireUser(admin = false): Promise<User> {
   const user = await currentUser()

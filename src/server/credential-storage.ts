@@ -1,7 +1,7 @@
-import type { PoolClient } from 'pg'
 import { ApiError } from './config'
 import { decrypt, encrypt, id, secretHash } from './crypto'
-import { transaction } from './db'
+import { transaction, uniqueConflict, type DbClient } from './db'
+import { lockCredentialTables } from './database-sql'
 
 // The version is outside the ciphertext so legacy data can be migrated explicitly.
 // Runtime readers never fall back to the old shared encryption purpose.
@@ -29,51 +29,58 @@ export async function importInventory(productId: string, codes: string[], actor:
   await transaction(async (client) => {
     // Do not mix old SHA-256 indexes with keyed indexes: the same card could
     // otherwise be imported twice before the migration is run.
-    if ((await client.query("SELECT 1 FROM inventory WHERE code NOT LIKE 'v2:%' LIMIT 1")).rowCount)
+    if (await client.inventory.count({ where: { NOT: { code: { startsWith: version } } } }))
       throw new ApiError(503, '凭据存储需要升级，请联系管理员执行数据库迁移')
     for (const code of new Set(codes)) {
       const itemId = id('i_')
-      await client.query(
-        'INSERT INTO inventory(id,product_id,code,fingerprint) VALUES($1,$2,$3,$4) ON CONFLICT(fingerprint) DO NOTHING',
-        [itemId, productId, sealCredential(code, 'inventory', itemId), inventoryFingerprint(code)],
-      )
+      await client.inventory.createMany({
+        data: [
+          {
+            id: itemId,
+            productId,
+            code: sealCredential(code, 'inventory', itemId),
+            fingerprint: inventoryFingerprint(code),
+          },
+        ],
+        skipDuplicates: true,
+      })
     }
-    await client.query('INSERT INTO audit(id,actor,action,target) VALUES($1,$2,$3,$4)', [
-      id('a_'),
-      actor,
-      '导入兑换库存',
-      productId,
-    ])
+    await client.audit.create({
+      data: { id: id('a_'), actor, action: '导入兑换库存', target: productId },
+    })
   })
   return { saved: true }
 }
 
 // Run inside the schema migration transaction with the app and worker stopped.
 // A failure rolls back all changes; no plaintext, row values or keys are logged.
-export async function migrateCredentialStorage(client: PoolClient) {
-  await client.query('LOCK TABLE inventory, quotes IN SHARE ROW EXCLUSIVE MODE')
+export async function migrateCredentialStorage(client: DbClient) {
+  await lockCredentialTables(client)
   let after = ''
   for (;;) {
-    const batch = (
-      await client.query<{ id: string; code: string }>(
-        'SELECT id,code FROM inventory WHERE id>$1 ORDER BY id LIMIT 200 FOR UPDATE',
-        [after],
-      )
-    ).rows
+    const batch = await client.inventory.findMany({
+      where: { id: { gt: after } },
+      orderBy: { id: 'asc' },
+      take: 200,
+    })
     if (!batch.length) break
     for (const item of batch) {
       const legacy = !item.code.startsWith(version)
       const plaintext = legacy
         ? decrypt(item.code, 'getgpt')
         : openCredential(item.code, 'inventory', item.id)
+      const fingerprint = inventoryFingerprint(plaintext)
       try {
-        await client.query('UPDATE inventory SET code=$2,fingerprint=$3 WHERE id=$1', [
-          item.id,
-          legacy ? sealCredential(plaintext, 'inventory', item.id) : item.code,
-          inventoryFingerprint(plaintext),
-        ])
+        if (legacy || item.fingerprint !== fingerprint)
+          await client.inventory.update({
+            where: { id: item.id },
+            data: {
+              code: legacy ? sealCredential(plaintext, 'inventory', item.id) : item.code,
+              fingerprint,
+            },
+          })
       } catch (error) {
-        if ((error as { code?: string }).code === '23505')
+        if (uniqueConflict(error))
           throw new ApiError(409, '存在同一卡密的不同展示格式，请核对重复库存后重新迁移')
         throw error
       }
@@ -81,16 +88,22 @@ export async function migrateCredentialStorage(client: PoolClient) {
     }
   }
   for (;;) {
-    const batch = (
-      await client.query<{ id: string; preflight_token: string }>(
-        "SELECT id,preflight_token FROM quotes WHERE preflight_token IS NOT NULL AND preflight_token NOT LIKE 'v2:%' ORDER BY id LIMIT 200 FOR UPDATE",
-      )
-    ).rows
+    const batch = await client.quote.findMany({
+      where: { preflightToken: { not: null }, NOT: { preflightToken: { startsWith: version } } },
+      orderBy: { id: 'asc' },
+      take: 200,
+    })
     if (!batch.length) break
     for (const quote of batch)
-      await client.query('UPDATE quotes SET preflight_token=$2 WHERE id=$1', [
-        quote.id,
-        sealCredential(decrypt(quote.preflight_token, 'getgpt'), 'preflight', quote.id),
-      ])
+      await client.quote.update({
+        where: { id: quote.id },
+        data: {
+          preflightToken: sealCredential(
+            decrypt(quote.preflightToken!, 'getgpt'),
+            'preflight',
+            quote.id,
+          ),
+        },
+      })
   }
 }

@@ -1,4 +1,6 @@
 import { defineConfig, devices } from '@playwright/test'
+if (process.env.E2E_DATABASE_PREPARED !== 'true')
+  throw new Error('Run bun run test:e2e to prepare an isolated Prisma database first')
 const baseURL = process.env.E2E_BASE_URL || 'http://localhost:3000'
 const port = new URL(baseURL).port || '3000'
 export default defineConfig({
@@ -18,7 +20,7 @@ export default defineConfig({
         ? `bun run start --port ${port}`
         : `bun run dev --port ${port}`,
     url: baseURL,
-    reuseExistingServer: !process.env.CI && !process.env.E2E_BASE_URL,
+    reuseExistingServer: false,
     timeout: 120000,
   },
 })

@@ -73,11 +73,13 @@ test('inventory inputs are cleared on cancel and save, and card values never app
   await page.getByRole('button', { name: '导入兑换库存' }).click()
   await expect(input).toHaveValue('')
   await expect(input).toHaveAttribute('spellcheck', 'false')
-  await dialog.getByLabel('绑定商品').click()
-  await page
-    .locator('.ant-select-dropdown:visible')
-    .getByText('ChatGPT Plus', { exact: true })
-    .click()
+  const productSelect = dialog.getByRole('combobox', { name: '绑定商品' })
+  await productSelect.click()
+  await productSelect.press('Home')
+  await productSelect.press('ArrowDown')
+  await productSelect.press('Enter')
+  await expect(productSelect).toHaveAttribute('aria-expanded', 'false')
+  await expect(dialog).toContainText('ChatGPT Plus')
   const card = `synthetic-import-${Date.now()}`
   await input.fill(card)
   await dialog.getByRole('button', { name: '加密保存库存' }).click()

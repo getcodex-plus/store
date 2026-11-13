@@ -1,6 +1,7 @@
 import { z } from 'zod'
-import { pool, rows, transaction } from '../db'
-import type { PoolClient } from 'pg'
+import { db, transaction, type DbClient } from '../db'
+import { stringRecord, jsonInput } from '../data'
+import { advisoryLock, lockIntegration, lockSettings } from '../database-sql'
 import { ApiError } from '../config'
 import { decrypt, encrypt, id } from '../crypto'
 
@@ -22,9 +23,6 @@ export interface IntegrationView {
   enabled: boolean
   secrets: string[]
   createdAt: string
-}
-interface IntegrationRecord extends Omit<IntegrationView, 'secrets'> {
-  secret: string
 }
 const publicKeys: Record<IntegrationKind, string[]> = {
   xorpay: ['appId'],
@@ -49,27 +47,29 @@ const secretKeys: Record<IntegrationKind, string[]> = {
 export async function integration(
   provider: IntegrationKind,
   revision?: string,
-  client: PoolClient | typeof pool = pool,
+  client: DbClient = db,
 ) {
-  const result = await rows<IntegrationRecord>(
-    `SELECT * FROM integrations WHERE provider=$1 AND ${revision ? 'id=$2' : 'active=true'}`,
-    revision ? [provider, revision] : [provider],
-    client,
-  )
-  if (!result[0] || (!revision && !result[0].enabled))
+  const result = await client.integration.findFirst({
+    where: { provider, ...(revision ? { id: revision } : { active: true }) },
+  })
+  if (!result || (!revision && !result.enabled))
     throw new ApiError(503, '该服务尚未启用，请联系管理员')
   return {
-    id: result[0].id,
-    ...result[0].public,
-    ...JSON.parse(decrypt(result[0].secret, `integration:${provider}`)),
+    id: result.id,
+    ...stringRecord(result.public),
+    ...JSON.parse(decrypt(result.secret, `integration:${provider}`)),
   } as Record<string, string>
 }
 export async function integrationViews(): Promise<IntegrationView[]> {
   return (
-    await rows<IntegrationRecord>('SELECT * FROM integrations WHERE active=true ORDER BY provider')
-  ).map(({ secret, ...rest }) => ({
-    ...rest,
-    secrets: Object.keys(JSON.parse(decrypt(secret, `integration:${rest.provider}`))),
+    await db.integration.findMany({ where: { active: true }, orderBy: { provider: 'asc' } })
+  ).map((record) => ({
+    id: record.id,
+    provider: z.enum(providers).parse(record.provider),
+    public: stringRecord(record.public),
+    enabled: record.enabled,
+    createdAt: record.createdAt.toISOString(),
+    secrets: Object.keys(JSON.parse(decrypt(record.secret, `integration:${record.provider}`))),
   }))
 }
 export const integrationSchema = z.object({
@@ -81,16 +81,11 @@ export const integrationSchema = z.object({
 export async function saveIntegration(input: z.infer<typeof integrationSchema>, actor: string) {
   return transaction(async (client) => {
     const isEpay = input.provider === 'epay_v1' || input.provider === 'epay_v2'
-    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
-      `integration:${isEpay ? 'epay' : input.provider}`,
-    ])
-    const previous = (
-      await rows<IntegrationRecord>(
-        'SELECT * FROM integrations WHERE provider=$1 AND active=true FOR UPDATE',
-        [input.provider],
-        client,
-      )
-    )[0]
+    await advisoryLock(client, `integration:${isEpay ? 'epay' : input.provider}`)
+    await lockIntegration(client, input.provider)
+    const previous = await client.integration.findFirst({
+      where: { provider: input.provider, active: true },
+    })
     const fields = Object.fromEntries(
       publicKeys[input.provider].map((key) => [key, (input.public[key] ?? '').trim()]),
     )
@@ -136,36 +131,47 @@ export async function saveIntegration(input: z.infer<typeof integrationSchema>, 
       ].some((value) => !value)
     )
       throw new ApiError(400, '请先填写完整配置再启用')
-    await client.query('UPDATE integrations SET active=false WHERE provider=$1 AND active=true', [
-      input.provider,
-    ])
+    await client.integration.updateMany({
+      where: { provider: input.provider, active: true },
+      data: { active: false },
+    })
     const revision = id('cfg_')
-    await client.query(
-      'INSERT INTO integrations(id,provider,public,secret,enabled) VALUES($1,$2,$3,$4,$5)',
-      [
-        revision,
-        input.provider,
-        JSON.stringify(fields),
-        encrypt(JSON.stringify(secrets), `integration:${input.provider}`),
-        input.enabled,
-      ],
-    )
+    await client.integration.create({
+      data: {
+        id: revision,
+        provider: input.provider,
+        public: fields,
+        secret: encrypt(JSON.stringify(secrets), `integration:${input.provider}`),
+        enabled: input.enabled,
+      },
+    })
     if (isEpay) {
-      // Keep historical provider/configuration IDs for existing orders and callbacks.
-      // Selecting a protocol changes new EPay orders only, in the same transaction.
-      await client.query(
-        `UPDATE settings SET body=body || jsonb_build_object('epayVersion',$1::text) ||
-          CASE WHEN body->>'fiatProvider' IN ('epay_v1','epay_v2')
-          THEN jsonb_build_object('fiatProvider',$1::text) ELSE '{}'::jsonb END WHERE id=1`,
-        [input.provider],
-      )
+      await lockSettings(client)
+      const current = await client.setting.findUnique({ where: { id: 1 } })
+      if (current) {
+        const body = z.record(z.string(), z.unknown()).parse(current.body)
+        await client.setting.update({
+          where: { id: 1 },
+          data: {
+            body: jsonInput({
+              ...body,
+              epayVersion: input.provider,
+              ...(['epay_v1', 'epay_v2'].includes(String(body.fiatProvider))
+                ? { fiatProvider: input.provider }
+                : {}),
+            }),
+          },
+        })
+      }
     }
-    await client.query('INSERT INTO audit(id,actor,action,target) VALUES($1,$2,$3,$4)', [
-      id('a_'),
-      actor,
-      '更新服务配置',
-      `${input.provider}:${revision}`,
-    ])
+    await client.audit.create({
+      data: {
+        id: id('a_'),
+        actor,
+        action: '更新服务配置',
+        target: `${input.provider}:${revision}`,
+      },
+    })
     return { saved: true }
   })
 }

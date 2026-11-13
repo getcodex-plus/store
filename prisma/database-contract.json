@@ -1,0 +1,2292 @@
+{
+  "columns": [
+    {
+      "key": "audit.action",
+      "definition": "text|true|"
+    },
+    {
+      "key": "audit.actor",
+      "definition": "text|true|"
+    },
+    {
+      "key": "audit.created_at",
+      "definition": "timestamp with time zone|true|now()"
+    },
+    {
+      "key": "audit.id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "audit.target",
+      "definition": "text|true|"
+    },
+    {
+      "key": "auth_account.accessToken",
+      "definition": "text|false|"
+    },
+    {
+      "key": "auth_account.accessTokenExpiresAt",
+      "definition": "timestamp with time zone|false|"
+    },
+    {
+      "key": "auth_account.accountId",
+      "definition": "text|true|"
+    },
+    {
+      "key": "auth_account.createdAt",
+      "definition": "timestamp with time zone|true|CURRENT_TIMESTAMP"
+    },
+    {
+      "key": "auth_account.id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "auth_account.idToken",
+      "definition": "text|false|"
+    },
+    {
+      "key": "auth_account.password",
+      "definition": "text|false|"
+    },
+    {
+      "key": "auth_account.providerId",
+      "definition": "text|true|"
+    },
+    {
+      "key": "auth_account.refreshToken",
+      "definition": "text|false|"
+    },
+    {
+      "key": "auth_account.refreshTokenExpiresAt",
+      "definition": "timestamp with time zone|false|"
+    },
+    {
+      "key": "auth_account.registrationRecord",
+      "definition": "text|false|"
+    },
+    {
+      "key": "auth_account.scope",
+      "definition": "text|false|"
+    },
+    {
+      "key": "auth_account.updatedAt",
+      "definition": "timestamp with time zone|true|"
+    },
+    {
+      "key": "auth_account.userId",
+      "definition": "text|true|"
+    },
+    {
+      "key": "auth_passkey.aaguid",
+      "definition": "text|false|"
+    },
+    {
+      "key": "auth_passkey.backedUp",
+      "definition": "boolean|true|"
+    },
+    {
+      "key": "auth_passkey.counter",
+      "definition": "integer|true|"
+    },
+    {
+      "key": "auth_passkey.createdAt",
+      "definition": "timestamp with time zone|false|"
+    },
+    {
+      "key": "auth_passkey.credentialID",
+      "definition": "text|true|"
+    },
+    {
+      "key": "auth_passkey.deviceType",
+      "definition": "text|true|"
+    },
+    {
+      "key": "auth_passkey.id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "auth_passkey.name",
+      "definition": "text|false|"
+    },
+    {
+      "key": "auth_passkey.publicKey",
+      "definition": "text|true|"
+    },
+    {
+      "key": "auth_passkey.transports",
+      "definition": "text|false|"
+    },
+    {
+      "key": "auth_passkey.userId",
+      "definition": "text|true|"
+    },
+    {
+      "key": "auth_rate_limit.count",
+      "definition": "integer|true|"
+    },
+    {
+      "key": "auth_rate_limit.id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "auth_rate_limit.key",
+      "definition": "text|true|"
+    },
+    {
+      "key": "auth_rate_limit.lastRequest",
+      "definition": "bigint|true|"
+    },
+    {
+      "key": "auth_session.createdAt",
+      "definition": "timestamp with time zone|true|CURRENT_TIMESTAMP"
+    },
+    {
+      "key": "auth_session.expiresAt",
+      "definition": "timestamp with time zone|true|"
+    },
+    {
+      "key": "auth_session.id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "auth_session.ipAddress",
+      "definition": "text|false|"
+    },
+    {
+      "key": "auth_session.method",
+      "definition": "text|false|"
+    },
+    {
+      "key": "auth_session.token",
+      "definition": "text|true|"
+    },
+    {
+      "key": "auth_session.updatedAt",
+      "definition": "timestamp with time zone|true|"
+    },
+    {
+      "key": "auth_session.userAgent",
+      "definition": "text|false|"
+    },
+    {
+      "key": "auth_session.userId",
+      "definition": "text|true|"
+    },
+    {
+      "key": "auth_verification.createdAt",
+      "definition": "timestamp with time zone|true|CURRENT_TIMESTAMP"
+    },
+    {
+      "key": "auth_verification.expiresAt",
+      "definition": "timestamp with time zone|true|"
+    },
+    {
+      "key": "auth_verification.id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "auth_verification.identifier",
+      "definition": "text|true|"
+    },
+    {
+      "key": "auth_verification.updatedAt",
+      "definition": "timestamp with time zone|true|CURRENT_TIMESTAMP"
+    },
+    {
+      "key": "auth_verification.value",
+      "definition": "text|true|"
+    },
+    {
+      "key": "commissions.amount",
+      "definition": "integer|true|"
+    },
+    {
+      "key": "commissions.available_at",
+      "definition": "timestamp with time zone|true|"
+    },
+    {
+      "key": "commissions.created_at",
+      "definition": "timestamp with time zone|true|now()"
+    },
+    {
+      "key": "commissions.id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "commissions.order_id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "commissions.status",
+      "definition": "text|true|"
+    },
+    {
+      "key": "commissions.user_id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "demo_mailbox.browser_digest",
+      "definition": "text|true|"
+    },
+    {
+      "key": "demo_mailbox.code",
+      "definition": "text|true|"
+    },
+    {
+      "key": "demo_mailbox.email",
+      "definition": "text|true|"
+    },
+    {
+      "key": "demo_mailbox.expires_at",
+      "definition": "timestamp with time zone|true|"
+    },
+    {
+      "key": "email_outbox.attempts",
+      "definition": "integer|true|0"
+    },
+    {
+      "key": "email_outbox.id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "email_outbox.order_id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "email_outbox.run_at",
+      "definition": "timestamp with time zone|true|now()"
+    },
+    {
+      "key": "email_outbox.sent_at",
+      "definition": "timestamp with time zone|false|"
+    },
+    {
+      "key": "email_outbox.status",
+      "definition": "text|true|"
+    },
+    {
+      "key": "exchange_rates.expires_at",
+      "definition": "timestamp with time zone|false|"
+    },
+    {
+      "key": "exchange_rates.fetched_at",
+      "definition": "timestamp with time zone|false|"
+    },
+    {
+      "key": "exchange_rates.id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "exchange_rates.last_error",
+      "definition": "text|false|"
+    },
+    {
+      "key": "exchange_rates.lease",
+      "definition": "text|false|"
+    },
+    {
+      "key": "exchange_rates.locked_until",
+      "definition": "timestamp with time zone|false|"
+    },
+    {
+      "key": "exchange_rates.rate_e8",
+      "definition": "bigint|false|"
+    },
+    {
+      "key": "exchange_rates.refresh_after",
+      "definition": "timestamp with time zone|true|now()"
+    },
+    {
+      "key": "exchange_rates.source",
+      "definition": "text|false|"
+    },
+    {
+      "key": "exchange_rates.source_date",
+      "definition": "text|false|"
+    },
+    {
+      "key": "funnel_events.created_at",
+      "definition": "timestamp with time zone|true|now()"
+    },
+    {
+      "key": "funnel_events.event",
+      "definition": "text|true|"
+    },
+    {
+      "key": "funnel_events.id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "funnel_events.product_id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "funnel_events.source",
+      "definition": "text|true|"
+    },
+    {
+      "key": "funnel_events.visitor_key",
+      "definition": "text|true|"
+    },
+    {
+      "key": "integrations.active",
+      "definition": "boolean|true|true"
+    },
+    {
+      "key": "integrations.created_at",
+      "definition": "timestamp with time zone|true|now()"
+    },
+    {
+      "key": "integrations.enabled",
+      "definition": "boolean|true|false"
+    },
+    {
+      "key": "integrations.id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "integrations.provider",
+      "definition": "text|true|"
+    },
+    {
+      "key": "integrations.public",
+      "definition": "jsonb|true|"
+    },
+    {
+      "key": "integrations.secret",
+      "definition": "text|true|"
+    },
+    {
+      "key": "inventory.code",
+      "definition": "text|true|"
+    },
+    {
+      "key": "inventory.fingerprint",
+      "definition": "text|true|"
+    },
+    {
+      "key": "inventory.id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "inventory.product_id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "inventory.reserved_until",
+      "definition": "timestamp with time zone|false|"
+    },
+    {
+      "key": "inventory.status",
+      "definition": "text|true|'available'::text"
+    },
+    {
+      "key": "jobs.attempts",
+      "definition": "integer|true|0"
+    },
+    {
+      "key": "jobs.done",
+      "definition": "boolean|true|false"
+    },
+    {
+      "key": "jobs.id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "jobs.last_error",
+      "definition": "text|false|"
+    },
+    {
+      "key": "jobs.lease",
+      "definition": "text|false|"
+    },
+    {
+      "key": "jobs.locked_until",
+      "definition": "timestamp with time zone|false|"
+    },
+    {
+      "key": "jobs.order_id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "jobs.run_at",
+      "definition": "timestamp with time zone|true|now()"
+    },
+    {
+      "key": "orders.aicdk_integration_id",
+      "definition": "text|false|"
+    },
+    {
+      "key": "orders.amount",
+      "definition": "integer|true|"
+    },
+    {
+      "key": "orders.balance_amount",
+      "definition": "integer|true|0"
+    },
+    {
+      "key": "orders.buyer_key",
+      "definition": "text|false|"
+    },
+    {
+      "key": "orders.channel",
+      "definition": "text|true|"
+    },
+    {
+      "key": "orders.completed_at",
+      "definition": "timestamp with time zone|false|"
+    },
+    {
+      "key": "orders.contact_email",
+      "definition": "text|false|"
+    },
+    {
+      "key": "orders.created_at",
+      "definition": "timestamp with time zone|true|now()"
+    },
+    {
+      "key": "orders.email",
+      "definition": "text|true|"
+    },
+    {
+      "key": "orders.external_amount",
+      "definition": "integer|true|"
+    },
+    {
+      "key": "orders.failure_reason",
+      "definition": "text|false|"
+    },
+    {
+      "key": "orders.first_order_only",
+      "definition": "boolean|true|"
+    },
+    {
+      "key": "orders.fulfillment_attempt",
+      "definition": "integer|true|0"
+    },
+    {
+      "key": "orders.fulfillment_status",
+      "definition": "text|false|"
+    },
+    {
+      "key": "orders.guest_browser_digest",
+      "definition": "text|false|"
+    },
+    {
+      "key": "orders.id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "orders.integration_id",
+      "definition": "text|false|"
+    },
+    {
+      "key": "orders.inviter_id",
+      "definition": "text|false|"
+    },
+    {
+      "key": "orders.kind",
+      "definition": "text|true|'purchase'::text"
+    },
+    {
+      "key": "orders.payment_attempted",
+      "definition": "boolean|true|false"
+    },
+    {
+      "key": "orders.payment_id",
+      "definition": "text|false|"
+    },
+    {
+      "key": "orders.payment_url",
+      "definition": "text|false|"
+    },
+    {
+      "key": "orders.product_id",
+      "definition": "text|false|"
+    },
+    {
+      "key": "orders.product_name",
+      "definition": "text|true|"
+    },
+    {
+      "key": "orders.provider",
+      "definition": "text|true|"
+    },
+    {
+      "key": "orders.quote_id",
+      "definition": "text|false|"
+    },
+    {
+      "key": "orders.rate_bps",
+      "definition": "integer|true|"
+    },
+    {
+      "key": "orders.redemption_id",
+      "definition": "text|false|"
+    },
+    {
+      "key": "orders.redemption_version",
+      "definition": "integer|true|0"
+    },
+    {
+      "key": "orders.request_hash",
+      "definition": "text|true|''::text"
+    },
+    {
+      "key": "orders.service_terms",
+      "definition": "text|true|''::text"
+    },
+    {
+      "key": "orders.settlement_days",
+      "definition": "integer|true|"
+    },
+    {
+      "key": "orders.status",
+      "definition": "text|true|"
+    },
+    {
+      "key": "orders.submission_attempted",
+      "definition": "boolean|true|false"
+    },
+    {
+      "key": "orders.user_id",
+      "definition": "text|false|"
+    },
+    {
+      "key": "payment_events.created_at",
+      "definition": "timestamp with time zone|true|now()"
+    },
+    {
+      "key": "payment_events.order_id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "payment_events.provider",
+      "definition": "text|true|"
+    },
+    {
+      "key": "payment_events.transaction_id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "products.description",
+      "definition": "text|true|"
+    },
+    {
+      "key": "products.enabled",
+      "definition": "boolean|true|true"
+    },
+    {
+      "key": "products.featured",
+      "definition": "boolean|true|false"
+    },
+    {
+      "key": "products.features",
+      "definition": "jsonb|true|"
+    },
+    {
+      "key": "products.id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "products.name",
+      "definition": "text|true|"
+    },
+    {
+      "key": "products.plan",
+      "definition": "text|true|"
+    },
+    {
+      "key": "products.price",
+      "definition": "integer|true|"
+    },
+    {
+      "key": "products.price_currency",
+      "definition": "text|true|'CNY'::text"
+    },
+    {
+      "key": "products.pricing",
+      "definition": "jsonb|false|"
+    },
+    {
+      "key": "products.pricing_mode",
+      "definition": "text|true|'fixed'::text"
+    },
+    {
+      "key": "products.rounding_step",
+      "definition": "integer|true|100"
+    },
+    {
+      "key": "products.service_terms",
+      "definition": "text|true|''::text"
+    },
+    {
+      "key": "products.subtitle",
+      "definition": "text|true|"
+    },
+    {
+      "key": "products.upgrade",
+      "definition": "boolean|true|false"
+    },
+    {
+      "key": "quotes.aicdk_integration_id",
+      "definition": "text|false|"
+    },
+    {
+      "key": "quotes.amount",
+      "definition": "integer|true|"
+    },
+    {
+      "key": "quotes.analytics_visitor",
+      "definition": "text|false|"
+    },
+    {
+      "key": "quotes.attribution_source",
+      "definition": "text|true|'direct'::text"
+    },
+    {
+      "key": "quotes.browser_digest",
+      "definition": "text|true|"
+    },
+    {
+      "key": "quotes.current_plan",
+      "definition": "text|false|"
+    },
+    {
+      "key": "quotes.email",
+      "definition": "text|true|"
+    },
+    {
+      "key": "quotes.expires_at",
+      "definition": "timestamp with time zone|true|"
+    },
+    {
+      "key": "quotes.flow_version",
+      "definition": "integer|true|2"
+    },
+    {
+      "key": "quotes.id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "quotes.inventory_id",
+      "definition": "text|false|"
+    },
+    {
+      "key": "quotes.preflight_expires_at",
+      "definition": "timestamp with time zone|false|"
+    },
+    {
+      "key": "quotes.preflight_token",
+      "definition": "text|false|"
+    },
+    {
+      "key": "quotes.pricing_snapshot",
+      "definition": "jsonb|false|"
+    },
+    {
+      "key": "quotes.product_id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "quotes.service_terms",
+      "definition": "text|true|''::text"
+    },
+    {
+      "key": "quotes.status",
+      "definition": "text|true|'ready'::text"
+    },
+    {
+      "key": "quotes.target_plan",
+      "definition": "text|false|"
+    },
+    {
+      "key": "rate_limits.count",
+      "definition": "integer|true|1"
+    },
+    {
+      "key": "rate_limits.expires_at",
+      "definition": "timestamp with time zone|true|"
+    },
+    {
+      "key": "rate_limits.key",
+      "definition": "text|true|"
+    },
+    {
+      "key": "roles.id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "roles.name",
+      "definition": "text|true|"
+    },
+    {
+      "key": "roles.permissions",
+      "definition": "jsonb|true|"
+    },
+    {
+      "key": "roles.protected",
+      "definition": "boolean|true|false"
+    },
+    {
+      "key": "settings.body",
+      "definition": "jsonb|true|"
+    },
+    {
+      "key": "settings.id",
+      "definition": "integer|true|"
+    },
+    {
+      "key": "twoFactor.backupCodes",
+      "definition": "text|true|"
+    },
+    {
+      "key": "twoFactor.failedVerificationCount",
+      "definition": "integer|false|"
+    },
+    {
+      "key": "twoFactor.id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "twoFactor.lockedUntil",
+      "definition": "timestamp with time zone|false|"
+    },
+    {
+      "key": "twoFactor.secret",
+      "definition": "text|true|"
+    },
+    {
+      "key": "twoFactor.userId",
+      "definition": "text|true|"
+    },
+    {
+      "key": "twoFactor.verified",
+      "definition": "boolean|false|"
+    },
+    {
+      "key": "user_roles.role_id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "user_roles.user_id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "users.created_at",
+      "definition": "timestamp with time zone|true|now()"
+    },
+    {
+      "key": "users.disabled",
+      "definition": "boolean|true|false"
+    },
+    {
+      "key": "users.email",
+      "definition": "text|true|"
+    },
+    {
+      "key": "users.email_verified",
+      "definition": "boolean|true|false"
+    },
+    {
+      "key": "users.id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "users.image",
+      "definition": "text|false|"
+    },
+    {
+      "key": "users.invited_by",
+      "definition": "text|false|"
+    },
+    {
+      "key": "users.name",
+      "definition": "text|true|''::text"
+    },
+    {
+      "key": "users.referral_code",
+      "definition": "text|true|"
+    },
+    {
+      "key": "users.role",
+      "definition": "text|true|'user'::text"
+    },
+    {
+      "key": "users.two_factor_enabled",
+      "definition": "boolean|false|false"
+    },
+    {
+      "key": "users.updated_at",
+      "definition": "timestamp with time zone|true|now()"
+    },
+    {
+      "key": "wallet_ledger.amount",
+      "definition": "integer|true|"
+    },
+    {
+      "key": "wallet_ledger.balance_after",
+      "definition": "integer|true|"
+    },
+    {
+      "key": "wallet_ledger.created_at",
+      "definition": "timestamp with time zone|true|now()"
+    },
+    {
+      "key": "wallet_ledger.id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "wallet_ledger.kind",
+      "definition": "text|true|"
+    },
+    {
+      "key": "wallet_ledger.order_id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "wallet_ledger.user_id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "wallets.balance",
+      "definition": "integer|true|0"
+    },
+    {
+      "key": "wallets.user_id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "withdrawals.account",
+      "definition": "text|true|"
+    },
+    {
+      "key": "withdrawals.amount",
+      "definition": "integer|true|"
+    },
+    {
+      "key": "withdrawals.created_at",
+      "definition": "timestamp with time zone|true|now()"
+    },
+    {
+      "key": "withdrawals.fee_amount",
+      "definition": "integer|true|0"
+    },
+    {
+      "key": "withdrawals.fee_rate_bps",
+      "definition": "integer|true|0"
+    },
+    {
+      "key": "withdrawals.fixed_fee",
+      "definition": "integer|true|0"
+    },
+    {
+      "key": "withdrawals.id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "withdrawals.method",
+      "definition": "text|true|"
+    },
+    {
+      "key": "withdrawals.network",
+      "definition": "text|false|"
+    },
+    {
+      "key": "withdrawals.note",
+      "definition": "text|true|''::text"
+    },
+    {
+      "key": "withdrawals.payout_amount",
+      "definition": "numeric(20,6)|false|"
+    },
+    {
+      "key": "withdrawals.payout_reference",
+      "definition": "text|true|''::text"
+    },
+    {
+      "key": "withdrawals.recipient_name",
+      "definition": "text|true|''::text"
+    },
+    {
+      "key": "withdrawals.request_hash",
+      "definition": "text|true|''::text"
+    },
+    {
+      "key": "withdrawals.request_key",
+      "definition": "text|true|"
+    },
+    {
+      "key": "withdrawals.reviewed_at",
+      "definition": "timestamp with time zone|false|"
+    },
+    {
+      "key": "withdrawals.reviewer_id",
+      "definition": "text|false|"
+    },
+    {
+      "key": "withdrawals.status",
+      "definition": "text|true|'pending'::text"
+    },
+    {
+      "key": "withdrawals.user_id",
+      "definition": "text|true|"
+    }
+  ],
+  "constraints": [
+    {
+      "key": "audit.audit_action_not_null",
+      "definition": "NOT NULL action"
+    },
+    {
+      "key": "audit.audit_actor_not_null",
+      "definition": "NOT NULL actor"
+    },
+    {
+      "key": "audit.audit_created_at_not_null",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "key": "audit.audit_id_not_null",
+      "definition": "NOT NULL id"
+    },
+    {
+      "key": "audit.audit_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "audit.audit_target_not_null",
+      "definition": "NOT NULL target"
+    },
+    {
+      "key": "auth_account.auth_account_accountId_not_null",
+      "definition": "NOT NULL \"accountId\""
+    },
+    {
+      "key": "auth_account.auth_account_createdAt_not_null",
+      "definition": "NOT NULL \"createdAt\""
+    },
+    {
+      "key": "auth_account.auth_account_id_not_null",
+      "definition": "NOT NULL id"
+    },
+    {
+      "key": "auth_account.auth_account_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "auth_account.auth_account_providerId_not_null",
+      "definition": "NOT NULL \"providerId\""
+    },
+    {
+      "key": "auth_account.auth_account_registrationRecord_key",
+      "definition": "UNIQUE (\"registrationRecord\")"
+    },
+    {
+      "key": "auth_account.auth_account_updatedAt_not_null",
+      "definition": "NOT NULL \"updatedAt\""
+    },
+    {
+      "key": "auth_account.auth_account_userId_fkey",
+      "definition": "FOREIGN KEY (\"userId\") REFERENCES users(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "auth_account.auth_account_userId_not_null",
+      "definition": "NOT NULL \"userId\""
+    },
+    {
+      "key": "auth_passkey.auth_passkey_backedUp_not_null",
+      "definition": "NOT NULL \"backedUp\""
+    },
+    {
+      "key": "auth_passkey.auth_passkey_counter_not_null",
+      "definition": "NOT NULL counter"
+    },
+    {
+      "key": "auth_passkey.auth_passkey_credentialID_not_null",
+      "definition": "NOT NULL \"credentialID\""
+    },
+    {
+      "key": "auth_passkey.auth_passkey_deviceType_not_null",
+      "definition": "NOT NULL \"deviceType\""
+    },
+    {
+      "key": "auth_passkey.auth_passkey_id_not_null",
+      "definition": "NOT NULL id"
+    },
+    {
+      "key": "auth_passkey.auth_passkey_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "auth_passkey.auth_passkey_publicKey_not_null",
+      "definition": "NOT NULL \"publicKey\""
+    },
+    {
+      "key": "auth_passkey.auth_passkey_userId_fkey",
+      "definition": "FOREIGN KEY (\"userId\") REFERENCES users(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "auth_passkey.auth_passkey_userId_not_null",
+      "definition": "NOT NULL \"userId\""
+    },
+    {
+      "key": "auth_rate_limit.auth_rate_limit_count_not_null",
+      "definition": "NOT NULL count"
+    },
+    {
+      "key": "auth_rate_limit.auth_rate_limit_id_not_null",
+      "definition": "NOT NULL id"
+    },
+    {
+      "key": "auth_rate_limit.auth_rate_limit_key_key",
+      "definition": "UNIQUE (key)"
+    },
+    {
+      "key": "auth_rate_limit.auth_rate_limit_key_not_null",
+      "definition": "NOT NULL key"
+    },
+    {
+      "key": "auth_rate_limit.auth_rate_limit_lastRequest_not_null",
+      "definition": "NOT NULL \"lastRequest\""
+    },
+    {
+      "key": "auth_rate_limit.auth_rate_limit_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "auth_session.auth_session_createdAt_not_null",
+      "definition": "NOT NULL \"createdAt\""
+    },
+    {
+      "key": "auth_session.auth_session_expiresAt_not_null",
+      "definition": "NOT NULL \"expiresAt\""
+    },
+    {
+      "key": "auth_session.auth_session_id_not_null",
+      "definition": "NOT NULL id"
+    },
+    {
+      "key": "auth_session.auth_session_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "auth_session.auth_session_token_key",
+      "definition": "UNIQUE (token)"
+    },
+    {
+      "key": "auth_session.auth_session_token_not_null",
+      "definition": "NOT NULL token"
+    },
+    {
+      "key": "auth_session.auth_session_updatedAt_not_null",
+      "definition": "NOT NULL \"updatedAt\""
+    },
+    {
+      "key": "auth_session.auth_session_userId_fkey",
+      "definition": "FOREIGN KEY (\"userId\") REFERENCES users(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "auth_session.auth_session_userId_not_null",
+      "definition": "NOT NULL \"userId\""
+    },
+    {
+      "key": "auth_verification.auth_verification_createdAt_not_null",
+      "definition": "NOT NULL \"createdAt\""
+    },
+    {
+      "key": "auth_verification.auth_verification_expiresAt_not_null",
+      "definition": "NOT NULL \"expiresAt\""
+    },
+    {
+      "key": "auth_verification.auth_verification_id_not_null",
+      "definition": "NOT NULL id"
+    },
+    {
+      "key": "auth_verification.auth_verification_identifier_not_null",
+      "definition": "NOT NULL identifier"
+    },
+    {
+      "key": "auth_verification.auth_verification_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "auth_verification.auth_verification_updatedAt_not_null",
+      "definition": "NOT NULL \"updatedAt\""
+    },
+    {
+      "key": "auth_verification.auth_verification_value_not_null",
+      "definition": "NOT NULL value"
+    },
+    {
+      "key": "commissions.commissions_amount_check",
+      "definition": "CHECK ((amount > 0))"
+    },
+    {
+      "key": "commissions.commissions_amount_not_null",
+      "definition": "NOT NULL amount"
+    },
+    {
+      "key": "commissions.commissions_available_at_not_null",
+      "definition": "NOT NULL available_at"
+    },
+    {
+      "key": "commissions.commissions_created_at_not_null",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "key": "commissions.commissions_id_not_null",
+      "definition": "NOT NULL id"
+    },
+    {
+      "key": "commissions.commissions_order_id_fkey",
+      "definition": "FOREIGN KEY (order_id) REFERENCES orders(id)"
+    },
+    {
+      "key": "commissions.commissions_order_id_key",
+      "definition": "UNIQUE (order_id)"
+    },
+    {
+      "key": "commissions.commissions_order_id_not_null",
+      "definition": "NOT NULL order_id"
+    },
+    {
+      "key": "commissions.commissions_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "commissions.commissions_status_check",
+      "definition": "CHECK ((status = ANY (ARRAY['pending'::text, 'available'::text, 'reversed'::text])))"
+    },
+    {
+      "key": "commissions.commissions_status_not_null",
+      "definition": "NOT NULL status"
+    },
+    {
+      "key": "commissions.commissions_user_id_fkey",
+      "definition": "FOREIGN KEY (user_id) REFERENCES users(id)"
+    },
+    {
+      "key": "commissions.commissions_user_id_not_null",
+      "definition": "NOT NULL user_id"
+    },
+    {
+      "key": "demo_mailbox.demo_mailbox_browser_digest_not_null",
+      "definition": "NOT NULL browser_digest"
+    },
+    {
+      "key": "demo_mailbox.demo_mailbox_code_not_null",
+      "definition": "NOT NULL code"
+    },
+    {
+      "key": "demo_mailbox.demo_mailbox_email_not_null",
+      "definition": "NOT NULL email"
+    },
+    {
+      "key": "demo_mailbox.demo_mailbox_expires_at_not_null",
+      "definition": "NOT NULL expires_at"
+    },
+    {
+      "key": "demo_mailbox.demo_mailbox_pkey",
+      "definition": "PRIMARY KEY (browser_digest, email)"
+    },
+    {
+      "key": "email_outbox.email_outbox_attempts_not_null",
+      "definition": "NOT NULL attempts"
+    },
+    {
+      "key": "email_outbox.email_outbox_id_not_null",
+      "definition": "NOT NULL id"
+    },
+    {
+      "key": "email_outbox.email_outbox_order_id_fkey",
+      "definition": "FOREIGN KEY (order_id) REFERENCES orders(id)"
+    },
+    {
+      "key": "email_outbox.email_outbox_order_id_not_null",
+      "definition": "NOT NULL order_id"
+    },
+    {
+      "key": "email_outbox.email_outbox_order_id_status_key",
+      "definition": "UNIQUE (order_id, status)"
+    },
+    {
+      "key": "email_outbox.email_outbox_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "email_outbox.email_outbox_run_at_not_null",
+      "definition": "NOT NULL run_at"
+    },
+    {
+      "key": "email_outbox.email_outbox_status_not_null",
+      "definition": "NOT NULL status"
+    },
+    {
+      "key": "exchange_rates.exchange_rates_id_check",
+      "definition": "CHECK ((id ~ '^([A-Z]{3}|USDT)_CNY$'::text))"
+    },
+    {
+      "key": "exchange_rates.exchange_rates_id_not_null",
+      "definition": "NOT NULL id"
+    },
+    {
+      "key": "exchange_rates.exchange_rates_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "exchange_rates.exchange_rates_rate_e8_check",
+      "definition": "CHECK (((rate_e8 > 0) AND (rate_e8 <= '10000000000'::bigint)))"
+    },
+    {
+      "key": "exchange_rates.exchange_rates_refresh_after_not_null",
+      "definition": "NOT NULL refresh_after"
+    },
+    {
+      "key": "funnel_events.funnel_events_created_at_not_null",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "key": "funnel_events.funnel_events_event_check",
+      "definition": "CHECK ((event = ANY (ARRAY['plan_view'::text, 'checkout_view'::text, 'verify_started'::text, 'quote_ready'::text, 'order_created'::text, 'payment_succeeded'::text, 'delivery_completed'::text, 'order_refunded'::text])))"
+    },
+    {
+      "key": "funnel_events.funnel_events_event_not_null",
+      "definition": "NOT NULL event"
+    },
+    {
+      "key": "funnel_events.funnel_events_id_not_null",
+      "definition": "NOT NULL id"
+    },
+    {
+      "key": "funnel_events.funnel_events_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "funnel_events.funnel_events_product_id_not_null",
+      "definition": "NOT NULL product_id"
+    },
+    {
+      "key": "funnel_events.funnel_events_source_check",
+      "definition": "CHECK ((source = ANY (ARRAY['direct'::text, 'google'::text, 'bing'::text, 'baidu'::text, 'referral'::text, 'other'::text])))"
+    },
+    {
+      "key": "funnel_events.funnel_events_source_not_null",
+      "definition": "NOT NULL source"
+    },
+    {
+      "key": "funnel_events.funnel_events_visitor_key_not_null",
+      "definition": "NOT NULL visitor_key"
+    },
+    {
+      "key": "integrations.integrations_active_not_null",
+      "definition": "NOT NULL active"
+    },
+    {
+      "key": "integrations.integrations_created_at_not_null",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "key": "integrations.integrations_enabled_not_null",
+      "definition": "NOT NULL enabled"
+    },
+    {
+      "key": "integrations.integrations_id_not_null",
+      "definition": "NOT NULL id"
+    },
+    {
+      "key": "integrations.integrations_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "integrations.integrations_provider_not_null",
+      "definition": "NOT NULL provider"
+    },
+    {
+      "key": "integrations.integrations_public_not_null",
+      "definition": "NOT NULL public"
+    },
+    {
+      "key": "integrations.integrations_secret_not_null",
+      "definition": "NOT NULL secret"
+    },
+    {
+      "key": "inventory.inventory_code_not_null",
+      "definition": "NOT NULL code"
+    },
+    {
+      "key": "inventory.inventory_fingerprint_key",
+      "definition": "UNIQUE (fingerprint)"
+    },
+    {
+      "key": "inventory.inventory_fingerprint_not_null",
+      "definition": "NOT NULL fingerprint"
+    },
+    {
+      "key": "inventory.inventory_id_not_null",
+      "definition": "NOT NULL id"
+    },
+    {
+      "key": "inventory.inventory_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "inventory.inventory_product_id_fkey",
+      "definition": "FOREIGN KEY (product_id) REFERENCES products(id)"
+    },
+    {
+      "key": "inventory.inventory_product_id_not_null",
+      "definition": "NOT NULL product_id"
+    },
+    {
+      "key": "inventory.inventory_status_check",
+      "definition": "CHECK ((status = ANY (ARRAY['available'::text, 'reserved'::text, 'consumed'::text])))"
+    },
+    {
+      "key": "inventory.inventory_status_not_null",
+      "definition": "NOT NULL status"
+    },
+    {
+      "key": "jobs.jobs_attempts_not_null",
+      "definition": "NOT NULL attempts"
+    },
+    {
+      "key": "jobs.jobs_done_not_null",
+      "definition": "NOT NULL done"
+    },
+    {
+      "key": "jobs.jobs_id_not_null",
+      "definition": "NOT NULL id"
+    },
+    {
+      "key": "jobs.jobs_order_id_fkey",
+      "definition": "FOREIGN KEY (order_id) REFERENCES orders(id)"
+    },
+    {
+      "key": "jobs.jobs_order_id_key",
+      "definition": "UNIQUE (order_id)"
+    },
+    {
+      "key": "jobs.jobs_order_id_not_null",
+      "definition": "NOT NULL order_id"
+    },
+    {
+      "key": "jobs.jobs_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "jobs.jobs_run_at_not_null",
+      "definition": "NOT NULL run_at"
+    },
+    {
+      "key": "orders.orders_aicdk_integration_id_fkey",
+      "definition": "FOREIGN KEY (aicdk_integration_id) REFERENCES integrations(id)"
+    },
+    {
+      "key": "orders.orders_amount_check",
+      "definition": "CHECK ((amount > 0))"
+    },
+    {
+      "key": "orders.orders_amount_not_null",
+      "definition": "NOT NULL amount"
+    },
+    {
+      "key": "orders.orders_balance_amount_not_null",
+      "definition": "NOT NULL balance_amount"
+    },
+    {
+      "key": "orders.orders_channel_check",
+      "definition": "CHECK ((channel = ANY (ARRAY['alipay'::text, 'wechat'::text, 'crypto'::text, 'balance'::text])))"
+    },
+    {
+      "key": "orders.orders_channel_not_null",
+      "definition": "NOT NULL channel"
+    },
+    {
+      "key": "orders.orders_created_at_not_null",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "key": "orders.orders_email_not_null",
+      "definition": "NOT NULL email"
+    },
+    {
+      "key": "orders.orders_external_amount_not_null",
+      "definition": "NOT NULL external_amount"
+    },
+    {
+      "key": "orders.orders_first_order_only_not_null",
+      "definition": "NOT NULL first_order_only"
+    },
+    {
+      "key": "orders.orders_fulfillment_attempt_not_null",
+      "definition": "NOT NULL fulfillment_attempt"
+    },
+    {
+      "key": "orders.orders_id_not_null",
+      "definition": "NOT NULL id"
+    },
+    {
+      "key": "orders.orders_integration_id_fkey",
+      "definition": "FOREIGN KEY (integration_id) REFERENCES integrations(id)"
+    },
+    {
+      "key": "orders.orders_inviter_id_fkey",
+      "definition": "FOREIGN KEY (inviter_id) REFERENCES users(id)"
+    },
+    {
+      "key": "orders.orders_kind_check",
+      "definition": "CHECK ((kind = ANY (ARRAY['purchase'::text, 'topup'::text])))"
+    },
+    {
+      "key": "orders.orders_kind_not_null",
+      "definition": "NOT NULL kind"
+    },
+    {
+      "key": "orders.orders_payment_attempted_not_null",
+      "definition": "NOT NULL payment_attempted"
+    },
+    {
+      "key": "orders.orders_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "orders.orders_product_id_fkey",
+      "definition": "FOREIGN KEY (product_id) REFERENCES products(id)"
+    },
+    {
+      "key": "orders.orders_product_name_not_null",
+      "definition": "NOT NULL product_name"
+    },
+    {
+      "key": "orders.orders_provider_not_null",
+      "definition": "NOT NULL provider"
+    },
+    {
+      "key": "orders.orders_quote_id_fkey",
+      "definition": "FOREIGN KEY (quote_id) REFERENCES quotes(id)"
+    },
+    {
+      "key": "orders.orders_quote_id_key",
+      "definition": "UNIQUE (quote_id)"
+    },
+    {
+      "key": "orders.orders_rate_bps_not_null",
+      "definition": "NOT NULL rate_bps"
+    },
+    {
+      "key": "orders.orders_redemption_version_not_null",
+      "definition": "NOT NULL redemption_version"
+    },
+    {
+      "key": "orders.orders_request_hash_not_null",
+      "definition": "NOT NULL request_hash"
+    },
+    {
+      "key": "orders.orders_service_terms_not_null",
+      "definition": "NOT NULL service_terms"
+    },
+    {
+      "key": "orders.orders_settlement_days_not_null",
+      "definition": "NOT NULL settlement_days"
+    },
+    {
+      "key": "orders.orders_split_check",
+      "definition": "CHECK (((balance_amount >= 0) AND (external_amount >= 0) AND ((balance_amount + external_amount) = amount) AND ((balance_amount = 0) OR (user_id IS NOT NULL))))"
+    },
+    {
+      "key": "orders.orders_status_check",
+      "definition": "CHECK ((status = ANY (ARRAY['unpaid'::text, 'processing'::text, 'completed'::text, 'needs_session'::text, 'failed'::text, 'refunded'::text, 'cancelled'::text])))"
+    },
+    {
+      "key": "orders.orders_status_not_null",
+      "definition": "NOT NULL status"
+    },
+    {
+      "key": "orders.orders_submission_attempted_not_null",
+      "definition": "NOT NULL submission_attempted"
+    },
+    {
+      "key": "orders.orders_user_id_fkey",
+      "definition": "FOREIGN KEY (user_id) REFERENCES users(id)"
+    },
+    {
+      "key": "payment_events.payment_events_created_at_not_null",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "key": "payment_events.payment_events_order_id_fkey",
+      "definition": "FOREIGN KEY (order_id) REFERENCES orders(id)"
+    },
+    {
+      "key": "payment_events.payment_events_order_id_not_null",
+      "definition": "NOT NULL order_id"
+    },
+    {
+      "key": "payment_events.payment_events_pkey",
+      "definition": "PRIMARY KEY (provider, transaction_id)"
+    },
+    {
+      "key": "payment_events.payment_events_provider_not_null",
+      "definition": "NOT NULL provider"
+    },
+    {
+      "key": "payment_events.payment_events_transaction_id_not_null",
+      "definition": "NOT NULL transaction_id"
+    },
+    {
+      "key": "products.products_description_not_null",
+      "definition": "NOT NULL description"
+    },
+    {
+      "key": "products.products_enabled_not_null",
+      "definition": "NOT NULL enabled"
+    },
+    {
+      "key": "products.products_featured_not_null",
+      "definition": "NOT NULL featured"
+    },
+    {
+      "key": "products.products_features_not_null",
+      "definition": "NOT NULL features"
+    },
+    {
+      "key": "products.products_id_not_null",
+      "definition": "NOT NULL id"
+    },
+    {
+      "key": "products.products_name_not_null",
+      "definition": "NOT NULL name"
+    },
+    {
+      "key": "products.products_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "products.products_plan_check",
+      "definition": "CHECK ((plan = ANY (ARRAY['go'::text, 'plus'::text, 'pro5'::text, 'pro20'::text, 'promax'::text])))"
+    },
+    {
+      "key": "products.products_plan_not_null",
+      "definition": "NOT NULL plan"
+    },
+    {
+      "key": "products.products_price_check",
+      "definition": "CHECK (((price > 0) AND (price <= 100000000)))"
+    },
+    {
+      "key": "products.products_price_currency_check",
+      "definition": "CHECK ((price_currency = ANY (ARRAY['CNY'::text, 'USD'::text])))"
+    },
+    {
+      "key": "products.products_price_currency_not_null",
+      "definition": "NOT NULL price_currency"
+    },
+    {
+      "key": "products.products_price_not_null",
+      "definition": "NOT NULL price"
+    },
+    {
+      "key": "products.products_pricing_mode_check",
+      "definition": "CHECK (((upgrade AND (pricing_mode = 'markup'::text)) OR ((NOT upgrade) AND (pricing_mode = 'fixed'::text))))"
+    },
+    {
+      "key": "products.products_pricing_mode_not_null",
+      "definition": "NOT NULL pricing_mode"
+    },
+    {
+      "key": "products.products_rounding_step_check",
+      "definition": "CHECK ((rounding_step = ANY (ARRAY[1, 10, 100, 1000])))"
+    },
+    {
+      "key": "products.products_rounding_step_not_null",
+      "definition": "NOT NULL rounding_step"
+    },
+    {
+      "key": "products.products_service_terms_not_null",
+      "definition": "NOT NULL service_terms"
+    },
+    {
+      "key": "products.products_subtitle_not_null",
+      "definition": "NOT NULL subtitle"
+    },
+    {
+      "key": "products.products_upgrade_not_null",
+      "definition": "NOT NULL upgrade"
+    },
+    {
+      "key": "quotes.quotes_aicdk_integration_id_fkey",
+      "definition": "FOREIGN KEY (aicdk_integration_id) REFERENCES integrations(id)"
+    },
+    {
+      "key": "quotes.quotes_amount_check",
+      "definition": "CHECK ((amount > 0))"
+    },
+    {
+      "key": "quotes.quotes_amount_not_null",
+      "definition": "NOT NULL amount"
+    },
+    {
+      "key": "quotes.quotes_attribution_source_not_null",
+      "definition": "NOT NULL attribution_source"
+    },
+    {
+      "key": "quotes.quotes_browser_digest_not_null",
+      "definition": "NOT NULL browser_digest"
+    },
+    {
+      "key": "quotes.quotes_email_not_null",
+      "definition": "NOT NULL email"
+    },
+    {
+      "key": "quotes.quotes_expires_at_not_null",
+      "definition": "NOT NULL expires_at"
+    },
+    {
+      "key": "quotes.quotes_flow_version_not_null",
+      "definition": "NOT NULL flow_version"
+    },
+    {
+      "key": "quotes.quotes_id_not_null",
+      "definition": "NOT NULL id"
+    },
+    {
+      "key": "quotes.quotes_inventory_id_fkey",
+      "definition": "FOREIGN KEY (inventory_id) REFERENCES inventory(id)"
+    },
+    {
+      "key": "quotes.quotes_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "quotes.quotes_product_id_fkey",
+      "definition": "FOREIGN KEY (product_id) REFERENCES products(id)"
+    },
+    {
+      "key": "quotes.quotes_product_id_not_null",
+      "definition": "NOT NULL product_id"
+    },
+    {
+      "key": "quotes.quotes_service_terms_not_null",
+      "definition": "NOT NULL service_terms"
+    },
+    {
+      "key": "quotes.quotes_status_not_null",
+      "definition": "NOT NULL status"
+    },
+    {
+      "key": "rate_limits.rate_limits_count_not_null",
+      "definition": "NOT NULL count"
+    },
+    {
+      "key": "rate_limits.rate_limits_expires_at_not_null",
+      "definition": "NOT NULL expires_at"
+    },
+    {
+      "key": "rate_limits.rate_limits_key_not_null",
+      "definition": "NOT NULL key"
+    },
+    {
+      "key": "rate_limits.rate_limits_pkey",
+      "definition": "PRIMARY KEY (key)"
+    },
+    {
+      "key": "roles.roles_id_not_null",
+      "definition": "NOT NULL id"
+    },
+    {
+      "key": "roles.roles_name_not_null",
+      "definition": "NOT NULL name"
+    },
+    {
+      "key": "roles.roles_permissions_not_null",
+      "definition": "NOT NULL permissions"
+    },
+    {
+      "key": "roles.roles_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "roles.roles_protected_not_null",
+      "definition": "NOT NULL protected"
+    },
+    {
+      "key": "settings.settings_body_not_null",
+      "definition": "NOT NULL body"
+    },
+    {
+      "key": "settings.settings_id_check",
+      "definition": "CHECK ((id = 1))"
+    },
+    {
+      "key": "settings.settings_id_not_null",
+      "definition": "NOT NULL id"
+    },
+    {
+      "key": "settings.settings_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "twoFactor.twoFactor_backupCodes_not_null",
+      "definition": "NOT NULL \"backupCodes\""
+    },
+    {
+      "key": "twoFactor.twoFactor_id_not_null",
+      "definition": "NOT NULL id"
+    },
+    {
+      "key": "twoFactor.twoFactor_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "twoFactor.twoFactor_secret_not_null",
+      "definition": "NOT NULL secret"
+    },
+    {
+      "key": "twoFactor.twoFactor_userId_fkey",
+      "definition": "FOREIGN KEY (\"userId\") REFERENCES users(id) ON DELETE CASCADE"
+    },
+    {
+      "key": "twoFactor.twoFactor_userId_not_null",
+      "definition": "NOT NULL \"userId\""
+    },
+    {
+      "key": "user_roles.user_roles_pkey",
+      "definition": "PRIMARY KEY (user_id, role_id)"
+    },
+    {
+      "key": "user_roles.user_roles_role_id_fkey",
+      "definition": "FOREIGN KEY (role_id) REFERENCES roles(id)"
+    },
+    {
+      "key": "user_roles.user_roles_role_id_not_null",
+      "definition": "NOT NULL role_id"
+    },
+    {
+      "key": "user_roles.user_roles_user_id_fkey",
+      "definition": "FOREIGN KEY (user_id) REFERENCES users(id)"
+    },
+    {
+      "key": "user_roles.user_roles_user_id_not_null",
+      "definition": "NOT NULL user_id"
+    },
+    {
+      "key": "users.users_created_at_not_null",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "key": "users.users_disabled_not_null",
+      "definition": "NOT NULL disabled"
+    },
+    {
+      "key": "users.users_email_key",
+      "definition": "UNIQUE (email)"
+    },
+    {
+      "key": "users.users_email_not_null",
+      "definition": "NOT NULL email"
+    },
+    {
+      "key": "users.users_email_verified_not_null",
+      "definition": "NOT NULL email_verified"
+    },
+    {
+      "key": "users.users_id_not_null",
+      "definition": "NOT NULL id"
+    },
+    {
+      "key": "users.users_invited_by_fkey",
+      "definition": "FOREIGN KEY (invited_by) REFERENCES users(id)"
+    },
+    {
+      "key": "users.users_name_not_null",
+      "definition": "NOT NULL name"
+    },
+    {
+      "key": "users.users_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "users.users_referral_code_key",
+      "definition": "UNIQUE (referral_code)"
+    },
+    {
+      "key": "users.users_referral_code_not_null",
+      "definition": "NOT NULL referral_code"
+    },
+    {
+      "key": "users.users_role_check",
+      "definition": "CHECK ((role = ANY (ARRAY['user'::text, 'admin'::text])))"
+    },
+    {
+      "key": "users.users_role_not_null",
+      "definition": "NOT NULL role"
+    },
+    {
+      "key": "users.users_updated_at_not_null",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "key": "wallet_ledger.wallet_ledger_amount_check",
+      "definition": "CHECK ((amount <> 0))"
+    },
+    {
+      "key": "wallet_ledger.wallet_ledger_amount_not_null",
+      "definition": "NOT NULL amount"
+    },
+    {
+      "key": "wallet_ledger.wallet_ledger_balance_after_check",
+      "definition": "CHECK ((balance_after >= 0))"
+    },
+    {
+      "key": "wallet_ledger.wallet_ledger_balance_after_not_null",
+      "definition": "NOT NULL balance_after"
+    },
+    {
+      "key": "wallet_ledger.wallet_ledger_created_at_not_null",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "key": "wallet_ledger.wallet_ledger_id_not_null",
+      "definition": "NOT NULL id"
+    },
+    {
+      "key": "wallet_ledger.wallet_ledger_kind_check",
+      "definition": "CHECK ((kind = ANY (ARRAY['topup'::text, 'purchase'::text, 'refund'::text])))"
+    },
+    {
+      "key": "wallet_ledger.wallet_ledger_kind_not_null",
+      "definition": "NOT NULL kind"
+    },
+    {
+      "key": "wallet_ledger.wallet_ledger_order_id_fkey",
+      "definition": "FOREIGN KEY (order_id) REFERENCES orders(id)"
+    },
+    {
+      "key": "wallet_ledger.wallet_ledger_order_id_kind_key",
+      "definition": "UNIQUE (order_id, kind)"
+    },
+    {
+      "key": "wallet_ledger.wallet_ledger_order_id_not_null",
+      "definition": "NOT NULL order_id"
+    },
+    {
+      "key": "wallet_ledger.wallet_ledger_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "wallet_ledger.wallet_ledger_user_id_fkey",
+      "definition": "FOREIGN KEY (user_id) REFERENCES users(id)"
+    },
+    {
+      "key": "wallet_ledger.wallet_ledger_user_id_not_null",
+      "definition": "NOT NULL user_id"
+    },
+    {
+      "key": "wallets.wallets_balance_check",
+      "definition": "CHECK ((balance >= 0))"
+    },
+    {
+      "key": "wallets.wallets_balance_not_null",
+      "definition": "NOT NULL balance"
+    },
+    {
+      "key": "wallets.wallets_pkey",
+      "definition": "PRIMARY KEY (user_id)"
+    },
+    {
+      "key": "wallets.wallets_user_id_fkey",
+      "definition": "FOREIGN KEY (user_id) REFERENCES users(id)"
+    },
+    {
+      "key": "wallets.wallets_user_id_not_null",
+      "definition": "NOT NULL user_id"
+    },
+    {
+      "key": "withdrawals.withdrawals_account_not_null",
+      "definition": "NOT NULL account"
+    },
+    {
+      "key": "withdrawals.withdrawals_amount_check",
+      "definition": "CHECK ((amount > 0))"
+    },
+    {
+      "key": "withdrawals.withdrawals_amount_not_null",
+      "definition": "NOT NULL amount"
+    },
+    {
+      "key": "withdrawals.withdrawals_check",
+      "definition": "CHECK (((fee_amount >= 0) AND (fee_amount < amount)))"
+    },
+    {
+      "key": "withdrawals.withdrawals_created_at_not_null",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "key": "withdrawals.withdrawals_fee_amount_not_null",
+      "definition": "NOT NULL fee_amount"
+    },
+    {
+      "key": "withdrawals.withdrawals_fee_rate_bps_check",
+      "definition": "CHECK (((fee_rate_bps >= 0) AND (fee_rate_bps < 10000)))"
+    },
+    {
+      "key": "withdrawals.withdrawals_fee_rate_bps_not_null",
+      "definition": "NOT NULL fee_rate_bps"
+    },
+    {
+      "key": "withdrawals.withdrawals_fixed_fee_check",
+      "definition": "CHECK ((fixed_fee >= 0))"
+    },
+    {
+      "key": "withdrawals.withdrawals_fixed_fee_not_null",
+      "definition": "NOT NULL fixed_fee"
+    },
+    {
+      "key": "withdrawals.withdrawals_id_not_null",
+      "definition": "NOT NULL id"
+    },
+    {
+      "key": "withdrawals.withdrawals_method_not_null",
+      "definition": "NOT NULL method"
+    },
+    {
+      "key": "withdrawals.withdrawals_network_check",
+      "definition": "CHECK ((network = ANY (ARRAY['TRC20'::text, 'ERC20'::text, 'BSC'::text, 'Polygon'::text])))"
+    },
+    {
+      "key": "withdrawals.withdrawals_note_not_null",
+      "definition": "NOT NULL note"
+    },
+    {
+      "key": "withdrawals.withdrawals_payout_amount_check",
+      "definition": "CHECK ((payout_amount > (0)::numeric))"
+    },
+    {
+      "key": "withdrawals.withdrawals_payout_reference_not_null",
+      "definition": "NOT NULL payout_reference"
+    },
+    {
+      "key": "withdrawals.withdrawals_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "withdrawals.withdrawals_recipient_name_not_null",
+      "definition": "NOT NULL recipient_name"
+    },
+    {
+      "key": "withdrawals.withdrawals_request_hash_not_null",
+      "definition": "NOT NULL request_hash"
+    },
+    {
+      "key": "withdrawals.withdrawals_request_key_key",
+      "definition": "UNIQUE (request_key)"
+    },
+    {
+      "key": "withdrawals.withdrawals_request_key_not_null",
+      "definition": "NOT NULL request_key"
+    },
+    {
+      "key": "withdrawals.withdrawals_reviewer_id_fkey",
+      "definition": "FOREIGN KEY (reviewer_id) REFERENCES users(id)"
+    },
+    {
+      "key": "withdrawals.withdrawals_status_check",
+      "definition": "CHECK ((status = ANY (ARRAY['pending'::text, 'processing'::text, 'paid'::text, 'rejected'::text])))"
+    },
+    {
+      "key": "withdrawals.withdrawals_status_not_null",
+      "definition": "NOT NULL status"
+    },
+    {
+      "key": "withdrawals.withdrawals_user_id_fkey",
+      "definition": "FOREIGN KEY (user_id) REFERENCES users(id)"
+    },
+    {
+      "key": "withdrawals.withdrawals_user_id_not_null",
+      "definition": "NOT NULL user_id"
+    }
+  ],
+  "indexes": [
+    {
+      "key": "audit.audit_pkey",
+      "definition": "CREATE UNIQUE INDEX audit_pkey ON audit USING btree (id)"
+    },
+    {
+      "key": "auth_account.auth_account_pkey",
+      "definition": "CREATE UNIQUE INDEX auth_account_pkey ON auth_account USING btree (id)"
+    },
+    {
+      "key": "auth_account.auth_account_registrationRecord_key",
+      "definition": "CREATE UNIQUE INDEX \"auth_account_registrationRecord_key\" ON auth_account USING btree (\"registrationRecord\")"
+    },
+    {
+      "key": "auth_account.auth_account_userId_idx",
+      "definition": "CREATE INDEX \"auth_account_userId_idx\" ON auth_account USING btree (\"userId\")"
+    },
+    {
+      "key": "auth_account.auth_one_opaque_account",
+      "definition": "CREATE UNIQUE INDEX auth_one_opaque_account ON auth_account USING btree (\"userId\") WHERE (\"providerId\" = 'opaque'::text)"
+    },
+    {
+      "key": "auth_passkey.auth_passkey_credentialID_idx",
+      "definition": "CREATE INDEX \"auth_passkey_credentialID_idx\" ON auth_passkey USING btree (\"credentialID\")"
+    },
+    {
+      "key": "auth_passkey.auth_passkey_pkey",
+      "definition": "CREATE UNIQUE INDEX auth_passkey_pkey ON auth_passkey USING btree (id)"
+    },
+    {
+      "key": "auth_passkey.auth_passkey_userId_idx",
+      "definition": "CREATE INDEX \"auth_passkey_userId_idx\" ON auth_passkey USING btree (\"userId\")"
+    },
+    {
+      "key": "auth_rate_limit.auth_rate_limit_key_key",
+      "definition": "CREATE UNIQUE INDEX auth_rate_limit_key_key ON auth_rate_limit USING btree (key)"
+    },
+    {
+      "key": "auth_rate_limit.auth_rate_limit_pkey",
+      "definition": "CREATE UNIQUE INDEX auth_rate_limit_pkey ON auth_rate_limit USING btree (id)"
+    },
+    {
+      "key": "auth_session.auth_session_pkey",
+      "definition": "CREATE UNIQUE INDEX auth_session_pkey ON auth_session USING btree (id)"
+    },
+    {
+      "key": "auth_session.auth_session_token_key",
+      "definition": "CREATE UNIQUE INDEX auth_session_token_key ON auth_session USING btree (token)"
+    },
+    {
+      "key": "auth_session.auth_session_userId_idx",
+      "definition": "CREATE INDEX \"auth_session_userId_idx\" ON auth_session USING btree (\"userId\")"
+    },
+    {
+      "key": "auth_verification.auth_verification_identifier_idx",
+      "definition": "CREATE INDEX auth_verification_identifier_idx ON auth_verification USING btree (identifier)"
+    },
+    {
+      "key": "auth_verification.auth_verification_pkey",
+      "definition": "CREATE UNIQUE INDEX auth_verification_pkey ON auth_verification USING btree (id)"
+    },
+    {
+      "key": "commissions.commissions_order_id_key",
+      "definition": "CREATE UNIQUE INDEX commissions_order_id_key ON commissions USING btree (order_id)"
+    },
+    {
+      "key": "commissions.commissions_pkey",
+      "definition": "CREATE UNIQUE INDEX commissions_pkey ON commissions USING btree (id)"
+    },
+    {
+      "key": "commissions.commissions_user",
+      "definition": "CREATE INDEX commissions_user ON commissions USING btree (user_id)"
+    },
+    {
+      "key": "demo_mailbox.demo_mailbox_pkey",
+      "definition": "CREATE UNIQUE INDEX demo_mailbox_pkey ON demo_mailbox USING btree (browser_digest, email)"
+    },
+    {
+      "key": "email_outbox.email_outbox_order_id_status_key",
+      "definition": "CREATE UNIQUE INDEX email_outbox_order_id_status_key ON email_outbox USING btree (order_id, status)"
+    },
+    {
+      "key": "email_outbox.email_outbox_pkey",
+      "definition": "CREATE UNIQUE INDEX email_outbox_pkey ON email_outbox USING btree (id)"
+    },
+    {
+      "key": "exchange_rates.exchange_rates_pkey",
+      "definition": "CREATE UNIQUE INDEX exchange_rates_pkey ON exchange_rates USING btree (id)"
+    },
+    {
+      "key": "funnel_events.funnel_events_date",
+      "definition": "CREATE INDEX funnel_events_date ON funnel_events USING btree (created_at)"
+    },
+    {
+      "key": "funnel_events.funnel_events_pkey",
+      "definition": "CREATE UNIQUE INDEX funnel_events_pkey ON funnel_events USING btree (id)"
+    },
+    {
+      "key": "integrations.integrations_active",
+      "definition": "CREATE UNIQUE INDEX integrations_active ON integrations USING btree (provider) WHERE (active = true)"
+    },
+    {
+      "key": "integrations.integrations_pkey",
+      "definition": "CREATE UNIQUE INDEX integrations_pkey ON integrations USING btree (id)"
+    },
+    {
+      "key": "inventory.inventory_fingerprint_key",
+      "definition": "CREATE UNIQUE INDEX inventory_fingerprint_key ON inventory USING btree (fingerprint)"
+    },
+    {
+      "key": "inventory.inventory_pkey",
+      "definition": "CREATE UNIQUE INDEX inventory_pkey ON inventory USING btree (id)"
+    },
+    {
+      "key": "jobs.jobs_order_id_key",
+      "definition": "CREATE UNIQUE INDEX jobs_order_id_key ON jobs USING btree (order_id)"
+    },
+    {
+      "key": "jobs.jobs_pkey",
+      "definition": "CREATE UNIQUE INDEX jobs_pkey ON jobs USING btree (id)"
+    },
+    {
+      "key": "jobs.jobs_ready",
+      "definition": "CREATE INDEX jobs_ready ON jobs USING btree (run_at) WHERE (done = false)"
+    },
+    {
+      "key": "orders.orders_buyer",
+      "definition": "CREATE INDEX orders_buyer ON orders USING btree (buyer_key) WHERE (kind = 'purchase'::text)"
+    },
+    {
+      "key": "orders.orders_pkey",
+      "definition": "CREATE UNIQUE INDEX orders_pkey ON orders USING btree (id)"
+    },
+    {
+      "key": "orders.orders_quote_id_key",
+      "definition": "CREATE UNIQUE INDEX orders_quote_id_key ON orders USING btree (quote_id)"
+    },
+    {
+      "key": "orders.orders_unclaimed_email",
+      "definition": "CREATE INDEX orders_unclaimed_email ON orders USING btree (contact_email) WHERE (user_id IS NULL)"
+    },
+    {
+      "key": "orders.orders_user",
+      "definition": "CREATE INDEX orders_user ON orders USING btree (user_id, created_at DESC)"
+    },
+    {
+      "key": "payment_events.payment_events_pkey",
+      "definition": "CREATE UNIQUE INDEX payment_events_pkey ON payment_events USING btree (provider, transaction_id)"
+    },
+    {
+      "key": "products.products_pkey",
+      "definition": "CREATE UNIQUE INDEX products_pkey ON products USING btree (id)"
+    },
+    {
+      "key": "quotes.quotes_pkey",
+      "definition": "CREATE UNIQUE INDEX quotes_pkey ON quotes USING btree (id)"
+    },
+    {
+      "key": "rate_limits.rate_limits_pkey",
+      "definition": "CREATE UNIQUE INDEX rate_limits_pkey ON rate_limits USING btree (key)"
+    },
+    {
+      "key": "roles.roles_pkey",
+      "definition": "CREATE UNIQUE INDEX roles_pkey ON roles USING btree (id)"
+    },
+    {
+      "key": "settings.settings_pkey",
+      "definition": "CREATE UNIQUE INDEX settings_pkey ON settings USING btree (id)"
+    },
+    {
+      "key": "twoFactor.twoFactor_pkey",
+      "definition": "CREATE UNIQUE INDEX \"twoFactor_pkey\" ON \"twoFactor\" USING btree (id)"
+    },
+    {
+      "key": "twoFactor.twoFactor_secret_idx",
+      "definition": "CREATE INDEX \"twoFactor_secret_idx\" ON \"twoFactor\" USING btree (secret)"
+    },
+    {
+      "key": "twoFactor.twoFactor_userId_idx",
+      "definition": "CREATE INDEX \"twoFactor_userId_idx\" ON \"twoFactor\" USING btree (\"userId\")"
+    },
+    {
+      "key": "user_roles.user_roles_pkey",
+      "definition": "CREATE UNIQUE INDEX user_roles_pkey ON user_roles USING btree (user_id, role_id)"
+    },
+    {
+      "key": "users.users_email_key",
+      "definition": "CREATE UNIQUE INDEX users_email_key ON users USING btree (email)"
+    },
+    {
+      "key": "users.users_pkey",
+      "definition": "CREATE UNIQUE INDEX users_pkey ON users USING btree (id)"
+    },
+    {
+      "key": "users.users_referral_code_key",
+      "definition": "CREATE UNIQUE INDEX users_referral_code_key ON users USING btree (referral_code)"
+    },
+    {
+      "key": "wallet_ledger.wallet_ledger_order_id_kind_key",
+      "definition": "CREATE UNIQUE INDEX wallet_ledger_order_id_kind_key ON wallet_ledger USING btree (order_id, kind)"
+    },
+    {
+      "key": "wallet_ledger.wallet_ledger_pkey",
+      "definition": "CREATE UNIQUE INDEX wallet_ledger_pkey ON wallet_ledger USING btree (id)"
+    },
+    {
+      "key": "wallet_ledger.wallet_ledger_user",
+      "definition": "CREATE INDEX wallet_ledger_user ON wallet_ledger USING btree (user_id, created_at DESC)"
+    },
+    {
+      "key": "wallets.wallets_pkey",
+      "definition": "CREATE UNIQUE INDEX wallets_pkey ON wallets USING btree (user_id)"
+    },
+    {
+      "key": "withdrawals.withdrawals_payout_reference",
+      "definition": "CREATE UNIQUE INDEX withdrawals_payout_reference ON withdrawals USING btree (method, COALESCE(network, ''::text), payout_reference) WHERE (payout_reference <> ''::text)"
+    },
+    {
+      "key": "withdrawals.withdrawals_pkey",
+      "definition": "CREATE UNIQUE INDEX withdrawals_pkey ON withdrawals USING btree (id)"
+    },
+    {
+      "key": "withdrawals.withdrawals_request_key_key",
+      "definition": "CREATE UNIQUE INDEX withdrawals_request_key_key ON withdrawals USING btree (request_key)"
+    },
+    {
+      "key": "withdrawals.withdrawals_user",
+      "definition": "CREATE INDEX withdrawals_user ON withdrawals USING btree (user_id, created_at DESC)"
+    }
+  ],
+  "triggers": [
+    {
+      "key": "auth_passkey.auth_last_passkey_removed",
+      "definition": "CREATE TRIGGER auth_last_passkey_removed AFTER DELETE ON auth_passkey FOR EACH ROW EXECUTE FUNCTION auth_last_passkey_removed()"
+    },
+    {
+      "key": "auth_passkey.auth_passkey_enable_mfa",
+      "definition": "CREATE TRIGGER auth_passkey_enable_mfa AFTER INSERT ON auth_passkey FOR EACH ROW EXECUTE FUNCTION auth_passkey_enable_mfa()"
+    },
+    {
+      "key": "auth_passkey.auth_passkey_owner_lock",
+      "definition": "CREATE TRIGGER auth_passkey_owner_lock BEFORE INSERT OR DELETE ON auth_passkey FOR EACH ROW EXECUTE FUNCTION auth_passkey_owner_lock()"
+    },
+    {
+      "key": "orders.order_email_outbox",
+      "definition": "CREATE TRIGGER order_email_outbox AFTER INSERT OR UPDATE OF status ON orders FOR EACH ROW EXECUTE FUNCTION enqueue_order_email()"
+    },
+    {
+      "key": "orders.order_funnel",
+      "definition": "CREATE TRIGGER order_funnel AFTER INSERT OR UPDATE OF status ON orders FOR EACH ROW EXECUTE FUNCTION record_funnel_order()"
+    },
+    {
+      "key": "users.auth_passkey_requires_mfa",
+      "definition": "CREATE TRIGGER auth_passkey_requires_mfa BEFORE UPDATE OF two_factor_enabled ON users FOR EACH ROW EXECUTE FUNCTION auth_passkey_requires_mfa()"
+    }
+  ],
+  "functions": [
+    {
+      "key": "auth_last_passkey_removed",
+      "definition": "CREATE OR REPLACE FUNCTION auth_last_passkey_removed()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\nBEGIN\n  IF NOT EXISTS(SELECT 1 FROM auth_passkey WHERE \"userId\"=OLD.\"userId\") THEN\n    DELETE FROM auth_verification WHERE value=OLD.\"userId\" AND identifier LIKE '2fa-%';\n    DELETE FROM auth_session WHERE \"userId\"=OLD.\"userId\";\n  END IF;\n  RETURN OLD;\nEND $function$"
+    },
+    {
+      "key": "auth_passkey_enable_mfa",
+      "definition": "CREATE OR REPLACE FUNCTION auth_passkey_enable_mfa()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\nBEGIN\n  UPDATE users SET two_factor_enabled=true WHERE id=NEW.\"userId\";\n  RETURN NEW;\nEND $function$"
+    },
+    {
+      "key": "auth_passkey_owner_lock",
+      "definition": "CREATE OR REPLACE FUNCTION auth_passkey_owner_lock()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\nBEGIN\n  PERFORM id FROM users WHERE id=COALESCE(NEW.\"userId\",OLD.\"userId\") FOR UPDATE;\n  IF TG_OP='DELETE' THEN RETURN OLD; END IF;\n  RETURN NEW;\nEND $function$"
+    },
+    {
+      "key": "auth_passkey_requires_mfa",
+      "definition": "CREATE OR REPLACE FUNCTION auth_passkey_requires_mfa()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\nBEGIN\n  IF EXISTS(SELECT 1 FROM auth_passkey WHERE \"userId\"=NEW.id) THEN\n    NEW.two_factor_enabled=true;\n  END IF;\n  RETURN NEW;\nEND $function$"
+    },
+    {
+      "key": "enqueue_order_email",
+      "definition": "CREATE OR REPLACE FUNCTION enqueue_order_email()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\nBEGIN\n  IF NEW.contact_email IS NOT NULL AND (TG_OP='INSERT' OR NEW.status IS DISTINCT FROM OLD.status) THEN\n    INSERT INTO email_outbox(id,order_id,status) VALUES(NEW.id||':'||NEW.status,NEW.id,NEW.status) ON CONFLICT DO NOTHING;\n  END IF;\n  RETURN NEW;\nEND $function$"
+    },
+    {
+      "key": "record_funnel_order",
+      "definition": "CREATE OR REPLACE FUNCTION record_funnel_order()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\nDECLARE q record;\nBEGIN\n  IF NEW.kind <> 'purchase' THEN RETURN NEW; END IF;\n  SELECT analytics_visitor, attribution_source INTO q FROM quotes WHERE id=NEW.quote_id;\n  IF q.analytics_visitor IS NULL THEN RETURN NEW; END IF;\n  IF TG_OP='INSERT' THEN\n    INSERT INTO funnel_events(id,event,visitor_key,product_id,source)\n    VALUES(NEW.id||':created','order_created',q.analytics_visitor,NEW.product_id,q.attribution_source)\n    ON CONFLICT DO NOTHING;\n  END IF;\n  IF NEW.status IN ('processing','completed') THEN\n    INSERT INTO funnel_events(id,event,visitor_key,product_id,source)\n    VALUES(NEW.id||':paid','payment_succeeded',q.analytics_visitor,NEW.product_id,q.attribution_source)\n    ON CONFLICT DO NOTHING;\n  END IF;\n  IF NEW.status IN ('completed','refunded') THEN\n    INSERT INTO funnel_events(id,event,visitor_key,product_id,source)\n    VALUES(NEW.id||':'||NEW.status,CASE NEW.status WHEN 'completed' THEN 'delivery_completed' ELSE 'order_refunded' END,\n      q.analytics_visitor,NEW.product_id,q.attribution_source)\n    ON CONFLICT DO NOTHING;\n  END IF;\n  RETURN NEW;\nEND $function$"
+    }
+  ]
+}

@@ -13,15 +13,15 @@ import type { Order } from '../../types'
 
 export type Provider = 'xorpay' | 'gmpay' | 'epay_v1' | 'epay_v2'
 export interface PaymentOrder extends Order {
-  provider: Provider
-  integrationId?: string
-  paymentId?: string
-  paymentUrl?: string
+  provider: Provider | 'balance'
+  integrationId?: string | null
+  paymentId?: string | null
+  paymentUrl?: string | null
   paymentAttempted: boolean
-  redemptionId?: string
-  quoteId?: string
+  redemptionId?: string | null
+  quoteId?: string | null
   fulfillmentAttempt: number
-  aicdkIntegrationId?: string
+  aicdkIntegrationId?: string | null
   redemptionVersion: number
   submissionAttempted: boolean
 }
@@ -51,7 +51,8 @@ async function post(url: string, fields: Record<string, string>) {
   return typeof body === 'string' ? JSON.parse(body) : body
 }
 export async function createPayment(order: PaymentOrder, clientIP: string) {
-  const config = await integration(order.provider, order.integrationId)
+  if (order.provider === 'balance') throw new ApiError(409, '余额订单无需创建渠道付款')
+  const config = await integration(order.provider, order.integrationId ?? undefined)
   const amount = (order.externalAmount / 100).toFixed(2)
   const notify = `${appUrl}/api/payments/notify/${order.provider}/${config.id}`
   if (order.provider === 'xorpay') {

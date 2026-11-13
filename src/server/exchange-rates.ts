@@ -1,4 +1,5 @@
-import { pool, rows } from './db'
+import { db } from './db'
+import { databaseNow, claimExchangeRate } from './database-sql'
 import { id } from './crypto'
 import { ApiError } from './config'
 import type { AdminData } from '../types'
@@ -29,14 +30,6 @@ export interface ExchangeRate {
   fetchedAt: string
   expiresAt: string
   source?: string
-}
-interface RateRow {
-  rateE8: string | null
-  sourceDate: string | null
-  fetchedAt: string | null
-  expiresAt: string | null
-  lastError: string | null
-  source: string | null
 }
 export function parseExchangeRate(
   input: unknown,
@@ -90,24 +83,20 @@ export async function exchangeRate(
       expiresAt: new Date(Date.now() + 48 * 3600000).toISOString(),
       source: 'CNY',
     }
-  await pool.query('INSERT INTO exchange_rates(id) VALUES($1) ON CONFLICT DO NOTHING', [
-    `${currency}_CNY`,
-  ])
-  const row = (
-    await rows<RateRow>('SELECT * FROM exchange_rates WHERE id=$1', [`${currency}_CNY`])
-  )[0]
+  await db.exchangeRate.createMany({ data: [{ id: `${currency}_CNY` }], skipDuplicates: true })
+  const row = await db.exchangeRate.findUnique({ where: { id: `${currency}_CNY` } })
   if (
     row?.rateE8 &&
     row.sourceDate &&
     row.fetchedAt &&
     row.expiresAt &&
-    Date.parse(row.expiresAt) > Date.now()
+    row.expiresAt.getTime() > Date.now()
   ) {
     return {
       rateE8: Number(row.rateE8),
       sourceDate: row.sourceDate,
-      fetchedAt: row.fetchedAt,
-      expiresAt: row.expiresAt,
+      fetchedAt: row.fetchedAt.toISOString(),
+      expiresAt: row.expiresAt.toISOString(),
       source: row.source ?? 'Currency API',
     }
   }
@@ -116,37 +105,30 @@ export async function exchangeRate(
 export async function exchangeRateStatus(
   currency: ExchangeCurrency = 'USD',
 ): Promise<NonNullable<AdminData['exchangeRate']>> {
-  const row = (
-    await rows<RateRow>('SELECT * FROM exchange_rates WHERE id=$1', [`${currency}_CNY`])
-  )[0]
+  const row = await db.exchangeRate.findUnique({ where: { id: `${currency}_CNY` } })
   return {
     rate: row?.rateE8 ? Number(row.rateE8) / 100000000 : null,
     sourceDate: row?.sourceDate ?? null,
-    fetchedAt: row?.fetchedAt ?? null,
-    expiresAt: row?.expiresAt ?? null,
-    available: !!row?.expiresAt && Date.parse(row.expiresAt) > Date.now(),
+    fetchedAt: row?.fetchedAt?.toISOString() ?? null,
+    expiresAt: row?.expiresAt?.toISOString() ?? null,
+    available: !!row?.expiresAt && row.expiresAt.getTime() > Date.now(),
     lastError: row?.lastError ?? null,
     source: row?.source ?? null,
   }
 }
 export async function requestExchangeRefresh(currency: ExchangeCurrency = 'USD') {
   requireCurrency(currency)
-  await pool.query('INSERT INTO exchange_rates(id) VALUES($1) ON CONFLICT DO NOTHING', [
-    `${currency}_CNY`,
-  ])
-  await pool.query('UPDATE exchange_rates SET refresh_after=now() WHERE id=$1', [`${currency}_CNY`])
+  await db.exchangeRate.createMany({ data: [{ id: `${currency}_CNY` }], skipDuplicates: true })
+  await db.exchangeRate.update({
+    where: { id: `${currency}_CNY` },
+    data: { refreshAfter: await databaseNow() },
+  })
 }
 export async function refreshExchangeRate(currency: ExchangeCurrency = 'USD') {
   requireCurrency(currency)
   const pair = `${currency}_CNY`
   const lease = id('fx_')
-  const claim = await pool.query(
-    `UPDATE exchange_rates SET lease=$1,locked_until=now()+interval '45 seconds'
-     WHERE id=$2 AND refresh_after<=now()
-       AND (locked_until IS NULL OR locked_until<now()) RETURNING id`,
-    [lease, pair],
-  )
-  if (!claim.rowCount) return false
+  if (!(await claimExchangeRate(pair, lease))) return false
   for (const url of sourcesForCurrency(currency)) {
     try {
       const response = await fetch(url, {
@@ -159,30 +141,51 @@ export async function refreshExchangeRate(currency: ExchangeCurrency = 'USD') {
       if (text.length > 100000) throw new Error('INVALID_RESPONSE')
       const rate = parseExchangeRate(JSON.parse(text), Date.now(), currency)
       const source = `Currency API · ${new URL(url).hostname === 'cdn.jsdelivr.net' ? 'jsDelivr' : 'Cloudflare'}`
-      const result = await pool.query(
-        `UPDATE exchange_rates SET rate_e8=$2,source_date=$3,fetched_at=$4,expires_at=$5,
-         source=$6,locked_until=null,last_error=null,refresh_after=now()+interval '1 hour'
-         WHERE id=$7 AND lease=$1 AND (source_date IS NULL OR source_date<=$3) RETURNING id`,
-        [lease, rate.rateE8, rate.sourceDate, rate.fetchedAt, rate.expiresAt, source, pair],
-      )
-      if (!result.rowCount) throw new Error('OLDER_SOURCE_DATE')
+      const result = await db.exchangeRate.updateMany({
+        where: {
+          id: pair,
+          lease,
+          OR: [{ sourceDate: null }, { sourceDate: { lte: rate.sourceDate } }],
+        },
+        data: {
+          rateE8: BigInt(rate.rateE8),
+          sourceDate: rate.sourceDate,
+          fetchedAt: rate.fetchedAt,
+          expiresAt: rate.expiresAt,
+          source,
+          lockedUntil: null,
+          lastError: null,
+          refreshAfter: new Date((await databaseNow()).getTime() + 3600_000),
+        },
+      })
+      if (!result.count) throw new Error('OLDER_SOURCE_DATE')
       return true
     } catch {
       /* Try the provider's official mirror without exposing response bodies. */
     }
   }
-  await pool.query(
-    `UPDATE exchange_rates SET locked_until=null,last_error='EXCHANGE_REFRESH_FAILED',
-     refresh_after=now()+interval '5 minutes' WHERE id=$2 AND lease=$1`,
-    [lease, pair],
-  )
+  await db.exchangeRate.updateMany({
+    where: { id: pair, lease },
+    data: {
+      lockedUntil: null,
+      lastError: 'EXCHANGE_REFRESH_FAILED',
+      refreshAfter: new Date((await databaseNow()).getTime() + 5 * 60_000),
+    },
+  })
   return true
 }
 
 export async function refreshPendingExchangeRates() {
-  const due = await rows<{ id: string }>(
-    'SELECT id FROM exchange_rates WHERE refresh_after<=now() AND (locked_until IS NULL OR locked_until<now()) ORDER BY refresh_after LIMIT 8',
-  )
+  const now = await databaseNow()
+  const due = await db.exchangeRate.findMany({
+    where: {
+      refreshAfter: { lte: now },
+      OR: [{ lockedUntil: null }, { lockedUntil: { lt: now } }],
+    },
+    orderBy: { refreshAfter: 'asc' },
+    take: 8,
+    select: { id: true },
+  })
   // Bound concurrency; newly encountered quote currencies are filled by the worker.
   for (let i = 0; i < due.length; i += 2)
     await Promise.all(

@@ -1,17 +1,18 @@
-import { pool } from './db'
+import { db } from './db'
+import { stringRecord } from './data'
 import { integration } from './integrations/config'
 import { ApiError, appUrl } from './config'
 export type VerificationScene = 'login' | 'purchase'
 export async function turnstilePublic() {
-  const record = (
-    await pool.query(
-      "SELECT public,enabled FROM integrations WHERE provider='turnstile' AND active=true",
-    )
-  ).rows[0]
+  const record = await db.integration.findFirst({
+    where: { provider: 'turnstile', active: true },
+    select: { public: true, enabled: true },
+  })
+  const config = record ? stringRecord(record.public) : {}
   return {
-    siteKey: record?.enabled ? record.public.siteKey : '',
-    login: !!record?.enabled && record.public.login === 'true',
-    purchase: !!record?.enabled && record.public.purchase === 'true',
+    siteKey: record?.enabled ? config.siteKey : '',
+    login: !!record?.enabled && config.login === 'true',
+    purchase: !!record?.enabled && config.purchase === 'true',
   }
 }
 export async function verifyTurnstileResult(

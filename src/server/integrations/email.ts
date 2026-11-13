@@ -1,7 +1,8 @@
 import nodemailer from 'nodemailer'
 import { Resend } from 'resend'
 import { integration } from './config'
-import { pool } from '../db'
+import { db } from '../db'
+import { settingsData } from '../data'
 import { ApiError } from '../config'
 export async function sendLoginEmail(to: string, code: string, requestId: string) {
   return sendEmail(
@@ -13,7 +14,7 @@ export async function sendLoginEmail(to: string, code: string, requestId: string
 }
 export async function sendEmail(to: string, subject: string, text: string, requestId: string) {
   const provider =
-    (await pool.query('SELECT body FROM settings WHERE id=1')).rows[0]?.body?.emailProvider ||
+    settingsData((await db.setting.findUniqueOrThrow({ where: { id: 1 } })).body).emailProvider ||
     'resend'
   const config = await integration(provider)
   if (provider === 'resend') {

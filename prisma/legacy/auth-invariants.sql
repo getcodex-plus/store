@@ -1,3 +1,4 @@
+-- Historical pre-Prisma schema. Not a deploy or test initialization entry point.
 -- Serialize changes to a user's Passkeys and 2FA state via the users row.
 -- This invariant also applies to SDK endpoints and concurrent requests.
 CREATE OR REPLACE FUNCTION auth_passkey_owner_lock() RETURNS trigger LANGUAGE plpgsql AS $$

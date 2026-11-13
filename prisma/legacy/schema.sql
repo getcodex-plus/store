@@ -1,3 +1,4 @@
+-- Historical pre-Prisma schema. Not a deploy or test initialization entry point.
 CREATE TABLE IF NOT EXISTS users (
   id text PRIMARY KEY, email text UNIQUE NOT NULL, role text NOT NULL DEFAULT 'user' CHECK(role IN ('user','admin')),
   referral_code text UNIQUE NOT NULL, invited_by text REFERENCES users(id), disabled boolean NOT NULL DEFAULT false,

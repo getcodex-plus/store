@@ -1,43 +1,70 @@
-import pg from 'pg'
-import type { PoolClient } from 'pg'
+import { PrismaPg } from '@prisma/adapter-pg'
+import { PrismaClient, Prisma } from '../generated/prisma/client'
 
-const globalDB = globalThis as unknown as { getgptPool?: pg.Pool }
-export const pool =
-  globalDB.getgptPool ??
-  new pg.Pool({
-    connectionString: process.env.DATABASE_URL,
-    max: 10,
-    idleTimeoutMillis: 30_000,
-    connectionTimeoutMillis: 5_000,
+export { Prisma }
+export type DbClient = Prisma.TransactionClient
+
+export function databaseSchema(connectionString: string): string {
+  const schema = new URL(connectionString).searchParams.get('schema') ?? 'public'
+  if (!/^[a-z][a-z0-9_]{0,62}$/.test(schema)) throw new Error('Invalid database schema')
+  return schema
+}
+
+// Shared by Next.js, the worker, scripts and isolated database tests.
+export function createDatabase(connectionString: string) {
+  const schema = databaseSchema(connectionString)
+  const url = new URL(connectionString)
+  url.searchParams.delete('schema')
+  // Model queries, raw queries and PostgreSQL functions must use the same schema.
+  // adapter-pg normalizes timestamps to UTC, so require UTC on every connection.
+  // Merely changing Node's TZ would leave database-generated expiry values wrong.
+  url.searchParams.set(
+    'options',
+    `${url.searchParams.get('options') ?? ''} -csearch_path=${schema} -ctimezone=UTC`.trim(),
+  )
+  const adapter = new PrismaPg(
+    {
+      connectionString: url.toString(),
+      max: 10,
+      idleTimeoutMillis: 30_000,
+      connectionTimeoutMillis: 5_000,
+    },
+    { schema },
+  )
+  return new PrismaClient({
+    adapter,
+    transactionOptions: { maxWait: 10_000, timeout: 10_000 },
   })
-globalDB.getgptPool = pool
+}
 
-export function row<T>(input: Record<string, unknown>): T {
-  return Object.fromEntries(
-    Object.entries(input).map(([key, value]) => [
-      key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase()),
-      value instanceof Date ? value.toISOString() : value,
-    ]),
-  ) as T
+const connectionString = process.env.DATABASE_URL ?? 'postgresql://localhost/getgpt'
+const cache = globalThis as unknown as {
+  getcodexDatabase?: { url: string; client: PrismaClient }
 }
-export async function rows<T>(
-  sql: string,
-  values: unknown[] = [],
-  client: pg.Pool | PoolClient = pool,
-): Promise<T[]> {
-  return (await client.query(sql, values)).rows.map((r) => row<T>(r))
+export const db =
+  cache.getcodexDatabase?.url === connectionString
+    ? cache.getcodexDatabase.client
+    : createDatabase(connectionString)
+cache.getcodexDatabase = { url: connectionString, client: db }
+
+export function transaction<T>(
+  fn: (client: DbClient) => Promise<T>,
+  options?: {
+    maxWait?: number
+    timeout?: number
+    isolationLevel?: Prisma.TransactionIsolationLevel
+  },
+) {
+  return db.$transaction(fn, options)
 }
-export async function transaction<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
-  const client = await pool.connect()
-  try {
-    await client.query('BEGIN')
-    const result = await fn(client)
-    await client.query('COMMIT')
-    return result
-  } catch (error) {
-    await client.query('ROLLBACK')
-    throw error
-  } finally {
-    client.release()
-  }
+
+// AICDK can perform three consecutive calls, each bounded to 30 seconds.
+// Keep this budget local instead of extending all database transactions.
+export const upstreamTransaction = { maxWait: 10_000, timeout: 100_000 } as const
+
+export function uniqueConflict(error: unknown) {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    (error.code === 'P2002' || (error.code === 'P2010' && error.meta?.code === '23505'))
+  )
 }

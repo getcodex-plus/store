@@ -1,24 +1,22 @@
-import { pool, rows } from './db'
+import { db } from './db'
 import type { User } from '../types'
 export async function securityStatus(user: User) {
-  const totp =
-    (await pool.query('SELECT id FROM "twoFactor" WHERE "userId"=$1 AND verified=true', [user.id]))
-      .rowCount! > 0
-  const password = !!(
-    await pool.query(
-      'SELECT id FROM auth_account WHERE "userId"=$1 AND "providerId"=\'opaque\' AND "registrationRecord" IS NOT NULL',
-      [user.id],
-    )
-  ).rowCount
+  const [totp, credential, owner, passkeys] = await Promise.all([
+    db.twoFactor.count({ where: { userId: user.id, verified: true } }),
+    db.authAccount.count({
+      where: { userId: user.id, providerId: 'opaque', registrationRecord: { not: null } },
+    }),
+    db.user.findUniqueOrThrow({ where: { id: user.id }, select: { twoFactorEnabled: true } }),
+    db.authPasskey.findMany({
+      where: { userId: user.id },
+      select: { id: true, name: true, createdAt: true },
+      orderBy: { createdAt: 'asc' },
+    }),
+  ])
   return {
-    password,
-    totp,
-    twoStepEnabled: (
-      await pool.query('SELECT two_factor_enabled FROM users WHERE id=$1', [user.id])
-    ).rows[0].two_factor_enabled,
-    passkeys: await rows(
-      'SELECT id,name,"createdAt" FROM auth_passkey WHERE "userId"=$1 ORDER BY "createdAt"',
-      [user.id],
-    ),
+    password: credential > 0,
+    totp: totp > 0,
+    twoStepEnabled: !!owner.twoFactorEnabled,
+    passkeys: passkeys.map((p) => ({ ...p, createdAt: p.createdAt?.toISOString() ?? null })),
   }
 }

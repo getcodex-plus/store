@@ -1,4 +1,5 @@
-import { pool } from './db'
+import { db } from './db'
+import { claimEmail, databaseNow } from './database-sql'
 import { appUrl, demo } from './config'
 import { sendEmail } from './integrations/email'
 const labels: Record<string, string> = {
@@ -12,28 +13,30 @@ const labels: Record<string, string> = {
 }
 export async function deliverOrderEmail() {
   // The row lease survives restarts. Resend also deduplicates retries by this stable event id.
-  const job = (
-    await pool.query(`UPDATE email_outbox SET run_at=now()+interval '2 minutes',attempts=attempts+1
-    WHERE id=(SELECT id FROM email_outbox WHERE sent_at IS NULL AND run_at<=now() ORDER BY run_at FOR UPDATE SKIP LOCKED LIMIT 1)
-    RETURNING *`)
-  ).rows[0]
+  const job = await claimEmail()
   if (!job) return
   try {
-    const order = (
-      await pool.query('SELECT contact_email,amount FROM orders WHERE id=$1', [job.order_id])
-    ).rows[0]
-    if (!demo && order?.contact_email)
+    const order = await db.order.findUnique({
+      where: { id: job.orderId },
+      select: { contactEmail: true, amount: true },
+    })
+    if (!demo && order?.contactEmail)
       await sendEmail(
-        order.contact_email,
+        order.contactEmail,
         `GetCodex Plus 订单通知：${labels[job.status] || '状态更新'}`,
-        `订单号：${job.order_id}\n状态：${labels[job.status] || job.status}\n金额：¥${(order.amount / 100).toFixed(2)}\n查看订单：${appUrl}/orders/${job.order_id}\n\n请使用下单时的浏览器打开；更换设备后，用本邮箱验证码登录即可查看。请勿转发验证码。`,
+        `订单号：${job.orderId}\n状态：${labels[job.status] || job.status}\n金额：¥${(order.amount / 100).toFixed(2)}\n查看订单：${appUrl}/orders/${job.orderId}\n\n请使用下单时的浏览器打开；更换设备后，用本邮箱验证码登录即可查看。请勿转发验证码。`,
         job.id,
       )
-    await pool.query('UPDATE email_outbox SET sent_at=now() WHERE id=$1', [job.id])
+    await db.emailOutbox.update({ where: { id: job.id }, data: { sentAt: await databaseNow() } })
   } catch {
-    await pool.query("UPDATE email_outbox SET run_at=now()+$2*interval '1 second' WHERE id=$1", [
-      job.id,
-      Math.min(3600, 30 * 2 ** Math.min(job.attempts, 7)),
-    ])
+    await db.emailOutbox.update({
+      where: { id: job.id },
+      data: {
+        runAt: new Date(
+          (await databaseNow()).getTime() +
+            Math.min(3600, 30 * 2 ** Math.min(job.attempts, 7)) * 1000,
+        ),
+      },
+    })
   }
 }

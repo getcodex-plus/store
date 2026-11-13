@@ -4,7 +4,7 @@
 
 项目目录与包名统一为 `getcodex-plus`。
 
-面向终端用户的 GPT 充值与升级网站。Bun + Next.js App Router + React + Ant Design + PostgreSQL，账户基于 Better Auth；已有 AICDK 负责真实兑换执行。
+面向终端用户的 GPT 充值与升级网站。Bun + Next.js App Router + React + Ant Design + PostgreSQL，数据库访问统一使用 Prisma，账户基于 Better Auth；已有 AICDK 负责真实兑换执行。
 
 商业内容、SEO 配置、服务说明快照及购买阶段统计见 [增长与 SEO 说明](docs/growth-and-seo.md)。正式上线前需在后台填写真实服务期限、支持邮箱及可用的账号操作指引；示例数据不会自动变成服务承诺。
 
@@ -17,6 +17,8 @@ cp .env.example .env
 bun install --frozen-lockfile
 docker compose up -d db
 bun run db:migrate
+bun run db:seed
+bun run db:verify
 bun run dev
 ```
 
@@ -29,6 +31,8 @@ bun run worker
 访问 `http://localhost:3000`，不要混用 `127.0.0.1`，以免 Cookie、Origin 和 Passkey RP ID 不一致。演示环境与正式环境共用 Session 输入、获取指引和授权确认表单，默认预填示例 Session；支持修改示例邮箱，演示前后端仅接受 `accessToken` 和 `sessionToken` 均为 `demo` 的示例凭证，并清除额外字段。演示环境验证码显示在页面，不发送邮件、不联系真实收款渠道、不提交真实账号 Session。使用 `.env` 中的 `ADMIN_EMAIL` 登录即可体验后台。
 
 当前工作区已有 `.env`，连接独立数据库 `127.0.0.1:55479/getgpt`，不是 Compose 示例的 55439。数据位于 `.data/postgres`，请勿覆盖现有 `.env`。演示加密密钥随机生成在 `.data/`，文件权限 0600。
+
+以上初始化命令适用于空库。已有数据库首次切换 Prisma 时，先备份并按 [Prisma 数据库运行手册](docs/prisma-migration.md) 完成结构核验、必要的兼容升级和基线接管。`db:migrate` 仅管理结构版本，`db:seed` 显式补充缺失初始记录，不覆盖现有商品价格、设置或角色。Web 与 worker 统一使用 Prisma 客户端，Better Auth 不再运行独立 schema migration。
 
 ## 浏览器脚本与统计
 
@@ -127,7 +131,7 @@ worker 使用 PostgreSQL 持久化任务、`SKIP LOCKED` 和租约，支持多�
 
 1. 使用独立 PostgreSQL 数据库、受控数据库账户和备份，勿使用演示 Compose 的 trust 配置作为生产数据库。
 2. 配置 `APP_MODE=live`、HTTPS 的 `APP_URL`、`DATABASE_URL`、独立随机的 `ENCRYPTION_KEY`、`BETTER_AUTH_SECRET` 和 `OPAQUE_SERVER_KEY`。OPAQUE 密钥使用 `bunx @serenity-kit/opaque@0.9.0 create-server-setup` 生成，也可放在权限为 0600 的文件中并配置 `OPAQUE_SERVER_KEY_FILE`。三份密钥均需安全备份，OPAQUE setup 应与数据库备份分开存放；丢失或替换会使已有密码无法登录。演示环境自动生成并持久化至 `.data/opaque.key`，重启时复用。
-3. 升级已有站点时先停止 Web 和 worker，备份数据库及现有密钥，再执行 `bun run db:migrate`。迁移在事务中重加密旧卡密与预检令牌并重建 HMAC 指纹，保留用户 ID、订单、钱包、邀请关系和原兑换标识；勿更换现有 `ENCRYPTION_KEY`。重复卡密展示形式冲突或解密失败会回滚。迁移完成后启动新版本，不混跑新旧版本。详见 [AICDK v2 迁移与安全审查](docs/aicdk-v2-and-security.md)。
+3. 升级已有站点时先停止 Web 和 worker，备份数据库及现有密钥。首次采用 Prisma 按 [数据库运行手册](docs/prisma-migration.md) 执行 `db:verify`、必要的 `db:upgrade-legacy`、`db:baseline` 和 `db:migrate`，后续发布使用 `db:migrate`。Prisma 接管保留用户 ID、订单、钱包、邀请关系、兑换标识及密文，不自动执行 seed 或重加密。更早的密文格式升级须先完成其历史前置步骤；当前完整 schema 上的凭据维护使用独立 `db:credentials`，勿更换现有 `ENCRYPTION_KEY`。详见 [AICDK v2 迁移与安全审查](docs/aicdk-v2-and-security.md)。
 4. 设置 `ADMIN_EMAIL` 和 `BOOTSTRAP_PASSWORD_FILE`（0600 文件，16–128 字符），执行 `bun run admin:bootstrap`。脚本拒绝覆盖已有所有者。初次用密码登录，配置邮件、添加 Passkey 与 TOTP 后删除密码文件。
 5. 在后台配置真实商品/价格、兑换库存、收款和邮件。示例价格不构成实际服务承诺。所有外部渠道需逐个完成真实小额订单、回调与异常恢复联调。
 6. `bun run build`，通过进程管理器分别运行 `bun run start`、`bun run worker`。使用 HTTPS 反向代理；只有可信代理覆写 `X-Real-IP` 时才设置 `TRUST_PROXY=true`。
@@ -140,8 +144,8 @@ worker 使用 PostgreSQL 持久化任务、`SKIP LOCKED` 和租约，支持多�
 bun run check
 TEST_DATABASE_URL=postgresql://getgpt@127.0.0.1:55479/getgpt_test bun run test
 bunx playwright install chromium
-bun run test:e2e
 bun run build
+TEST_DATABASE_URL=postgresql://getgpt@127.0.0.1:55479/getgpt_test E2E_PRODUCTION=true bun run test:e2e
 ```
 
-数据库集成测试必须使用名称以 `_test` 结尾的独立数据库。未设置 `TEST_DATABASE_URL` 时跳过这些集成测试。E2E 在本地演示环境操作测试账号、测试订单与配置，勿指向正式站点。覆盖 SSR 和移动端溢出、钱包收支、游客邮箱认领、密钥只写、RBAC、虚拟 WebAuthn、TOTP/邮箱二步验证、恢复码接口关闭、CSRF、回调拒绝和 Turnstile 服务端开关，以及升级定价、组合付款、限额、取消退款和游客返现幂等。
+数据库集成测试必须使用名称以 `_test` 结尾的独立数据库；各 suite 通过 Prisma migrations 创建独立随机 schema，测试后清理。未设置 `TEST_DATABASE_URL` 时本地跳过数据库 suite，CI 直接报错，验收必须配置测试库。E2E 也要求该变量，自动迁移、seed、写入确定性汇率 fixture 并启动自己的本地演示服务（默认 3100 端口），结束后清理测试 schema。覆盖 SSR 和移动端溢出、钱包收支、游客邮箱认领、密钥只写、RBAC、虚拟 WebAuthn、TOTP/邮箱二步验证、恢复码接口关闭、CSRF、回调拒绝和 Turnstile 服务端开关，以及升级定价、组合付款、限额、取消退款和游客返现幂等。其他入口与并行运行约定见 [Prisma 数据库运行手册](docs/prisma-migration.md)。

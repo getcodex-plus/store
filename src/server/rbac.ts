@@ -1,5 +1,6 @@
 import { ApiError } from './config'
-import { pool } from './db'
+import { db } from './db'
+import { z } from 'zod'
 import type { User } from '../types'
 
 export const permissions = [
@@ -25,11 +26,11 @@ export const permissions = [
 export type Permission = (typeof permissions)[number]
 export async function permissionsFor(user: Pick<User, 'id' | 'role'>): Promise<string[]> {
   if (user.role === 'admin') return [...permissions]
-  const result = await pool.query(
-    'SELECT r.permissions FROM roles r JOIN user_roles ur ON ur.role_id=r.id WHERE ur.user_id=$1',
-    [user.id],
-  )
-  return [...new Set(result.rows.flatMap((r) => r.permissions as string[]))]
+  const roles = await db.userRole.findMany({
+    where: { userId: user.id },
+    select: { role: { select: { permissions: true } } },
+  })
+  return [...new Set(roles.flatMap((r) => z.array(z.string()).parse(r.role.permissions)))]
 }
 export function authorize(user: User, permission: Permission) {
   if (!user.permissions.includes(permission)) throw new ApiError(403, '当前角色没有此操作权限')

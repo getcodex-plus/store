@@ -1,15 +1,18 @@
+import { prepareTestDatabase, cleanupTestDatabase, testQuery } from './database-test-support'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { readFile } from 'node:fs/promises'
 import { client, ready } from '@serenity-kit/opaque'
-import { getMigrations } from 'better-auth/db/migration'
 
 vi.hoisted(() => {
-  if (process.env.TEST_DATABASE_URL) process.env.DATABASE_URL = process.env.TEST_DATABASE_URL
+  if (process.env.TEST_DATABASE_URL) {
+    const url = new URL(process.env.TEST_DATABASE_URL)
+    url.searchParams.set('schema', `test_opaque_${crypto.randomUUID().replaceAll('-', '')}`)
+    process.env.DATABASE_URL = url.toString()
+  }
   process.env.APP_MODE = 'demo'
   process.env.APP_URL = 'http://localhost:3000'
 })
 import { auth } from './better-auth'
-import { pool } from './db'
+import { Prisma } from './db'
 import { decrypt, hash, id } from './crypto'
 
 const suite = process.env.TEST_DATABASE_URL ? describe : describe.skip
@@ -41,10 +44,9 @@ class Browser {
       (await this.request('/email-otp/send-verification-otp', { email, type: 'sign-in' })).status,
     ).toBe(200)
     const row = (
-      await pool.query('SELECT code FROM demo_mailbox WHERE browser_digest=$1 AND email=$2', [
-        hash(this.cookies.get('getgpt_browser')!),
-        email,
-      ])
+      await testQuery(
+        Prisma.sql`SELECT code FROM demo_mailbox WHERE browser_digest=${hash(this.cookies.get('getgpt_browser')!)} AND email=${email}`,
+      )
     ).rows[0]
     expect(
       (await this.request('/sign-in/email-otp', { email, otp: decrypt(row.code, 'demo-email') }))
@@ -120,7 +122,7 @@ suite('OPAQUE authentication against PostgreSQL', () => {
       )
       expect(response.status, await response.clone().text()).toBe(200)
     }
-    const userId = (await pool.query('SELECT id FROM users WHERE email=$1', [email])).rows[0]
+    const userId = (await testQuery(Prisma.sql`SELECT id FROM users WHERE email=${email}`)).rows[0]
       .id as string
     return { email, browser, userId }
   }
@@ -128,24 +130,21 @@ suite('OPAQUE authentication against PostgreSQL', () => {
     if (!new URL(process.env.TEST_DATABASE_URL!).pathname.endsWith('_test'))
       throw new Error('OPAQUE integration tests require a dedicated database ending in _test')
     await ready
-    await pool.query(await readFile(new URL('./schema.sql', import.meta.url), 'utf8'))
-    await (await getMigrations(auth.options)).runMigrations()
-    await pool.query(await readFile(new URL('./auth-invariants.sql', import.meta.url), 'utf8'))
-  })
+    await prepareTestDatabase()
+  }, 30_000)
   beforeEach(async () => {
-    await pool.query('DELETE FROM auth_rate_limit')
+    await testQuery(Prisma.sql`DELETE FROM auth_rate_limit`)
   })
   afterAll(async () => {
-    await pool.query('DELETE FROM users WHERE email=ANY($1)', [users])
-    await pool.end()
+    await testQuery(Prisma.sql`DELETE FROM users WHERE email=ANY(${users})`)
+    await cleanupTestDatabase()
   })
 
   it('stores only an OPAQUE record and does not return it in account responses', async () => {
     const { userId, browser } = await fixture()
     const rows = (
-      await pool.query(
-        'SELECT "providerId",password,"registrationRecord" FROM auth_account WHERE "userId"=$1',
-        [userId],
+      await testQuery(
+        Prisma.sql`SELECT "providerId",password,"registrationRecord" FROM auth_account WHERE "userId"=${userId}`,
       )
     ).rows
     expect(rows).toHaveLength(1)
@@ -224,9 +223,8 @@ suite('OPAQUE authentication against PostgreSQL', () => {
     const another = await prepareChange(browser)
     expect((await other.request('/opaque/changePassword/complete', another)).status).toBe(401)
     const expired = await prepareLogin(new Browser(), email)
-    await pool.query(
-      'UPDATE auth_verification SET "expiresAt"=now()-interval \'1 second\' WHERE identifier=$1',
-      [`opaque:${hash(expired.encryptedServerState)}`],
+    await testQuery(
+      Prisma.sql`UPDATE auth_verification SET "expiresAt"=now()-interval '1 second' WHERE identifier=${`opaque:${hash(expired.encryptedServerState)}`}`,
     )
     expect((await new Browser().request('/sign-in/opaque/complete', expired)).status).toBe(401)
     const swapped = await prepareLogin(new Browser(), email)
@@ -244,7 +242,7 @@ suite('OPAQUE authentication against PostgreSQL', () => {
     const { email, userId } = await fixture()
     const browser = new Browser()
     const payload = await prepareLogin(browser, email)
-    await pool.query('UPDATE users SET two_factor_enabled=true WHERE id=$1', [userId])
+    await testQuery(Prisma.sql`UPDATE users SET two_factor_enabled=true WHERE id=${userId}`)
     const result = await browser.request('/sign-in/opaque/complete', payload)
     expect(result.status).toBe(200)
     expect(await result.json()).toMatchObject({
@@ -254,10 +252,9 @@ suite('OPAQUE authentication against PostgreSQL', () => {
     expect(await (await browser.request('/get-session')).json()).toBeNull()
     expect((await browser.request('/two-factor/send-otp', {})).status).toBe(200)
     const row = (
-      await pool.query('SELECT code FROM demo_mailbox WHERE browser_digest=$1 AND email=$2', [
-        hash(browser.cookies.get('getgpt_browser')!),
-        email,
-      ])
+      await testQuery(
+        Prisma.sql`SELECT code FROM demo_mailbox WHERE browser_digest=${hash(browser.cookies.get('getgpt_browser')!)} AND email=${email}`,
+      )
     ).rows[0]
     expect(
       (await browser.request('/two-factor/verify-otp', { code: decrypt(row.code, 'demo-email') }))
@@ -269,13 +266,12 @@ suite('OPAQUE authentication against PostgreSQL', () => {
   it('rejects disabled users and stale sessions at completion', async () => {
     const { browser, email, userId } = await fixture()
     const payload = await prepareLogin(new Browser(), email)
-    await pool.query('UPDATE users SET disabled=true WHERE id=$1', [userId])
+    await testQuery(Prisma.sql`UPDATE users SET disabled=true WHERE id=${userId}`)
     expect((await new Browser().request('/sign-in/opaque/complete', payload)).status).toBe(401)
-    await pool.query('UPDATE users SET disabled=false WHERE id=$1', [userId])
+    await testQuery(Prisma.sql`UPDATE users SET disabled=false WHERE id=${userId}`)
     const change = await prepareChange(browser)
-    await pool.query(
-      'UPDATE auth_session SET "createdAt"=now()-interval \'11 minutes\' WHERE "userId"=$1',
-      [userId],
+    await testQuery(
+      Prisma.sql`UPDATE auth_session SET "createdAt"=now()-interval '11 minutes' WHERE "userId"=${userId}`,
     )
     expect((await browser.request('/opaque/changePassword/complete', change)).status).toBe(403)
   })

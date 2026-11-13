@@ -42,7 +42,7 @@ export interface Order {
   id: string
   userId: string | null
   contactEmail: string
-  productId: string
+  productId: string | null
   productName: string
   email: string
   amount: number
@@ -51,7 +51,7 @@ export interface Order {
   status: OrderStatus
   channel: Channel
   createdAt: string
-  completedAt?: string
+  completedAt?: string | null
   rateBps: number
   settlementDays: number
   firstOrderOnly: boolean

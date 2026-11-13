@@ -5,13 +5,21 @@ import { passkey } from '@better-auth/passkey'
 import { randomBytes } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { pool } from './db'
+import { db } from './db'
+import { prismaAdapter } from 'better-auth/adapters/prisma'
+import { getCurrentAdapter } from '@better-auth/core/context'
+import { databaseNow } from './database-sql'
 import { appUrl, demo, validateRuntime } from './config'
 import { encrypt, hash, id } from './crypto'
 import { rateLimit } from './rate-limit'
 import { requireTurnstile } from './turnstile'
 import { sendLoginEmail } from './integrations/email'
 import { opaqueAuth } from './opaque'
+
+type AuthAdapter = Parameters<typeof getCurrentAdapter>[0]
+async function hookAdapter(context?: { adapter: AuthAdapter }): Promise<AuthAdapter> {
+  return getCurrentAdapter(context?.adapter ?? ((await auth.$context).adapter as AuthAdapter))
+}
 
 function authSecret() {
   if (process.env.BETTER_AUTH_SECRET) return process.env.BETTER_AUTH_SECRET
@@ -29,7 +37,6 @@ function authSecret() {
 // Extend the official plugin's challenge flow to email OTP; never issue our own MFA tokens.
 // Covered by integration tests because upstream hook contracts may change on upgrades.
 const mfa = twoFactor({
-  schema: { user: { fields: { twoFactorEnabled: 'two_factor_enabled' } } },
   issuer: 'GetCodex Plus',
   allowPasswordless: true,
   backupCodeOptions: { storeBackupCodes: 'encrypted', amount: 0 },
@@ -55,13 +62,7 @@ mfaHook.handler = createAuthMiddleware(async (ctx) => {
   // do not ask for a second code sent to the same mailbox.
   if (ctx.path === '/sign-in/email-otp') {
     const userId = ctx.context.newSession?.user.id
-    if (
-      !userId ||
-      !(
-        await pool.query('SELECT id FROM "twoFactor" WHERE "userId"=$1 AND verified=true', [userId])
-      ).rowCount
-    )
-      return
+    if (!userId || !(await db.twoFactor.count({ where: { userId, verified: true } }))) return
   }
   const result = (await mfaHandler({ ...ctx, returnHeaders: true })) as unknown as {
     response: { twoFactorRedirect: boolean; twoFactorMethods: string[] } | undefined
@@ -81,10 +82,14 @@ async function deliverAuthCode(email: string, otp: string, headers?: Headers) {
   if (demo) {
     const browser = headers?.get('cookie')?.match(/(?:^|;\s*)getgpt_browser=([^;]+)/)?.[1]
     if (!browser) throw new APIError('BAD_REQUEST', { message: '请刷新页面后重试' })
-    await pool.query(
-      "INSERT INTO demo_mailbox(browser_digest,email,code,expires_at) VALUES($1,$2,$3,now()+interval '10 minutes') ON CONFLICT(browser_digest,email) DO UPDATE SET code=excluded.code,expires_at=excluded.expires_at",
-      [hash(browser), email, encrypt(otp, 'demo-email')],
-    )
+    const browserDigest = hash(browser)
+    const code = encrypt(otp, 'demo-email')
+    const expiresAt = new Date((await databaseNow()).getTime() + 10 * 60_000)
+    await db.demoMailbox.upsert({
+      where: { browserDigest_email: { browserDigest, email } },
+      create: { browserDigest, email, code, expiresAt },
+      update: { code, expiresAt },
+    })
   } else await sendLoginEmail(email, otp, id())
 }
 
@@ -167,25 +172,31 @@ const policy: BetterAuthPlugin = {
               throw new APIError('FORBIDDEN', {
                 message: '请重新登录后执行此操作（需要最近 10 分钟内验证）',
               })
-            const user = (
-              await pool.query(
-                'SELECT disabled,two_factor_enabled,EXISTS(SELECT 1 FROM "twoFactor" t WHERE t."userId"=users.id AND t.verified=true) AS has_totp,EXISTS(SELECT 1 FROM auth_passkey p WHERE p."userId"=users.id) AS passkey FROM users WHERE id=$1',
-                [session.user.id],
-              )
-            ).rows[0]
+            const user = await db.user.findUnique({
+              where: { id: session.user.id },
+              include: {
+                twoFactors: { where: { verified: true }, select: { id: true } },
+                passkeys: { select: { id: true } },
+              },
+            })
             const method = (session.session as typeof session.session & { method: string }).method
             if (
               !user ||
               user.disabled ||
-              !permittedSession(method, user.passkey, user.two_factor_enabled, user.has_totp)
+              !permittedSession(
+                method,
+                user.passkeys.length > 0,
+                !!user.twoFactorEnabled,
+                user.twoFactors.length > 0,
+              )
             )
               throw new APIError('FORBIDDEN', { message: '请完成账号所需的二步验证后重新登录' })
-            if (ctx.path === '/two-factor/disable' && user.passkey)
+            if (ctx.path === '/two-factor/disable' && user.passkeys.length > 0)
               throw new APIError('FORBIDDEN', { message: '请先移除所有 Passkey，再关闭二步验证' })
             if (
               ctx.path === '/two-factor/enable' &&
               ctx.body?.method !== 'otp' &&
-              !user.two_factor_enabled
+              !user.twoFactorEnabled
             )
               throw new APIError('FORBIDDEN', { message: '请先开启二步验证，再设置身份验证器' })
           }
@@ -211,15 +222,14 @@ const policy: BetterAuthPlugin = {
             session &&
             ['/two-factor/verify-totp', '/two-factor/verify-otp'].includes(ctx.path || '')
           )
-            await pool.query('UPDATE auth_session SET method=$1 WHERE token=$2', [
-              'mfa',
-              session.session.token,
-            ])
+            await db.authSession.updateMany({
+              where: { token: session.session.token },
+              data: { method: 'mfa' },
+            })
           if (session)
-            await pool.query('DELETE FROM auth_session WHERE "userId"=$1 AND token<>$2', [
-              session.user.id,
-              session.session.token,
-            ])
+            await db.authSession.deleteMany({
+              where: { userId: session.user.id, token: { not: session.session.token } },
+            })
         }),
       },
     ],
@@ -230,7 +240,7 @@ export const auth = betterAuth({
   appName: 'GetCodex Plus',
   baseURL: appUrl,
   secret: authSecret(),
-  database: pool,
+  database: prismaAdapter(db, { provider: 'postgresql', transaction: true }),
   trustedOrigins: [appUrl],
   advanced: {
     cookiePrefix: 'getgpt',
@@ -238,17 +248,16 @@ export const auth = betterAuth({
     database: { generateId: () => id('a_') },
   },
   user: {
-    modelName: 'users',
-    fields: { createdAt: 'created_at', updatedAt: 'updated_at', emailVerified: 'email_verified' },
+    modelName: 'user',
     additionalFields: {
       role: { type: 'string', required: false, defaultValue: 'user', input: false },
-      referralCode: { type: 'string', required: false, input: false, fieldName: 'referral_code' },
-      invitedBy: { type: 'string', required: false, input: false, fieldName: 'invited_by' },
+      referralCode: { type: 'string', required: false, input: false },
+      invitedBy: { type: 'string', required: false, input: false },
       disabled: { type: 'boolean', required: false, defaultValue: false, input: false },
     },
   },
   session: {
-    modelName: 'auth_session',
+    modelName: 'authSession',
     expiresIn: 7 * 86400,
     freshAge: 600,
     cookieCache: { enabled: false },
@@ -256,8 +265,8 @@ export const auth = betterAuth({
       method: { type: 'string', required: false, input: false, defaultValue: 'unknown' },
     },
   },
-  account: { modelName: 'auth_account', encryptOAuthTokens: true },
-  verification: { modelName: 'auth_verification' },
+  account: { modelName: 'authAccount', encryptOAuthTokens: true },
+  verification: { modelName: 'authVerification' },
   emailAndPassword: {
     enabled: false,
     minPasswordLength: 12,
@@ -268,7 +277,7 @@ export const auth = betterAuth({
   rateLimit: {
     enabled: true,
     storage: 'database',
-    modelName: 'auth_rate_limit',
+    modelName: 'authRateLimit',
     window: 60,
     max: demo ? 300 : 60,
     customRules: {
@@ -288,13 +297,16 @@ export const auth = betterAuth({
       create: {
         before: async (user, ctx) => {
           const referral = ctx?.headers?.get('x-getgpt-referral')?.slice(0, 40)
+          const adapter = await hookAdapter(ctx?.context)
           const inviter = referral
-            ? (
-                await pool.query(
-                  'SELECT id FROM users WHERE referral_code=$1 AND email<>$2 AND disabled=false',
-                  [referral, user.email],
-                )
-              ).rows[0]
+            ? await adapter.findOne<{ id: string }>({
+                model: 'user',
+                where: [
+                  { field: 'referralCode', value: referral },
+                  { field: 'email', operator: 'ne', value: user.email },
+                  { field: 'disabled', value: false },
+                ],
+              })
             : null
           return {
             data: {
@@ -315,12 +327,15 @@ export const auth = betterAuth({
     session: {
       create: {
         before: async (session, ctx) => {
+          const adapter = await hookAdapter(ctx?.context)
           if (
-            !(
-              await pool.query('SELECT id FROM users WHERE id=$1 AND disabled=false', [
-                session.userId,
-              ])
-            ).rowCount
+            !(await adapter.findOne({
+              model: 'user',
+              where: [
+                { field: 'id', value: session.userId },
+                { field: 'disabled', value: false },
+              ],
+            }))
           )
             return false
           const path = ctx?.path || ''
@@ -359,7 +374,7 @@ export const auth = betterAuth({
       rpName: 'GetCodex Plus',
       origin: appUrl,
       authenticatorSelection: { residentKey: 'required', userVerification: 'required' },
-      schema: { passkey: { modelName: 'auth_passkey' } },
+      schema: { passkey: { modelName: 'authPasskey' } },
     }),
     mfa,
     policy,

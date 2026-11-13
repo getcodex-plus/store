@@ -18,7 +18,6 @@ import {
   completeOrder,
   confirmSession,
   newOrder,
-  orderColumns,
   paymentInfo,
   products,
   quote,
@@ -29,14 +28,15 @@ import {
   reviewWithdrawal,
   withdrawalPayoutEstimate,
 } from '../../../server/services'
-import { pool, rows, transaction } from '../../../server/db'
+import { db, Prisma, transaction } from '../../../server/db'
+import { orderView, settingsData, jsonInput } from '../../../server/data'
+import { databaseNow, lockRow, lockSettings } from '../../../server/database-sql'
 import { normalizeDemoSession } from '../../../lib'
 import { requestExchangeRefresh } from '../../../server/exchange-rates'
-import { decrypt, hash, id } from '../../../server/crypto'
+import { decrypt, hash } from '../../../server/crypto'
 import { importInventory } from '../../../server/credential-storage'
 import { integrationSchema, saveIntegration } from '../../../server/integrations/config'
-import type { PaymentOrder } from '../../../server/integrations/payments'
-import type { Order, Product } from '../../../types'
+import type { Product } from '../../../types'
 import { authorize, mayGrant, permissions, type Permission } from '../../../server/rbac'
 import { requireTurnstile, turnstilePublic } from '../../../server/turnstile'
 import { securityStatus } from '../../../server/security'
@@ -116,12 +116,14 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
       result = { recorded: true }
     } else if (path === 'demo/code' && method === 'POST' && demo) {
       const { email } = z.object({ email: emailSchema }).parse(data)
-      const record = (
-        await pool.query(
-          'SELECT code FROM demo_mailbox WHERE browser_digest=$1 AND email=$2 AND expires_at>now()',
-          [await browserDigest(), email],
-        )
-      ).rows[0]
+      const record = await db.demoMailbox.findFirst({
+        where: {
+          browserDigest: await browserDigest(),
+          email,
+          expiresAt: { gt: await databaseNow() },
+        },
+        select: { code: true },
+      })
       result = { demoCode: record ? decrypt(record.code, 'demo-email') : null }
     } else if (path === 'security' && method === 'GET')
       result = await securityStatus(await requireUser())
@@ -186,7 +188,7 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
         await browserDigest(),
         path.split('/')[1],
       )
-      result = (await rows<Order>(`SELECT ${orderColumns} FROM orders WHERE id=$1`, [order.id]))[0]
+      result = orderView(await db.order.findUniqueOrThrow({ where: { id: order.id } }))
     } else if (/^orders\/[^/]+\/cancel$/.test(path) && method === 'POST') {
       result = await cancelOrder(await currentUser(), await browserDigest(), path.split('/')[1])
     } else if (/^orders\/[^/]+\/pay$/.test(path) && method === 'POST') {
@@ -256,15 +258,15 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
           .parse(data)
         mayGrant(admin, input.permissions)
         await transaction(async (client) => {
-          const existing = (
-            await client.query('SELECT * FROM roles WHERE id=$1 FOR UPDATE', [input.id])
-          ).rows[0]
+          await lockRow(client, 'roles', input.id)
+          const existing = await client.role.findUnique({ where: { id: input.id } })
           if (existing?.protected) throw new ApiError(403, '内置角色不可修改')
-          if (existing) mayGrant(admin, existing.permissions)
-          await client.query(
-            'INSERT INTO roles(id,name,permissions) VALUES($1,$2,$3) ON CONFLICT(id) DO UPDATE SET name=excluded.name,permissions=excluded.permissions',
-            [input.id, input.name, JSON.stringify(input.permissions)],
-          )
+          if (existing) mayGrant(admin, z.array(z.string()).parse(existing.permissions))
+          await client.role.upsert({
+            where: { id: input.id },
+            create: input,
+            update: { name: input.name, permissions: input.permissions },
+          })
           await audit(admin.email, '更新角色', input.id, client)
         })
         result = { saved: true }
@@ -273,33 +275,29 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
           .object({ userId: z.string(), roleIds: z.array(z.string()).max(20) })
           .parse(data)
         await transaction(async (client) => {
-          const user = (
-            await client.query('SELECT * FROM users WHERE id=$1 FOR UPDATE', [input.userId])
-          ).rows[0]
+          await lockRow(client, 'users', input.userId)
+          const user = await client.user.findUnique({ where: { id: input.userId } })
           if (!user || user.role === 'admin') throw new ApiError(403, '内置管理员角色受保护')
-          const roles = (
-            await client.query('SELECT permissions FROM roles WHERE id=ANY($1::text[])', [
-              input.roleIds,
-            ])
-          ).rows
+          const roles = await client.role.findMany({
+            where: { id: { in: input.roleIds } },
+            select: { permissions: true },
+          })
           if (roles.length !== new Set(input.roleIds).size) throw new ApiError(400, '角色不存在')
-          const old = (
-            await client.query(
-              'SELECT r.permissions FROM roles r JOIN user_roles ur ON ur.role_id=r.id WHERE ur.user_id=$1',
-              [input.userId],
-            )
-          ).rows
+          const previous = await client.userRole.findMany({
+            where: { userId: input.userId },
+            select: { role: { select: { permissions: true } } },
+          })
           mayGrant(
             admin,
-            [...roles, ...old].flatMap((r) => r.permissions),
+            [...roles, ...previous.map((r) => r.role)].flatMap((r) =>
+              z.array(z.string()).parse(r.permissions),
+            ),
           )
-          await client.query('DELETE FROM user_roles WHERE user_id=$1', [input.userId])
-          for (const roleId of new Set(input.roleIds))
-            await client.query('INSERT INTO user_roles(user_id,role_id) VALUES($1,$2)', [
-              input.userId,
-              roleId,
-            ])
-          await client.query('DELETE FROM auth_session WHERE "userId"=$1', [input.userId])
+          await client.userRole.deleteMany({ where: { userId: input.userId } })
+          await client.userRole.createMany({
+            data: [...new Set(input.roleIds)].map((roleId) => ({ userId: input.userId, roleId })),
+          })
+          await client.authSession.deleteMany({ where: { userId: input.userId } })
           await audit(admin.email, '分配用户角色', input.userId, client)
         })
         result = { saved: true }
@@ -314,27 +312,8 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
       } else if (path === 'admin/products' && method === 'POST') {
         const p: Product = productSchema.parse(data)
         await transaction(async (client) => {
-          await client.query(
-            `INSERT INTO products(id,name,subtitle,description,price,features,plan,enabled,featured,upgrade,pricing_mode,pricing,price_currency,rounding_step,service_terms) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-            ON CONFLICT(id) DO UPDATE SET name=excluded.name,subtitle=excluded.subtitle,description=excluded.description,price=excluded.price,features=excluded.features,plan=excluded.plan,enabled=excluded.enabled,featured=excluded.featured,upgrade=excluded.upgrade,pricing_mode=excluded.pricing_mode,pricing=excluded.pricing,price_currency=excluded.price_currency,rounding_step=excluded.rounding_step,service_terms=excluded.service_terms`,
-            [
-              p.id,
-              p.name,
-              p.subtitle,
-              p.description,
-              p.price,
-              JSON.stringify(p.features),
-              p.plan,
-              p.enabled,
-              p.featured,
-              p.upgrade,
-              p.pricingMode,
-              null,
-              p.priceCurrency,
-              p.roundingStep,
-              p.serviceTerms,
-            ],
-          )
+          const record = { ...p, serviceTerms: p.serviceTerms ?? '', pricing: Prisma.DbNull }
+          await client.product.upsert({ where: { id: p.id }, create: record, update: record })
           await audit(admin.email, '更新商品', p.id, client)
         })
         result = { saved: true }
@@ -395,22 +374,27 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
           })
           .parse(data)
         await transaction(async (client) => {
-          const current = (await client.query('SELECT body FROM settings WHERE id=1 FOR UPDATE'))
-            .rows[0].body
+          await lockSettings(client)
+          const current = settingsData(
+            (await client.setting.findUniqueOrThrow({ where: { id: 1 } })).body,
+          )
           const version =
             current.epayVersion ?? (current.fiatProvider === 'epay_v2' ? 'epay_v2' : 'epay_v1')
           const referralTiers = conf.referralTiers ?? current.referralTiers ?? defaultReferralTiers
-          await client.query('UPDATE settings SET body=$1 WHERE id=1', [
-            JSON.stringify({
-              ...conf,
-              referralTiers,
-              withdrawalChannels: conf.withdrawalChannels ?? withdrawalChannels(current),
-              minimumWithdrawal: conf.minimumWithdrawal ?? current.minimumWithdrawal,
-              rateBps: referralTiers[0].rateBps,
-              epayVersion: version,
-              fiatProvider: conf.fiatProvider === 'xorpay' ? 'xorpay' : version,
-            }),
-          ])
+          await client.setting.update({
+            where: { id: 1 },
+            data: {
+              body: jsonInput({
+                ...conf,
+                referralTiers,
+                withdrawalChannels: conf.withdrawalChannels ?? withdrawalChannels(current),
+                minimumWithdrawal: conf.minimumWithdrawal ?? current.minimumWithdrawal,
+                rateBps: referralTiers[0].rateBps,
+                epayVersion: version,
+                fiatProvider: conf.fiatProvider === 'xorpay' ? 'xorpay' : version,
+              }),
+            },
+          })
           await audit(admin.email, '更新返现与支付规则', 'settings', client)
         })
         result = { saved: true }
@@ -428,12 +412,11 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
         const input = z.object({ id: z.string(), disabled: z.boolean() }).parse(data)
         if (input.id === admin.id) throw new ApiError(400, '不能停用当前管理员')
         await transaction(async (client) => {
-          await client.query("UPDATE users SET disabled=$2 WHERE id=$1 AND role<>'admin'", [
-            input.id,
-            input.disabled,
-          ])
-          if (input.disabled)
-            await client.query('DELETE FROM auth_session WHERE "userId"=$1', [input.id])
+          await client.user.updateMany({
+            where: { id: input.id, role: { not: 'admin' } },
+            data: { disabled: input.disabled },
+          })
+          if (input.disabled) await client.authSession.deleteMany({ where: { userId: input.id } })
           await audit(admin.email, input.disabled ? '停用用户' : '启用用户', input.id, client)
         })
         result = { saved: true }
@@ -449,16 +432,16 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
       } else if (path === 'admin/orders/retry' && method === 'POST') {
         const input = z.object({ id: z.string() }).parse(data)
         await transaction(async (client) => {
-          const order = (
-            await client.query(
-              "SELECT id FROM orders WHERE id=$1 AND status='processing' FOR UPDATE",
-              [input.id],
-            )
-          ).rows[0]
+          await lockRow(client, 'orders', input.id)
+          const order = await client.order.findFirst({
+            where: { id: input.id, status: 'processing' },
+            select: { id: true },
+          })
           if (!order) throw new ApiError(409, '只能重试仍在处理的订单')
-          await client.query('UPDATE jobs SET done=false,run_at=now() WHERE order_id=$1', [
-            input.id,
-          ])
+          await client.job.updateMany({
+            where: { orderId: input.id },
+            data: { done: false, runAt: await databaseNow(client) },
+          })
           await audit(admin.email, '请求重新同步订单', input.id, client)
         })
         result = { saved: true }
