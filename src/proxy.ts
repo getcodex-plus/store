@@ -1,18 +1,23 @@
 import { randomBytes } from 'node:crypto'
 import { NextRequest, NextResponse } from 'next/server'
+import { googleAnalyticsId } from './google-analytics'
 
 export function proxy(request: NextRequest) {
   const nonce = randomBytes(32).toString('base64')
   const development = process.env.NODE_ENV === 'development'
+  const analytics = Boolean(googleAnalyticsId(process.env.NEXT_PUBLIC_GA_ID))
+  const analyticsConnections = analytics
+    ? ' https://*.google-analytics.com https://*.analytics.google.com https://www.googletagmanager.com'
+    : ''
   const policy = [
     "default-src 'self'",
     // OPAQUE requires WebAssembly compilation; JavaScript eval remains blocked in production.
-    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'wasm-unsafe-eval' https://challenges.cloudflare.com${development ? " 'unsafe-eval'" : ''}`,
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'wasm-unsafe-eval' https://challenges.cloudflare.com${analytics ? ' https://www.googletagmanager.com' : ''}${development ? " 'unsafe-eval'" : ''}`,
     "script-src-attr 'none'",
     // Ant Design uses inline styles. Scripts still require a per-response nonce.
     "style-src 'self' 'unsafe-inline'",
-    `connect-src 'self' https://challenges.cloudflare.com${development ? ' ws: wss:' : ''}`,
-    "img-src 'self' data: blob: https://www.gravatar.com",
+    `connect-src 'self' https://challenges.cloudflare.com${analyticsConnections}${development ? ' ws: wss:' : ''}`,
+    `img-src 'self' data: blob: https://www.gravatar.com${analytics ? ' https://*.google-analytics.com https://www.googletagmanager.com' : ''}`,
     "font-src 'self'",
     'frame-src https://challenges.cloudflare.com',
     "object-src 'none'",

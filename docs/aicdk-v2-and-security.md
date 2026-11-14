@@ -70,7 +70,7 @@ localStorage 或 sessionStorage。用户刷新页面后需重新检查账号。
 4. **错误边界。** 上游响应通过结构校验并限制大小。错误码只能来自固定集合；
    不保存上游原始错误文本。API 验证错误与未知异常采用固定文案，
    日志不记录异常名称、请求体、SQL 参数或供应商返回正文。
-5. **浏览器边界。** 全局 GA/GTM 脚本及相关依赖已移除；保留本站购买阶段统计。
+5. **浏览器边界。** 保留本站购买阶段统计；GA4 现可按配置启用，使用显式页面事件和规范化地址，GTM 不启用。详见[GA4 配置与限制](growth-and-seo.md#google-analytics-4)。
    CSP 使用每个响应独立的 nonce，约束脚本、外部连接、iframe、表单和嵌入。
    Turnstile 使用 nonce，Ant Design 所需内联样式保留。
    页面与 API 使用 no-store / no-referrer，正式站点配置 HSTS。

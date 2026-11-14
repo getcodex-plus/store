@@ -21,3 +21,23 @@ it('uses an unpredictable per-request nonce and overwrites caller supplied CSP h
   expect(policy).not.toBe(second.headers.get('Content-Security-Policy'))
   expect(first.headers.get('Cache-Control')).toContain('no-store')
 })
+
+it('allows analytics connections only when a valid measurement ID is configured', () => {
+  vi.stubEnv('NODE_ENV', 'production')
+  const request = new NextRequest('https://shop.example/checkout')
+  for (const id of ['', 'GTM-ABC123', 'G-ABC; https://untrusted.example']) {
+    vi.stubEnv('NEXT_PUBLIC_GA_ID', id)
+    const policy = proxy(request).headers.get('Content-Security-Policy')!
+    expect(policy).not.toContain('google-analytics.com')
+    expect(policy).not.toContain('googletagmanager.com')
+    expect(policy).not.toContain('untrusted.example')
+  }
+  vi.stubEnv('NEXT_PUBLIC_GA_ID', 'G-TEST123')
+  const policy = proxy(request).headers.get('Content-Security-Policy')!
+  expect(policy).toContain('https://*.google-analytics.com')
+  expect(policy).toContain('https://*.analytics.google.com')
+  expect(policy).toContain('https://www.googletagmanager.com')
+  expect(policy).toContain("'strict-dynamic'")
+  expect(policy).not.toContain("'unsafe-eval'")
+  expect(policy).not.toContain('doubleclick.net')
+})

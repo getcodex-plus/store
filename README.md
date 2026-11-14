@@ -36,9 +36,9 @@ bun run worker
 
 ## 浏览器脚本与统计
 
-仅保留本站的购买阶段统计。GA / GTM 全局脚本已移除，原有 `NEXT_PUBLIC_GA_ID` / `NEXT_PUBLIC_GTM_ID` 配置不再生效，避免第三方标签与卡密、Session、后台密钥输入共处一个页面。Cloudflare Turnstile 仍按后台开关使用。
+保留本站的购买阶段统计，并可通过 `NEXT_PUBLIC_GA_ID=G-XXXXXXXXXX` 启用 GA4；构建与运行时配置一致，修改后重新构建。未填写或格式无效时不加载。启用前在 GA 网页数据流关闭「增强型衡量」，由应用显式上报页面浏览，包含结算页；查询参数、订单号、表单内容不作为事件参数发送。尊重 DNT/GPC，不启用 Google Signals 或广告个性化信号。`NEXT_PUBLIC_GTM_ID` 不再使用。配置限制与验证步骤见[增长与 SEO 说明](docs/growth-and-seo.md#google-analytics-4)。Cloudflare Turnstile 仍按后台开关使用。
 
-页面通过 Next.js Proxy 生成每次请求独立的 CSP nonce，采用动态渲染；运行时脚本、结构化数据和 Turnstile 使用对应 nonce。禁止任意内联脚本、外部连接和嵌入，允许本站资源及 Turnstile 必要来源。Ant Design 所需的内联样式保留。页面与 API 不缓存，使用 `no-referrer`；正式站点启用 HSTS。反向代理须保留这些响应头。
+页面通过 Next.js Proxy 生成每次请求独立的 CSP nonce，采用动态渲染；运行时脚本、结构化数据、GA4 和 Turnstile 使用对应 nonce。限制内联脚本、外部连接和嵌入；仅配置有效 GA ID 时增加 Google Analytics 必要来源，不放行广告来源。Ant Design 所需的内联样式保留。页面与 API 不缓存，使用 `no-referrer`；正式站点启用 HSTS。反向代理须保留这些响应头。
 
 ## 用户流程
 

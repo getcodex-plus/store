@@ -6,6 +6,8 @@ import { SiteHeader, SiteFooter } from '../components/Site'
 import './globals.css'
 import { siteOrigin } from '../seo'
 import { publicSupport } from '../server/public-support'
+import { GoogleAnalytics } from '../components/GoogleAnalytics'
+import { googleAnalyticsId } from '../google-analytics'
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteOrigin()),
@@ -34,6 +36,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // Dynamic rendering is required: a cached document must not reuse a CSP nonce.
   const nonce = (await headers()).get('x-nonce') || undefined
   const { supportEmail } = await publicSupport()
+  const gaId = googleAnalyticsId(process.env.NEXT_PUBLIC_GA_ID)
 
   return (
     <html lang="zh-CN" data-scroll-behavior="smooth">
@@ -45,6 +48,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <SiteFooter supportEmail={supportEmail} />
           </Providers>
         </AntdRegistry>
+        {gaId && <GoogleAnalytics gaId={gaId} nonce={nonce} />}
       </body>
     </html>
   )

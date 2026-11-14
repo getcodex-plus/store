@@ -1,6 +1,13 @@
 import { openAdminPage } from './admin-helpers'
 import { expect, test } from '@playwright/test'
+import { googleAnalyticsId } from '../src/google-analytics'
 const origin = process.env.E2E_BASE_URL || 'http://localhost:3000'
+
+test.beforeEach(async ({ page }) => {
+  await page.route('https://www.googletagmanager.com/**', (route) =>
+    route.fulfill({ contentType: 'application/javascript', body: '' }),
+  )
+})
 
 test('CSP permits the application and blocks untrusted inline code and external requests', async ({
   page,
@@ -21,7 +28,7 @@ test('CSP permits the application and blocks untrusted inline code and external 
   await expect(page.getByLabel('账号会话信息', { exact: true })).toBeVisible()
   await expect(
     page.locator('script[src*="googletagmanager"],script[src*="google-analytics"]'),
-  ).toHaveCount(0)
+  ).toHaveCount(googleAnalyticsId(process.env.NEXT_PUBLIC_GA_ID) ? 1 : 0)
   const result = await page.evaluate(async () => {
     let externalBlocked = false
     try {
