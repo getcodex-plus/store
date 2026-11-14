@@ -16,32 +16,38 @@ export function PlanCard({
   return (
     <article className={`plan-card ${product.featured ? 'featured' : ''}`}>
       <div className="plan-card-top">
-        <span className={`plan-symbol ${product.upgrade ? 'upgrade' : ''}`}>
-          {product.upgrade ? '↗' : product.featured ? '✳' : '✦'}
-        </span>
+        {!selector && (
+          <span className={`plan-symbol ${product.upgrade ? 'upgrade' : ''}`} aria-hidden="true">
+            {product.upgrade ? '↗' : product.featured ? '✳' : '✦'}
+          </span>
+        )}
         {selector || (product.featured && <span className="recommend">日常使用推荐</span>)}
       </div>
       <h3>{title}</h3>
       <p className="plan-subtitle">{product.subtitle}</p>
-      <div className="price" aria-live="polite" aria-atomic="true">
-        {product.upgrade || product.priceStatus === 'pending' ? (
-          <strong className="quote-price-label">
-            {product.upgrade ? '验证账号后报价' : '价格更新中'}
-          </strong>
-        ) : (
-          <>
+      <div className="plan-price-block" aria-live="polite" aria-atomic="true">
+        <span className="plan-price-caption">{product.upgrade ? '本次升级' : '本次总价'}</span>
+        <div className="price">
+          {product.upgrade || product.priceStatus === 'pending' ? (
+            <strong className="quote-price-label">
+              {product.upgrade ? '验证账号后报价' : '价格更新中'}
+            </strong>
+          ) : (
             <strong>{money(product.price)}</strong>
-            <span>/ 本次服务</span>
-          </>
-        )}
+          )}
+        </div>
+        <div className="plan-service">
+          <span>服务期限与交付范围</span>
+          <p className="price-note">{serviceTerms(product)}</p>
+        </div>
       </div>
-      <p className="price-note">{serviceTerms(product)}</p>
       <Link
         className={product.featured ? 'primary-link plan-button' : 'secondary-link plan-button'}
         href={`/checkout?product=${product.id}`}
       >
-        {product.upgrade ? '查看本次报价' : '选择此套餐'} <span>→</span>
+        {product.upgrade ? '查看本次报价' : '选择此套餐'} <span aria-hidden="true">→</span>
       </Link>
+      <p className="plan-action-note">先检查账号，确认后再付款</p>
       <ul>
         {product.features.map((feature) => (
           <li key={feature}>

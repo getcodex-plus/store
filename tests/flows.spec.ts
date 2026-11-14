@@ -56,7 +56,25 @@ test('demo checkout shares the real session form, consent and validation without
   })
   expect(rejected.status()).toBe(400)
   const email = testEmail()
-  await sessionInput.fill(demoSession(email))
+  await sessionInput.evaluate((element, value) => {
+    const clipboardData = new DataTransfer()
+    clipboardData.setData('text/plain', value)
+    element.dispatchEvent(
+      new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData }),
+    )
+  }, demoSession(email))
+  await expect(page.locator('.session-preview')).toContainText(email)
+  await expect(page.locator('.session-preview')).toContainText('尚未验证')
+  await expect(page.locator('.session-preview')).toBeFocused()
+  await expect(sessionInput).toHaveCount(0)
+  expect(quoteRequests).toBe(0)
+  await page.getByRole('button', { name: '编辑账号信息' }).click()
+  await expect(sessionInput).toHaveValue(demoSession(email))
+  await expect(sessionInput).toBeFocused()
+  await page.getByRole('button', { name: '收起账号信息' }).click()
+  await page.setViewportSize({ width: 375, height: 812 })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await page.screenshot({ path: 'test-results/checkout-account-mobile.png', fullPage: true })
   const submitted = page.waitForRequest(
     (request) => new URL(request.url()).pathname === '/api/quotes',
   )
@@ -68,6 +86,8 @@ test('demo checkout shares the real session form, consent and validation without
   await expect(page.getByText(email, { exact: true })).toBeVisible()
   await expect(sessionInput).toHaveCount(0)
   await expect(page.getByRole('heading', { name: '核对订单，选择支付方式' })).toBeVisible()
+  await expect(page.locator('.checkout-conditions')).toContainText('不会自动原路退回支付账户')
+  await page.screenshot({ path: 'test-results/checkout-confirm-mobile.png', fullPage: true })
 })
 test('SSR storefront, responsive layout, wallet topup and balance purchase', async ({
   page,
@@ -78,10 +98,20 @@ test('SSR storefront, responsive layout, wallet topup and balance purchase', asy
   expect(html).toContain('ChatGPT Plus')
   await page.goto('/')
   await expect(page.getByRole('heading', { name: /为你的 ChatGPT.*充值与升级。/ })).toBeVisible()
-  await page.setViewportSize({ width: 375, height: 812 })
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
-    true,
+  await expect(page.getByRole('link', { name: '开始充值', exact: true })).toHaveAttribute(
+    'href',
+    '/checkout?product=plus',
   )
+  await expect(page.locator('.entry-price')).toContainText('¥129.00')
+  await page.getByRole('link', { name: /已有订阅，想升级/ }).click()
+  await expect(page).toHaveURL(/#upgrade$/)
+  for (const width of [320, 375, 768, 1440]) {
+    await page.setViewportSize({ width, height: 812 })
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    ).toBe(true)
+  }
+  await page.setViewportSize({ width: 375, height: 812 })
   await page.screenshot({ path: 'test-results/storefront-mobile.png', fullPage: true })
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.screenshot({ path: 'test-results/storefront-desktop.png', fullPage: true })

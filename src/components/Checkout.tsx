@@ -23,7 +23,7 @@ import {
   CheckCircleFilled,
   SafetyCertificateOutlined,
 } from '@ant-design/icons'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useBotCheck } from './BotCheck'
 import { useSite } from './Providers'
 import { api, channels, money, parseSession, demoSession, normalizeDemoSession } from '../lib'
@@ -83,6 +83,16 @@ export function Checkout() {
   const { message } = App.useApp()
   const [quote, setQuote] = useState<Quote | null>(null)
   const [session, setSession] = useState('')
+  const [sessionCollapsed, setSessionCollapsed] = useState(false)
+  const sessionPreview = useRef<HTMLDivElement>(null)
+  const sessionEmail = useMemo(() => {
+    if (!session) return ''
+    try {
+      return parseSession(session).user.email
+    } catch {
+      return ''
+    }
+  }, [session])
   // Keep credentials only in this mounted checkout, never URL/storage/server DB.
   const verifiedSession = useRef<{ quoteId: string; value: string } | null>(null)
   const [contactEmail, setContactEmail] = useState('')
@@ -95,6 +105,9 @@ export function Checkout() {
   const [walletBalance, setWalletBalance] = useState<number | null>(null)
   const [balanceAmount, setBalanceAmount] = useState(0)
   const [clock, setClock] = useState(Date.now())
+  useEffect(() => {
+    if (sessionCollapsed) sessionPreview.current?.focus()
+  }, [sessionCollapsed])
   useEffect(() => {
     const clear = () => {
       verifiedSession.current = null
@@ -178,6 +191,7 @@ export function Checkout() {
       setBalanceAmount(0)
       setClock(Date.now())
       setSession('')
+      setSessionCollapsed(false)
       setRequestKey(crypto.randomUUID())
       message.success('账号检查已完成')
     } catch (e) {
@@ -324,36 +338,77 @@ export function Checkout() {
                 <div className="session-guide">
                   <strong>如何准备账号信息？</strong>
                   <ol>
-                    <li>在浏览器登录需要充值的 ChatGPT 账号。</li>
-                    <li>按本站操作指引准备完整会话信息，缺少字段时先联系支持。</li>
-                    <li>
-                      复制全部内容，粘贴到下方。
-                      <Link href="/guide" target="_blank">
-                        {' '}
-                        查看账号信息准备说明 ↗
-                      </Link>
-                    </li>
+                    <li>登录需要充值的 ChatGPT 账号，确认当前邮箱。</li>
+                    <li>打开下方操作指引，复制完整账号信息。</li>
+                    <li>粘贴到下方，核对识别出的邮箱，再验证账号。</li>
                   </ol>
+                  <details className="session-explanation">
+                    <summary>为什么需要这些信息？</summary>
+                    <p>
+                      会话信息是敏感登录凭证，用于检查账号和执行本次充值。本站会将其转交充值服务方处理，
+                      不将完整会话写入本站数据库或浏览器持久存储。请确认服务方和用途后再提交。
+                    </p>
+                    <Link href="/guide#account-info" target="_blank">
+                      查看完整准备说明 ↗
+                    </Link>
+                  </details>
                 </div>
                 <Support guide />
-                <Form.Item
-                  label="账号会话信息（Session）"
-                  extra={
-                    data.mode === 'demo'
-                      ? '已填入示例 Session，可修改邮箱体验流程；请勿粘贴真实登录凭证。'
-                      : undefined
-                  }
-                >
-                  <Input.TextArea
-                    value={session}
-                    onChange={(e) => setSession(e.target.value)}
-                    rows={6}
-                    autoComplete="off"
-                    spellCheck={false}
-                    placeholder="在此粘贴完整的账号会话 JSON"
-                    aria-label="账号会话信息"
-                  />
-                </Form.Item>
+                {sessionEmail && (
+                  <div className="session-preview" ref={sessionPreview} tabIndex={-1}>
+                    <div aria-live="polite">
+                      <span>已读取充值邮箱 · 尚未验证</span>
+                      <strong>{sessionEmail}</strong>
+                      <small>请确认这是需要充值的账号。</small>
+                    </div>
+                    <Button
+                      type="link"
+                      onClick={() => {
+                        setSessionCollapsed((current) => !current)
+                        if (sessionCollapsed)
+                          requestAnimationFrame(() =>
+                            document.getElementById('checkout-session')?.focus(),
+                          )
+                      }}
+                    >
+                      {sessionCollapsed ? '编辑账号信息' : '收起账号信息'}
+                    </Button>
+                  </div>
+                )}
+                {!sessionCollapsed && (
+                  <Form.Item
+                    label="账号会话信息（Session）"
+                    htmlFor="checkout-session"
+                    extra={
+                      data.mode === 'demo'
+                        ? '已填入示例 Session，可修改邮箱体验流程；请勿粘贴真实登录凭证。'
+                        : '粘贴完整内容后会显示充值邮箱，供你核对。'
+                    }
+                  >
+                    <Input.TextArea
+                      id="checkout-session"
+                      value={session}
+                      onChange={(e) => setSession(e.target.value)}
+                      onPaste={(event) => {
+                        const pasted = event.clipboardData.getData('text')
+                        try {
+                          parseSession(pasted)
+                        } catch {
+                          return
+                        }
+                        event.preventDefault()
+                        setSession(pasted)
+                        setSessionCollapsed(true)
+                        setError('')
+                      }}
+                      rows={4}
+                      autoComplete="off"
+                      spellCheck={false}
+                      placeholder="在此粘贴完整的账号会话 JSON"
+                      aria-label="账号会话信息"
+                    />
+                  </Form.Item>
+                )}
                 <Checkbox checked={consent} onChange={(e) => setConsent(e.target.checked)}>
                   我确认有权使用该账号，知晓会话信息是敏感登录凭证，并同意用于本次验证与充值。
                 </Checkbox>
@@ -370,15 +425,16 @@ export function Checkout() {
                 验证账号并确认价格 <ArrowRightOutlined />
               </Button>
               <p className="secure-note">
-                <SafetyCertificateOutlined /> 检查账号不使用卡密，也不会发起扣款
+                <SafetyCertificateOutlined /> 此步仅检查账号与价格，不会扣款
               </p>
             </>
           ) : (
             <>
               <div className="verified-account">
-                <CheckCircleFilled />
                 <div>
-                  <small>本次充值账号</small>
+                  <small>
+                    <CheckCircleFilled /> 本次充值账号
+                  </small>
                   <strong>{quote.email}</strong>
                 </div>
                 <Button
@@ -466,6 +522,11 @@ export function Checkout() {
                 <span>{externalAmount === 0 ? '还需支付' : `${channels[channel]}待付`}</span>
                 <strong>{money(externalAmount)}</strong>
               </div>
+              <div className="checkout-conditions">
+                <strong>付款前请确认</strong>
+                <p>{quote.serviceTerms || serviceTerms(product)}</p>
+                <p>{refundSummary}</p>
+              </div>
               <Button
                 type="primary"
                 size="large"
@@ -477,7 +538,7 @@ export function Checkout() {
                 {`确认订单 · ${money(quote.amount)}`} <ArrowRightOutlined />
               </Button>
               <p className="tiny muted">
-                {refundSummary} 提交前请阅读{' '}
+                本站不自动续扣。提交前请阅读{' '}
                 <Link href="/terms" target="_blank">
                   服务说明
                 </Link>{' '}

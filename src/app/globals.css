@@ -274,8 +274,8 @@ svg {
 }
 .hero {
   display: grid;
-  grid-template-columns: 1.12fr 1fr;
-  gap: 45px;
+  grid-template-columns: 1.15fr 1fr;
+  gap: 64px;
   align-items: center;
   padding-block: 88px 92px;
 }
@@ -303,162 +303,120 @@ svg {
 }
 .hero-notes {
   display: flex;
-  gap: 21px;
-  font-size: 11px;
+  flex-wrap: wrap;
+  gap: 10px 20px;
+  font-size: var(--text-caption);
   color: var(--muted);
 }
 .hero-notes span::first-letter {
   color: var(--accent);
 }
-.hero-art {
-  height: 380px;
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: radial-gradient(ellipse at 50% 55%, var(--surface-hover) 5%, var(--surface) 72%);
+.hero-copy > .merchant-disclosure {
+  font-size: var(--text-caption);
+  margin: 18px 0 0;
 }
-.orbit {
-  position: absolute;
+.purchase-entry {
+  width: 100%;
+  max-width: 470px;
+  justify-self: end;
   border: 1px solid var(--line);
-  border-radius: 50%;
-  width: 340px;
-  height: 340px;
-  transform: rotate(-22deg);
+  border-radius: 24px;
+  overflow: hidden;
+  box-shadow:
+    0 4px 8px #00000004,
+    0 20px 48px #00000008;
 }
-.orbit-two {
-  width: 430px;
-  height: 265px;
-  transform: rotate(37deg);
-  border-style: dashed;
-}
-.upgrade-card {
-  width: 250px;
-  min-height: 286px;
+.entry-plan {
   background: var(--inverse);
   color: var(--on-inverse);
-  border-radius: 20px;
-  transform: none;
-  padding: 28px 26px;
-  box-shadow: 0 20px 40px #00000020;
-  position: relative;
-  z-index: 1;
-  background-image: none;
+  padding: 30px;
 }
-.upgrade-icon {
-  font-size: 42px;
-  line-height: 1;
-  color: var(--on-inverse-muted);
-  margin-bottom: 20px;
-}
-.art-label {
-  font-size: 8px;
-  letter-spacing: 0.15em;
-  color: var(--on-inverse-muted);
-}
-.upgrade-card h2 {
-  font-family: var(--font-sans);
-  font-size: 33px;
-  line-height: 1.16;
-  margin-block: 10px 21px;
-  font-weight: 400;
-  letter-spacing: -0.04em;
-}
-.art-divider {
-  height: 1px;
-  background: var(--inverse-line);
-}
-.upgrade-card-bottom {
+.entry-heading {
   display: flex;
   justify-content: space-between;
-  margin-top: 17px;
-  font-size: 10px;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  font-size: var(--text-caption);
   color: var(--on-inverse-muted);
 }
-.floating-card {
-  position: absolute;
-  background: rgba(255, 255, 255, 0.98);
-  border: 1px solid var(--line);
-  box-shadow: 0 10px 35px #0000000a;
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  padding: 16px 17px;
-  border-radius: 13px;
-  z-index: 3;
-}
-.floating-card small {
-  display: block;
-  font-size: 9px;
-  color: var(--muted);
-  margin-bottom: 5px;
-}
-.floating-card strong {
-  font-size: 11px;
+.entry-plan h2 {
+  font-size: 26px;
   font-weight: 600;
-  display: block;
+  margin: 28px 0 8px;
+  line-height: 1.4;
 }
-.card-account {
-  top: 12px;
-  right: 12px;
-  transform: none;
+.entry-subtitle {
+  color: var(--on-inverse-muted);
+  margin: 0;
 }
-.mini-avatar {
-  width: 32px;
-  height: 32px;
+.entry-price {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 24px;
+  font-variant-numeric: tabular-nums;
+}
+.entry-price strong {
+  font-size: clamp(28px, 3vw, 40px);
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  overflow-wrap: anywhere;
+}
+.entry-price > span,
+.entry-terms,
+.entry-note {
+  font-size: var(--text-caption);
+  color: var(--on-inverse-muted);
+}
+.entry-terms {
+  margin: 8px 0 24px;
+  overflow-wrap: anywhere;
+}
+.entry-cta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 18px;
+  min-height: 48px;
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 600;
+  transition: background-color 150ms;
+}
+.entry-cta:hover {
   background: var(--surface-hover);
-  color: var(--muted);
-  border-radius: 50%;
+  color: var(--ink);
+}
+.ant-app .entry-cta:focus-visible {
+  outline-color: var(--on-inverse);
+}
+.entry-note {
+  margin: 12px 0 0;
+  text-align: center;
+}
+.entry-upgrade {
   display: flex;
   align-items: center;
-  justify-content: center;
-  font-family: var(--font-sans);
-  font-size: 20px;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 24px 30px;
+  background: var(--surface-subtle);
+  transition: background-color 150ms;
 }
-.status-check {
-  color: var(--accent);
-  font-size: 12px;
-  border-radius: 50%;
+.entry-upgrade:hover {
   background: var(--surface-hover);
-  width: 21px;
-  height: 21px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
 }
-.card-status {
-  bottom: 21px;
-  left: 3px;
-  transform: none;
+.entry-upgrade strong,
+.entry-upgrade small {
+  display: block;
 }
-.card-status small {
+.entry-upgrade small {
+  color: var(--muted);
+  font-size: var(--text-caption);
   margin-top: 6px;
-  margin-bottom: 0;
-}
-.art-star {
-  position: absolute;
-  right: 6px;
-  bottom: 80px;
-  font-size: 46px;
-  color: var(--muted);
-  transform: rotate(10deg);
-}
-.art-dot {
-  position: absolute;
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
-  background: var(--decoration);
-  left: 33px;
-  top: 76px;
-}
-.art-caption {
-  position: absolute;
-  bottom: -18px;
-  right: 6px;
-  font-size: 8px;
-  color: var(--muted);
-  letter-spacing: 0.17em;
 }
 .plans-section {
   background: var(--surface-subtle);
@@ -503,10 +461,13 @@ svg {
   border-radius: 15px;
   padding: 28px 28px 25px;
   position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 .plan-card.featured {
   border-color: var(--accent);
-  box-shadow: none;
+  box-shadow: 0 0 0 1px var(--accent);
 }
 .plan-card-top {
   display: flex;
@@ -535,7 +496,7 @@ svg {
   color: var(--accent);
   background: var(--surface-hover);
   padding: 5px 9px;
-  font-size: 10px;
+  font-size: var(--text-caption);
   border-radius: 5px;
 }
 .plan-card h3 {
@@ -548,6 +509,28 @@ svg {
   font-size: var(--text-ui);
   color: var(--muted);
   margin-bottom: 24px;
+}
+.plan-price-block {
+  flex: 1;
+  margin-bottom: 24px;
+}
+.plan-price-caption,
+.plan-service > span {
+  font-size: var(--text-caption);
+  color: var(--muted);
+}
+.plan-service {
+  margin-top: 16px;
+}
+.plan-service > span {
+  color: var(--ink);
+  font-weight: 600;
+}
+.plan-action-note {
+  color: var(--muted);
+  font-size: var(--text-caption);
+  text-align: center;
+  margin: 10px 0 0;
 }
 .price {
   display: flex;
@@ -570,7 +553,8 @@ svg {
 .price-note {
   font-size: var(--text-caption);
   color: var(--muted);
-  margin-block: 5px 21px;
+  margin-block: 6px 0;
+  overflow-wrap: anywhere;
 }
 .plan-button {
   width: 100%;
@@ -629,7 +613,7 @@ svg {
   margin-bottom: 11px;
 }
 .how-step p {
-  font-size: 12px;
+  font-size: var(--text-ui);
   color: var(--muted);
   line-height: 1.9;
 }
@@ -646,6 +630,9 @@ svg {
   font-size: 23px;
   margin-block: 10px 8px;
   font-weight: 500;
+}
+.referral-section {
+  padding-bottom: 72px;
 }
 .referral-strip p {
   font-size: 12px;
@@ -672,7 +659,7 @@ svg {
   display: grid;
   grid-template-columns: 1fr 1.5fr;
   gap: 60px;
-  padding-block: 83px 92px;
+  padding-block: 36px 48px;
 }
 .faq-section h2 {
   font-size: 28px;
@@ -691,7 +678,7 @@ svg {
   cursor: pointer;
   display: flex;
   justify-content: space-between;
-  font-size: 13px;
+  font-size: var(--text-ui);
   font-weight: 500;
   gap: 20px;
 }
@@ -707,7 +694,7 @@ svg {
   transform: rotate(45deg);
 }
 .faq-list details p {
-  font-size: 12px;
+  font-size: var(--text-ui);
   color: var(--muted);
   margin-top: 15px;
   margin-bottom: 0;
@@ -853,6 +840,60 @@ svg {
 .session-guide a {
   color: var(--accent);
 }
+.session-explanation {
+  margin-top: 16px;
+  font-size: var(--text-ui);
+}
+.session-explanation summary {
+  cursor: pointer;
+  padding-block: 10px;
+}
+.session-explanation p {
+  color: var(--muted);
+  margin: 8px 0;
+}
+.session-preview {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-subtle);
+  padding: 16px;
+  margin-bottom: 20px;
+}
+.session-preview > div {
+  min-width: 0;
+}
+.session-preview span,
+.session-preview small {
+  display: block;
+  font-size: var(--text-caption);
+  color: var(--muted);
+}
+.session-preview strong {
+  display: block;
+  font-size: var(--text-body);
+  margin-block: 6px;
+  overflow-wrap: anywhere;
+}
+.session-preview .ant-btn {
+  padding-inline: 0;
+  min-height: 44px;
+}
+.checkout-conditions {
+  background: var(--surface-subtle);
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 20px;
+  font-size: var(--text-ui);
+}
+.checkout-conditions p {
+  margin: 8px 0 0;
+  color: var(--muted);
+}
 .secure-note {
   text-align: center;
   font-size: var(--text-caption);
@@ -995,7 +1036,6 @@ svg {
 .verified-account > div {
   min-width: 0;
 }
-.verified-account > .anticon,
 .verified-account > .ant-btn {
   flex-shrink: 0;
 }
@@ -1043,9 +1083,9 @@ svg {
   border-radius: 10px;
   align-items: center;
 }
-.verified-account > .anticon {
+.verified-account small > .anticon {
   color: var(--accent);
-  font-size: 23px;
+  margin-inline-end: 4px;
 }
 .verified-account small,
 .verified-account strong {
@@ -1053,7 +1093,7 @@ svg {
   overflow-wrap: anywhere;
 }
 .verified-account small {
-  font-size: 11px;
+  font-size: var(--text-caption);
   color: var(--muted);
   margin-bottom: 4px;
 }
@@ -1768,19 +1808,14 @@ svg {
     width: calc(100% - 56px);
   }
   .hero {
-    gap: 15px;
+    gap: 32px;
     padding-block: 65px;
-  }
-  .hero-art {
-    transform: scale(0.9);
-    transform-origin: center;
   }
   .hero-actions {
     gap: 15px;
   }
   .hero-notes {
     gap: 13px;
-    font-size: 10px;
   }
   .plan-card {
     padding: 23px;
@@ -1822,15 +1857,11 @@ svg {
 }
 @media (max-width: 900px) {
   .hero {
-    grid-template-columns: 1fr 0.85fr;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
   }
   .hero h1 {
     font-size: 33px;
-  }
-  .hero-art {
-    transform: scale(0.8);
-    margin-inline: -25px;
-    overflow: clip;
   }
   .hero-actions {
     flex-direction: column;
@@ -1849,8 +1880,7 @@ svg {
     font-size: 29px;
   }
   .recommend {
-    font-size: 8px;
-    padding: 5px;
+    padding: 5px 7px;
   }
   .subtle-pill {
     display: none;
@@ -1959,7 +1989,7 @@ svg {
   .hero {
     grid-template-columns: 1fr;
     padding-block: 48px 30px;
-    gap: 15px;
+    gap: 32px;
   }
   .hero h1 {
     font-size: 37px;
@@ -1974,21 +2004,19 @@ svg {
     gap: 20px;
   }
   .hero-notes {
-    font-size: 11px;
-    gap: 20px;
+    gap: 10px 16px;
   }
-  .hero-art {
-    transform: scale(0.9);
-    max-width: 400px;
-    width: 100%;
-    margin: 0 auto;
-    height: 350px;
+  .purchase-entry {
+    max-width: none;
   }
-  .art-caption {
-    bottom: -3px;
+  .entry-plan {
+    padding: 24px;
   }
-  .card-account {
-    right: 0;
+  .entry-plan h2 {
+    margin-top: 20px;
+  }
+  .entry-upgrade {
+    padding: 20px 24px;
   }
   .section-heading h2 {
     font-size: 25px;
@@ -2010,7 +2038,7 @@ svg {
     font-size: 34px;
   }
   .recommend {
-    font-size: 10px;
+    font-size: var(--text-caption);
   }
   .plan-card ul {
     gap: 12px;
@@ -2126,6 +2154,17 @@ svg {
   }
   .checkout-form .ant-card-body {
     padding: 22px;
+  }
+  .verified-account {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .verified-account .ant-btn {
+    align-self: flex-start;
+    margin-inline-start: 0;
+    padding-inline: 0;
+    min-height: 44px;
   }
   .checkout-progress {
     margin-block: 20px 28px;
@@ -2297,11 +2336,6 @@ svg {
     animation: none !important;
   }
 }
-@media (max-width: 710px) {
-  .hero-art {
-    overflow: clip;
-  }
-}
 .bot-check {
   margin: 16px 0;
   min-width: 0;
@@ -2367,8 +2401,15 @@ svg {
   color: var(--muted);
   margin-bottom: 8px;
 }
-.upgrade-offer .primary-link {
+.upgrade-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
   flex-shrink: 0;
+}
+.upgrade-actions .text-link {
+  min-height: 44px;
 }
 @media (max-width: 710px) {
   .upgrade-offer {
@@ -2381,11 +2422,12 @@ svg {
 .pro-tier-selector {
   display: inline-flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 0;
 }
 .pro-tier-selector .ant-radio-button-wrapper {
-  padding-inline: 12px;
+  padding-inline: 8px;
+  font-size: var(--text-caption);
   min-height: 42px;
   display: inline-flex;
   align-items: center;

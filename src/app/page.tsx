@@ -5,6 +5,8 @@ import { ProPlanCard } from '../components/ProPlanCard'
 import { Support } from '../components/Support'
 import { JsonLd } from '../components/JsonLd'
 import { pageMetadata, siteOrigin } from '../seo'
+import { money } from '../lib'
+import { serviceTerms } from '../product-copy'
 export const dynamic = 'force-dynamic'
 export const metadata = pageMetadata(
   'ChatGPT 充值与升级｜套餐与价格',
@@ -20,8 +22,10 @@ export default async function Home() {
   const proIds = new Set(proVariants.map((p) => p.id))
   const upgradeOffer =
     catalog.find((p) => p.upgrade && p.plan === 'pro20') || catalog.find((p) => p.upgrade)
+  const subscriptions = catalog.filter((p) => !p.upgrade)
+  const recommended = subscriptions.find((p) => p.featured) || subscriptions[0]
   return (
-    <main>
+    <main className="storefront">
       <JsonLd
         data={{
           '@context': 'https://schema.org',
@@ -34,9 +38,7 @@ export default async function Home() {
       />
       <section className="hero container">
         <div className="hero-copy">
-          <div className="eyebrow">
-            <span className="status-dot" /> 你的 GPT 升级助手
-          </div>
+          <div className="eyebrow">自己的账号，一次清楚的升级</div>
           <h1>
             为你的 ChatGPT
             <br />
@@ -45,75 +47,78 @@ export default async function Home() {
           <p>
             使用自己的账号，无需共享，也无需提前注册。
             <br />
-            先确认账号和价格，再安心付款。
+            看清服务内容，确认最终价格，再付款。
           </p>
           <div className="hero-actions">
             <a href="#plans" className="primary-link">
-              选择适合我的套餐 <span>↗</span>
+              查看套餐与价格 <span aria-hidden="true">↓</span>
             </a>
             <Link href="/guide" className="text-link">
-              查看新手充值指南 <span>→</span>
+              第一次购买？查看指南 <span aria-hidden="true">→</span>
             </Link>
           </div>
           <div className="hero-notes">
-            <span>✓ 自己的账号</span>
+            <span>✓ 无需提前注册</span>
             <span>✓ 先验证后付款</span>
             <span>✓ 进度随时可查</span>
           </div>
+          <p className="merchant-disclosure">独立充值与升级服务，与 OpenAI 无隶属关系。</p>
         </div>
-        <div className="hero-art" aria-label="账号升级流程示意">
-          <div className="orbit orbit-one" />
-          <div className="orbit orbit-two" />
-          <span className="art-star">✦</span>
-          <span className="art-dot" />
-          <div className="floating-card card-account">
-            <div className="mini-avatar">G</div>
-            <div>
-              <small>你的专属账号</small>
-              <strong>下一站，更大的可能</strong>
+        <aside className="purchase-entry" aria-label="快速选购">
+          {recommended ? (
+            <div className="entry-plan">
+              <div className="entry-heading">
+                <span>{recommended.featured ? '推荐选项' : '从这里开始'}</span>
+                <span>充值到自己的账号</span>
+              </div>
+              <h2>选择 {recommended.name}</h2>
+              <p className="entry-subtitle">{recommended.subtitle}</p>
+              <div className="entry-price">
+                <strong>
+                  {recommended.priceStatus === 'pending' ? '价格更新中' : money(recommended.price)}
+                </strong>
+                {recommended.priceStatus !== 'pending' && <span>本次总价</span>}
+              </div>
+              <p className="entry-terms">{serviceTerms(recommended)}</p>
+              <Link className="entry-cta" href={`/checkout?product=${recommended.id}`}>
+                {recommended.priceStatus === 'pending' ? '查看套餐状态' : '开始充值'}
+                <span aria-hidden="true">→</span>
+              </Link>
+              <p className="entry-note">先检查账号与价格，此步不会扣款</p>
             </div>
-            <span className="status-check">✓</span>
-          </div>
-          <div className="upgrade-card">
-            <div className="upgrade-icon">✳</div>
-            <div className="art-label">A LITTLE UPGRADE.</div>
-            <h2>
-              A lot more
-              <br />
-              possibilities.
-            </h2>
-            <div className="art-divider" />
-            <div className="upgrade-card-bottom">
-              <span>从想法，到实现</span>
-              <span>↗</span>
+          ) : (
+            <div className="entry-plan">
+              <h2>充值套餐准备中</h2>
+              <p className="entry-terms">暂时没有可选的充值套餐，可以先了解购买流程。</p>
+              <Link className="entry-cta" href="/guide">
+                查看购买指南 <span aria-hidden="true">→</span>
+              </Link>
             </div>
-          </div>
-          <div className="floating-card card-status">
-            <span className="status-check">✓</span>
-            <div>
-              <strong>每一步，都心中有数</strong>
-              <small>账号确认 → 付款 → 充值到账</small>
-            </div>
-          </div>
-          <span className="art-caption">LESS FRICTION. MORE CREATION.</span>
-        </div>
+          )}
+          {upgradeOffer && (
+            <Link href="#upgrade" className="entry-upgrade">
+              <span>
+                <strong>已有订阅，想升级？</strong>
+                <small>按账号情况报价，确认后再付款</small>
+              </span>
+              <span aria-hidden="true">↗</span>
+            </Link>
+          )}
+        </aside>
       </section>
       <section id="plans" className="plans-section">
         <div className="container">
           <div className="section-heading">
             <div>
-              <div className="eyebrow">FIND YOUR FIT</div>
-              <h2>选择套餐，先看清服务内容。</h2>
-              <p>查看价格与服务期限，已有订阅可先了解升级条件。</p>
+              <div className="eyebrow">套餐与价格</div>
+              <h2>找到适合你的使用方式。</h2>
+              <p>每笔订单单独收费，本站不自动续扣。服务期限与交付范围见各套餐说明。</p>
             </div>
-            <span className="subtle-pill">支持支付宝 · 微信 · 加密货币</span>
+            <Link href="/compare" className="secondary-link">
+              比较全部套餐 <span aria-hidden="true">↗</span>
+            </Link>
           </div>
           <div className="catalog-group">
-            <p className="catalog-links">
-              <Link href="/compare">比较全部套餐与服务说明 →</Link>
-              <Link href="/upgrade">已有订阅？了解升级流程 →</Link>
-            </p>
-            <h3>充值套餐</h3>
             <div className="plan-grid">
               {catalog
                 .filter((p) => !p.upgrade && !proIds.has(p.id))
@@ -124,16 +129,21 @@ export default async function Home() {
             </div>
           </div>
           {upgradeOffer && (
-            <article className="upgrade-offer">
+            <article id="upgrade" className="upgrade-offer">
               <div>
-                <div className="eyebrow">READY FOR MORE</div>
+                <div className="eyebrow">已有订阅</div>
                 <h3>升级现有订阅</h3>
                 <p>选择想升级的套餐，检查账号后获取本次总价。确认报价，再付款。</p>
                 <span className="tiny muted">支持 Plus / Pro 100 / Pro 200 / Pro 500</span>
               </div>
-              <Link href={`/checkout?product=${upgradeOffer.id}`} className="primary-link">
-                查看我的升级报价 <span>↗</span>
-              </Link>
+              <div className="upgrade-actions">
+                <Link href={`/checkout?product=${upgradeOffer.id}`} className="secondary-link">
+                  查看我的升级报价 <span aria-hidden="true">↗</span>
+                </Link>
+                <Link href="/upgrade" className="text-link">
+                  先了解升级条件 →
+                </Link>
+              </div>
             </article>
           )}
         </div>
@@ -141,7 +151,7 @@ export default async function Home() {
       <section className="container steps-section">
         <div className="section-heading">
           <div>
-            <div className="eyebrow">MADE SIMPLE</div>
+            <div className="eyebrow">购买流程</div>
             <h2>第一次充值，也能轻松完成。</h2>
           </div>
           <Link href="/guide" className="text-link">
@@ -151,8 +161,8 @@ export default async function Home() {
         <div className="how-grid">
           {[
             ['01', '选一个适合的套餐', '按使用需求选择，升级前先检查账号。'],
-            ['02', '确认账号和价格', '按指引提供账号信息，确认本次充值对象。'],
-            ['03', '付款，等待到账', '在订单页查看进度，需要处理时会提示你。'],
+            ['02', '检查账号，核对价格', '按指引提交账号信息，检查通过后再决定是否付款。'],
+            ['03', '付款后，随时查看进度', '保留订单页；更换设备时，用联系邮箱登录查单。'],
           ].map(([n, title, desc]) => (
             <div className="how-step" key={n}>
               <span>{n}</span>
@@ -162,26 +172,21 @@ export default async function Home() {
           ))}
         </div>
       </section>
-      <section className="container">
-        <div className="referral-strip">
-          <div className="gift-art">✧</div>
-          <div>
-            <div className="eyebrow">GOOD THINGS ARE BETTER SHARED</div>
-            <h2>把好用的，分享给朋友。</h2>
-            <p>朋友通过你的链接购买并完成充值，你可以获得邀请返现。游客购买也支持。</p>
-          </div>
-          <Link href="/referral" className="secondary-link">
-            了解邀请奖励 <span>↗</span>
-          </Link>
-        </div>
-      </section>
       <section className="container faq-section">
         <div>
-          <div className="eyebrow">A FEW ANSWERS</div>
-          <h2>你可能想知道</h2>
+          <div className="eyebrow">购买前，了解清楚</div>
+          <h2>把疑问留在付款前。</h2>
+          <p className="muted">账号、交付和售后，你关心的事在这里。</p>
+          <Link href="/help/payment" className="text-link">
+            查看完整售后说明 →
+          </Link>
         </div>
         <div className="faq-list">
           {[
+            [
+              '这次购买包含多久的服务？',
+              '以所选套餐展示的服务期限与交付范围为准。升级对到期日的影响请先查看升级说明；未明确公布的内容，请联系支持确认后再购买。本站不自动续扣。',
+            ],
             [
               '需要提供账号密码吗？',
               '不需要提供密码。充值需要完整的账号会话信息，它属于敏感登录凭证。请仅在确认服务方与用途后提交，并避免发送给无关人员。',
@@ -214,6 +219,17 @@ export default async function Home() {
         <Link href="/help/payment" className="text-link">
           付款、到账与退款问题 →
         </Link>
+      </section>
+      <section className="container referral-section">
+        <div className="referral-strip">
+          <div>
+            <h2>用得满意，再分享给朋友。</h2>
+            <p>朋友通过你的链接购买并完成充值，你可以获得邀请返现。</p>
+          </div>
+          <Link href="/referral" className="secondary-link">
+            了解邀请奖励 <span aria-hidden="true">↗</span>
+          </Link>
+        </div>
       </section>
     </main>
   )
