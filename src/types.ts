@@ -41,6 +41,13 @@ export interface Product {
   priceCurrency: 'CNY' | 'USD'
   roundingStep: 1 | 10 | 100 | 1000
   priceStatus?: 'ready' | 'pending'
+  supply?: {
+    batchId: string
+    name: string
+    country: string
+    upstreamProduct: string
+    enabled: boolean
+  }
 }
 export interface User {
   id: string

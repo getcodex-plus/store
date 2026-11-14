@@ -1,3 +1,4 @@
+import { openAdminPage } from './admin-helpers'
 import { test, expect, type Page } from '@playwright/test'
 import * as OTPAuth from 'otpauth'
 import { demoSession } from '../src/lib'
@@ -278,7 +279,7 @@ test('guest referral is credited before signup and channel limits save and rejec
     const previous = await (await adminPage.request.get('/api/admin')).json()
     try {
       await adminPage.goto('/admin')
-      await adminPage.getByRole('menuitem', { name: '网站设置' }).click()
+      await openAdminPage(adminPage, '网站设置')
       await adminPage.getByLabel('支付宝最低金额（元）').fill('2')
       await adminPage.getByLabel('支付宝最高金额（元）').fill('50')
       const destinations = [
@@ -344,7 +345,7 @@ test('admin sets fixed base prices, cached currency conversion and upgrade round
   const headers = { 'X-GetGPT-Request': '1', Origin: testOrigin }
   try {
     await page.goto('/admin')
-    await page.getByRole('menuitem', { name: '商品与库存' }).click()
+    await openAdminPage(page, '商品管理')
     const row = page.getByRole('row').filter({ hasText: 'ChatGPT Go' })
     await row.getByRole('button', { name: '编辑商品' }).click()
     const dialog = page.getByRole('dialog')
@@ -404,7 +405,7 @@ test('admin sets fixed base prices, cached currency conversion and upgrade round
     await page.goto('/checkout?product=go')
     await expect(page.locator('.summary-price')).toContainText((converted / 100).toFixed(2))
     await page.goto('/admin')
-    await page.getByRole('menuitem', { name: '网站设置' }).click()
+    await openAdminPage(page, '网站设置')
     await expect(page.getByRole('button', { name: '请求刷新汇率' })).toBeVisible()
     await page.getByLabel('升级汇率来源').click()
     await page.getByText('手动换算率', { exact: true }).last().click()
@@ -484,7 +485,7 @@ test('EPay has one entry and selects protocol-specific fields inside configurati
   await page.goto('/')
   await login(page, 'admin@example.com')
   await page.goto('/admin')
-  await page.getByRole('menuitem', { name: '支付与服务' }).click()
+  await openAdminPage(page, '支付与服务')
   await expect(page.getByRole('heading', { name: '易支付', exact: true })).toHaveCount(1)
   await expect(page.getByRole('heading', { name: /易支付 v[12]/ })).toHaveCount(0)
   const card = page
@@ -507,7 +508,7 @@ test('EPay has one entry and selects protocol-specific fields inside configurati
   await page.getByText('v1（MD5）', { exact: true }).last().click()
   await expect(dialog.getByLabel('商户密钥（MD5）')).toHaveValue('')
   await dialog.getByRole('button', { name: '关闭', exact: true }).click()
-  await page.getByRole('menuitem', { name: '网站设置' }).click()
+  await openAdminPage(page, '网站设置')
   await page.getByLabel('支付宝 / 微信默认渠道').click()
   const options = page.locator('.ant-select-dropdown:visible')
   await expect(options.getByText('易支付', { exact: true })).toBeVisible()
@@ -539,7 +540,7 @@ test('admin configuration keeps secrets write-only and uses separate RBAC roles'
   await page.goto('/admin')
   await expect(page.getByRole('heading', { name: '运营概览' })).toBeVisible()
   await page.screenshot({ path: 'test-results/admin-desktop.png', fullPage: true })
-  await page.getByRole('menuitem', { name: '支付与服务' }).click()
+  await openAdminPage(page, '支付与服务')
   const card = page
     .locator('.ant-card')
     .filter({ has: page.getByRole('heading', { name: 'AICDK 兑换服务' }) })
@@ -557,14 +558,14 @@ test('admin configuration keeps secrets write-only and uses separate RBAC roles'
     '已保存，留空保持不变',
   )
   await page.getByRole('dialog').locator('.ant-modal-close').click()
-  await page.getByRole('menuitem', { name: '角色与权限' }).click()
+  await openAdminPage(page, '角色与权限')
   await expect(page.getByRole('heading', { name: '角色与权限' })).toBeVisible()
   await expect(page.getByText('客服', { exact: true }).first()).toBeVisible()
   const adminData = await (await page.request.get('/api/admin')).json()
   expect(
     adminData.users.find((user: { email: string }) => user.email === 'admin@example.com').role,
   ).toBe('admin')
-  await page.getByRole('menuitem', { name: '风控记录' }).click()
+  await openAdminPage(page, '风控记录')
   await expect(page.getByRole('heading', { name: '风控记录' })).toBeVisible()
   await expect(page.getByText('风控决策记录', { exact: true })).toBeVisible()
   expect(Array.isArray(adminData.riskEvents)).toBe(true)

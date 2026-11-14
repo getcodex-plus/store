@@ -45,6 +45,8 @@ import { Brand } from './Site'
 import { UserAvatar } from './UserAvatar'
 import { WithdrawalEstimate } from './WithdrawalEstimate'
 import { RefundDialog } from './RefundDialog'
+import { InventoryImportDialog } from './InventoryImportDialog'
+import { InventoryManager } from './InventoryManager'
 import { useSite } from './Providers'
 import { api, channels, dateTime, money, orderStatusLabel } from '../lib'
 import { refundNeedsReview } from '../refunds'
@@ -73,7 +75,9 @@ type Data = AdminData & { integrations: IntegrationView[]; roles: Role[] }
 const pages = [
   { key: 'overview', label: '运营概览', icon: <DashboardOutlined /> },
   { key: 'orders', label: '订单管理', icon: <UnorderedListOutlined /> },
-  { key: 'products', label: '商品与库存', icon: <ShoppingOutlined /> },
+  { key: 'products', label: '商品管理', icon: <ShoppingOutlined /> },
+  { key: 'inventory', label: '兑换码管理', icon: <DatabaseOutlined /> },
+  { key: 'batches', label: '导入批次', icon: <DatabaseOutlined /> },
   { key: 'users', label: '用户管理', icon: <TeamOutlined /> },
   { key: 'wallet', label: '用户钱包', icon: <WalletOutlined /> },
   { key: 'referral', label: '邀请与返现', icon: <GiftOutlined /> },
@@ -83,6 +87,27 @@ const pages = [
   { key: 'roles', label: '角色与权限', icon: <SafetyCertificateOutlined /> },
   { key: 'audit', label: '操作日志', icon: <FileSearchOutlined /> },
   { key: 'risk', label: '风控记录', icon: <SafetyCertificateOutlined /> },
+]
+const navigationGroups = [
+  {
+    key: 'commerce',
+    label: '商品与兑换',
+    icon: <ShoppingOutlined />,
+    pages: ['products', 'inventory', 'batches', 'orders'],
+  },
+  {
+    key: 'funds',
+    label: '资金与返现',
+    icon: <WalletOutlined />,
+    pages: ['wallet', 'referral', 'withdrawals'],
+  },
+  { key: 'access', label: '用户与权限', icon: <TeamOutlined />, pages: ['users', 'roles'] },
+  {
+    key: 'system',
+    label: '系统管理',
+    icon: <SettingOutlined />,
+    pages: ['integrations', 'settings', 'audit', 'risk'],
+  },
 ]
 const providerNames: Record<IntegrationKind, string> = {
   xorpay: 'XorPay',
@@ -137,6 +162,9 @@ export function Admin() {
   const { message } = App.useApp()
   const [data, setData] = useState<Data | null>(null)
   const [page, setPage] = useState('overview')
+  const [openGroups, setOpenGroups] = useState<string[]>(['commerce'])
+  const [refreshKey, setRefreshKey] = useState(0)
+  const [batchFilter, setBatchFilter] = useState<{ id: string; name: string } | null>(null)
   const [mobile, setMobile] = useState(false)
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
@@ -152,7 +180,6 @@ export function Admin() {
   const [productForm] = Form.useForm(),
     [integrationForm] = Form.useForm(),
     [settingsForm] = Form.useForm(),
-    [stockForm] = Form.useForm(),
     [withdrawalForm] = Form.useForm()
   const productUpgrade = Form.useWatch('upgrade', productForm)
   const productCurrency = Form.useWatch('priceCurrency', productForm)
@@ -173,6 +200,7 @@ export function Admin() {
     try {
       const result = await api<Data>('/admin')
       setData(result)
+      setRefreshKey((value) => value + 1)
       setError('')
     } catch (e) {
       setError((e as Error).message)
@@ -284,8 +312,56 @@ export function Admin() {
   }
   const can = (permission: string) => site?.user?.permissions.includes(permission) ?? false
   const allowedPages = pages.filter(
-    (p) => p.key === 'overview' || can(`${p.key === 'risk' ? 'audit' : p.key}:read`),
+    (p) =>
+      p.key === 'overview' ||
+      can(
+        `${['inventory', 'batches'].includes(p.key) ? 'products' : p.key === 'risk' ? 'audit' : p.key}:read`,
+      ),
   )
+  const activeGroup = navigationGroups.find((group) => group.pages.includes(page))
+  const navigate = useCallback((key: string) => {
+    setPage(key)
+    setSearch('')
+    setMobile(false)
+    const group = navigationGroups.find((group) => group.pages.includes(key))
+    if (group) setOpenGroups((current) => [...new Set([...current, group.key])])
+    window.history.pushState(null, '', `#${key}`)
+  }, [])
+  useEffect(() => {
+    const restore = () => {
+      const key = window.location.hash.slice(1)
+      const target = pages.find((item) => item.key === key)
+      const resource = ['inventory', 'batches'].includes(key)
+        ? 'products'
+        : key === 'risk'
+          ? 'audit'
+          : key
+      const permitted = key === 'overview' || site?.user?.permissions.includes(`${resource}:read`)
+      setPage(target && permitted ? key : 'overview')
+      const group = navigationGroups.find((group) => group.pages.includes(key))
+      if (group && permitted) setOpenGroups((current) => [...new Set([...current, group.key])])
+    }
+    restore()
+    window.addEventListener('hashchange', restore)
+    window.addEventListener('popstate', restore)
+    return () => {
+      window.removeEventListener('hashchange', restore)
+      window.removeEventListener('popstate', restore)
+    }
+  }, [site?.user])
+  const menuItems = [
+    ...allowedPages.filter((item) => item.key === 'overview'),
+    ...navigationGroups
+      .map((group) => ({
+        key: group.key,
+        label: group.label,
+        icon: group.icon,
+        children: group.pages.flatMap((key) =>
+          allowedPages.filter((item) => item.key === key).map(({ icon: _icon, ...item }) => item),
+        ),
+      }))
+      .filter((group) => group.children.length),
+  ]
   const nav = (
     <>
       <Brand />
@@ -298,11 +374,12 @@ export function Admin() {
         mode="inline"
         style={{ borderInlineEnd: 'none' }}
         selectedKeys={[page]}
-        items={allowedPages}
+        openKeys={openGroups}
+        onOpenChange={setOpenGroups}
+        items={menuItems}
         onClick={(e) => {
-          setPage(e.key)
-          setSearch('')
-          setMobile(false)
+          setBatchFilter(null)
+          navigate(e.key)
         }}
       />
       <div className="admin-sidebar-footer">
@@ -437,7 +514,7 @@ export function Admin() {
               onClick={() => setMobile(true)}
               aria-label="打开导航"
             />
-            <span className="muted">工作空间</span>
+            <span className="muted">{activeGroup?.label ?? '工作空间'}</span>
             <span className="crumb-slash">/</span>
             <strong>{pages.find((p) => p.key === page)?.label}</strong>
           </div>
@@ -465,9 +542,13 @@ export function Admin() {
               <p>
                 {page === 'overview'
                   ? '看看网站的经营情况，以及需要处理的事情。'
-                  : page === 'integrations'
-                    ? '集中管理收款渠道、兑换服务和邮件服务。'
-                    : '管理记录与配置，所有关键操作均保留审计记录。'}
+                  : page === 'batches'
+                    ? '启用批次即可切换国家；同一商品的其他批次自动禁用，已有订单不受影响。'
+                    : page === 'inventory'
+                      ? '按商品和批次管理兑换码；已占用或已使用的码保留原订单关系。'
+                      : page === 'integrations'
+                        ? '集中管理收款渠道、兑换服务和邮件服务。'
+                        : '管理记录与配置，所有关键操作均保留审计记录。'}
               </p>
             </div>
             <Space>
@@ -477,6 +558,11 @@ export function Admin() {
               {page === 'products' && can('products:write') && (
                 <Button type="primary" icon={<PlusOutlined />} onClick={() => openProduct()}>
                   新增商品
+                </Button>
+              )}
+              {['inventory', 'batches'].includes(page) && can('products:write') && (
+                <Button type="primary" icon={<PlusOutlined />} onClick={() => setStockOpen(true)}>
+                  导入兑换库存
                 </Button>
               )}
             </Space>
@@ -537,7 +623,7 @@ export function Admin() {
                         type="link"
                         size="small"
                         disabled={!can('withdrawals:read')}
-                        onClick={() => setPage('withdrawals')}
+                        onClick={() => navigate('withdrawals')}
                       >
                         去处理 →
                       </Button>
@@ -559,7 +645,7 @@ export function Admin() {
                         <Button
                           type="text"
                           disabled={!can('withdrawals:read')}
-                          onClick={() => setPage('withdrawals')}
+                          onClick={() => navigate('withdrawals')}
                         >
                           →
                         </Button>
@@ -578,7 +664,7 @@ export function Admin() {
                         <Button
                           type="text"
                           disabled={!can('orders:read')}
-                          onClick={() => setPage('orders')}
+                          onClick={() => navigate('orders')}
                         >
                           →
                         </Button>
@@ -596,7 +682,7 @@ export function Admin() {
                         <Button
                           type="text"
                           disabled={!can('integrations:read')}
-                          onClick={() => setPage('integrations')}
+                          onClick={() => navigate('integrations')}
                         >
                           →
                         </Button>
@@ -642,7 +728,7 @@ export function Admin() {
                       <Button
                         type="link"
                         disabled={!can('orders:read')}
-                        onClick={() => setPage('orders')}
+                        onClick={() => navigate('orders')}
                       >
                         查看全部 →
                       </Button>
@@ -689,7 +775,6 @@ export function Admin() {
                           disabled={!can('products:write')}
                           icon={<DatabaseOutlined />}
                           onClick={() => {
-                            stockForm.resetFields()
                             setStockOpen(true)
                           }}
                         >
@@ -736,6 +821,28 @@ export function Admin() {
                             data.inventory.find((i) => i.productId === p.id)?.available || 0,
                         },
                         {
+                          title: '当前供货',
+                          key: 'supply',
+                          render: (_, p) => (
+                            <div>
+                              {p.supply ? (
+                                <>
+                                  <span>{p.supply.name}</span>
+                                  <div className="tiny muted">
+                                    {p.supply.country || '未标注国家'} ·{' '}
+                                    {p.supply.enabled ? '已启用' : '已禁用'}
+                                  </div>
+                                </>
+                              ) : (
+                                <span className="muted">原有库存池</span>
+                              )}
+                              <Button type="link" onClick={() => navigate('batches')}>
+                                管理批次
+                              </Button>
+                            </div>
+                          ),
+                        },
+                        {
                           title: '状态',
                           dataIndex: 'enabled',
                           render: (v: boolean) => (
@@ -762,6 +869,24 @@ export function Admin() {
                     价格按人民币分存储。每笔订单保存购买时的价格与返现规则，后续修改不影响已有订单。
                   </p>
                 </>
+              )}
+              {(page === 'inventory' || page === 'batches') && (
+                <InventoryManager
+                  key={page}
+                  view={page}
+                  products={data.products}
+                  canWrite={can('products:write')}
+                  refreshKey={refreshKey}
+                  batchFilter={batchFilter}
+                  onBatchFilter={(batch) => {
+                    setBatchFilter(batch)
+                    if (batch) navigate('inventory')
+                  }}
+                  onChanged={async () => {
+                    await load()
+                    await refresh()
+                  }}
+                />
               )}
               {page === 'users' && (
                 <Card>
@@ -1757,55 +1882,16 @@ export function Admin() {
           </Button>
         </Form>
       </Modal>
-      <Modal
-        destroyOnHidden
-        title="导入兑换库存"
-        open={stockOpen}
-        onCancel={() => {
-          stockForm.resetFields()
-          setStockOpen(false)
-        }}
-        footer={null}
-      >
-        <p className="muted">仅管理员可导入。兑换码加密保存，不会展示给最终用户。</p>
-        <Form
-          form={stockForm}
-          clearOnDestroy
-          layout="vertical"
-          onFinish={(v) =>
-            mutate(
-              'inventory',
-              {
-                productId: v.productId,
-                codes: v.codes
-                  .split('\n')
-                  .map((s: string) => s.trim())
-                  .filter(Boolean),
-              },
-              () => {
-                stockForm.resetFields()
-                setStockOpen(false)
-              },
-            )
-          }
-        >
-          <Form.Item name="productId" label="绑定商品" rules={[{ required: true }]}>
-            <Select options={data?.products.map((p) => ({ value: p.id, label: p.name }))} />
-          </Form.Item>
-          <Form.Item name="codes" label="兑换码（每行一个）" rules={[{ required: true }]}>
-            <Input.TextArea
-              rows={7}
-              autoComplete="off"
-              spellCheck={false}
-              autoCorrect="off"
-              autoCapitalize="off"
-            />
-          </Form.Item>
-          <Button htmlType="submit" type="primary" loading={busy} block>
-            加密保存库存
-          </Button>
-        </Form>
-      </Modal>
+      {stockOpen && (
+        <InventoryImportDialog
+          products={data?.products ?? []}
+          onClose={() => setStockOpen(false)}
+          onSaved={async () => {
+            await load()
+            await refresh()
+          }}
+        />
+      )}
       <Modal
         forceRender
         title={

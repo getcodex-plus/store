@@ -1610,6 +1610,81 @@ svg {
 .admin-navigation-drawer .ant-menu-item {
   margin-block: 4px;
 }
+.admin-sidebar .ant-menu-submenu-title,
+.admin-navigation-drawer .ant-menu-submenu-title {
+  margin-block: 8px 4px;
+  font-weight: 500;
+}
+.admin-sidebar .ant-menu-sub,
+.admin-navigation-drawer .ant-menu-sub {
+  background: transparent !important;
+}
+.inventory-toolbar,
+.inventory-bulk-actions,
+.inventory-status-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-block-end: 24px;
+}
+.inventory-toolbar {
+  justify-content: space-between;
+}
+.inventory-product-filter {
+  min-width: 180px;
+}
+.inventory-status-filter {
+  min-width: 130px;
+}
+.inventory-search {
+  max-width: 300px;
+}
+.inventory-status-summary {
+  gap: 24px;
+  color: var(--muted);
+}
+.inventory-status-summary strong {
+  margin-inline-start: 6px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.inventory-file-input {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  margin-block-end: 24px;
+}
+.inventory-file-input input {
+  width: 100%;
+  min-width: 0;
+}
+.inventory-file-input p,
+.inventory-note {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.admin-topbar > div:first-child {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+}
+@media (max-width: 580px) {
+  .inventory-toolbar > .ant-space,
+  .inventory-search {
+    width: 100%;
+    max-width: none;
+  }
+  .inventory-status-summary {
+    gap: 12px 20px;
+  }
+  .admin-heading > .ant-space {
+    flex-wrap: wrap;
+  }
+}
 .admin-sidebar .ant-menu-item-selected,
 .admin-navigation-drawer .ant-menu-item-selected {
   font-weight: 600;

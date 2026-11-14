@@ -112,8 +112,30 @@ async function qualifiedInvites(userId: string, client: DbClient = db) {
 }
 export async function products(all = false): Promise<Product[]> {
   const rank: Record<string, number> = { go: 0, plus: 1, pro5: 2, pro20: 3 }
-  const catalog = (await db.product.findMany({ where: all ? {} : { enabled: true } }))
-    .map(productView)
+  const catalog = (
+    await db.product.findMany({
+      where: all ? {} : { enabled: true },
+      include: {
+        activeInventoryBatch: {
+          select: { id: true, name: true, country: true, upstreamProduct: true, enabled: true },
+        },
+      },
+    })
+  )
+    .map((record) => ({
+      ...productView(record),
+      ...(all && record.activeInventoryBatch
+        ? {
+            supply: {
+              batchId: record.activeInventoryBatch.id,
+              name: record.activeInventoryBatch.name,
+              country: record.activeInventoryBatch.country,
+              upstreamProduct: record.activeInventoryBatch.upstreamProduct,
+              enabled: record.activeInventoryBatch.enabled,
+            },
+          }
+        : {}),
+    }))
     .sort(
       (a, b) =>
         Number(a.upgrade) - Number(b.upgrade) ||
@@ -1064,7 +1086,16 @@ export async function adminData(
       db.audit
         .findMany({ orderBy: { createdAt: 'desc' }, take: 100 })
         .then((records) => records.map(auditView)),
-      db.inventory.groupBy({ by: ['productId', 'status'], _count: { _all: true } }),
+      db.inventory.groupBy({
+        by: ['productId', 'batchId', 'status'],
+        where: {
+          OR: [
+            { status: { in: ['reserved', 'consumed'] } },
+            { enabled: true, OR: [{ batchId: null }, { batch: { enabled: true } }] },
+          ],
+        },
+        _count: { _all: true },
+      }),
       actor.permissions.includes('integrations:read') ? integrationViews() : Promise.resolve([]),
     ])
   const totals = new Map<string, AdminData['inventory'][number]>()
@@ -1075,8 +1106,12 @@ export async function adminData(
       reserved: 0,
       consumed: 0,
     }
-    if (item.status === 'available' || item.status === 'reserved' || item.status === 'consumed')
-      total[item.status] = item._count._all
+    const supply = allProducts.find((product) => product.id === item.productId)?.supply
+    if (item.status === 'available') {
+      if (!supply || (supply.enabled && supply.batchId === item.batchId))
+        total.available += item._count._all
+    } else if (item.status === 'reserved' || item.status === 'consumed')
+      total[item.status] += item._count._all
     totals.set(item.productId, total)
   }
   const inventory = [...totals.values()]

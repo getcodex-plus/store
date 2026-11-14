@@ -29,6 +29,13 @@ import { normalizeDemoSession } from '../../../lib'
 import { requestExchangeRefresh } from '../../../server/exchange-rates'
 import { decrypt } from '../../../server/crypto'
 import { importInventory } from '../../../server/credential-storage'
+import {
+  changeInventory,
+  inventoryBatches,
+  inventoryChangeSchema,
+  inventoryList,
+  inventoryQuerySchema,
+} from '../../../server/inventory'
 import { integrationSchema, saveIntegration } from '../../../server/integrations/config'
 import type { Product } from '../../../types'
 import { authorize, mayGrant, permissions, type Permission } from '../../../server/rbac'
@@ -235,6 +242,7 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
         'admin/integrations': 'integrations:write',
         'admin/products': 'products:write',
         'admin/inventory': 'products:write',
+        'admin/inventory/change': 'products:write',
         'admin/settings': 'settings:write',
         'admin/exchange-rates/refresh': 'settings:write',
         'admin/users': 'users:write',
@@ -409,6 +417,20 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
           await audit(admin.email, '更新返现与支付规则', 'settings', client)
         })
         result = { saved: true }
+      } else if (path === 'admin/inventory/batches' && method === 'GET') {
+        authorize(admin, 'products:read')
+        result = await inventoryBatches(
+          inventoryQuerySchema.parse(Object.fromEntries(request.nextUrl.searchParams)),
+        )
+      } else if (path === 'admin/inventory' && method === 'GET') {
+        authorize(admin, 'products:read')
+        result = await inventoryList(
+          inventoryQuerySchema.parse(Object.fromEntries(request.nextUrl.searchParams)),
+        )
+      } else if (path === 'admin/inventory/change' && method === 'POST') {
+        await requireRecent(admin)
+        await checkRiskRate('inventory-import', { user: admin.id })
+        result = await changeInventory(inventoryChangeSchema.parse(data), admin.email)
       } else if (path === 'admin/inventory' && method === 'POST') {
         await requireRecent(admin)
         await checkRiskRate('inventory-import', { user: admin.id })
@@ -416,9 +438,14 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
           .object({
             productId: z.string().regex(/^[a-z\d_-]{1,64}$/),
             codes: z.array(z.string().trim().min(8).max(200)).min(1).max(500),
+            batchName: z.string().trim().max(80).default(''),
+            upstreamProduct: z.string().trim().max(120).default(''),
+            country: z.string().trim().max(80).default(''),
+            note: z.string().trim().max(300).default(''),
+            activate: z.boolean().default(false),
           })
           .parse(data)
-        result = await importInventory(input.productId, input.codes, admin.email)
+        result = await importInventory(input.productId, input.codes, admin.email, input)
       } else if (path === 'admin/users' && method === 'POST') {
         const input = z.object({ id: z.string(), disabled: z.boolean() }).parse(data)
         if (input.id === admin.id) throw new ApiError(400, '不能停用当前管理员')

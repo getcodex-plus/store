@@ -1,3 +1,4 @@
+import { openAdminPage } from './admin-helpers'
 import { test, expect, type Page } from '@playwright/test'
 import { defaultReferralTiers, referralProgress } from '../src/referral'
 import type { AccountData, Bootstrap, Settings, Withdrawal } from '../src/types'
@@ -363,7 +364,7 @@ test('admin sees net-based USDT estimates, can refresh and fill them, and keeps 
     })
   })
   await page.goto('/admin')
-  await page.getByRole('menuitem', { name: '提现审核' }).click()
+  await openAdminPage(page, '提现审核')
   await expect(page.getByRole('cell', { name: 'BNB Smart Chain', exact: true })).toBeVisible()
   await page.getByRole('button', { name: '登记打款结果', exact: true }).click()
   const form = page.getByRole('dialog')

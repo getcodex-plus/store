@@ -1,3 +1,4 @@
+import { openAdminPage } from './admin-helpers'
 import { expect, test } from '@playwright/test'
 const origin = process.env.E2E_BASE_URL || 'http://localhost:3000'
 
@@ -64,7 +65,7 @@ test('inventory inputs are cleared on cancel and save, and card values never app
     .click()
   await expect(page.getByRole('dialog')).toBeHidden()
   await page.goto('/admin')
-  await page.getByRole('menuitem', { name: '商品与库存' }).click()
+  await openAdminPage(page, '商品管理')
   await page.getByRole('button', { name: '导入兑换库存' }).click()
   const dialog = page.getByRole('dialog')
   const input = dialog.getByLabel('兑换码（每行一个）')
@@ -81,6 +82,7 @@ test('inventory inputs are cleared on cancel and save, and card values never app
   await expect(productSelect).toHaveAttribute('aria-expanded', 'false')
   await expect(dialog).toContainText('ChatGPT Plus')
   const card = `synthetic-import-${Date.now()}`
+  await dialog.getByLabel('批次名称').fill('安全验证批次')
   await input.fill(card)
   await dialog.getByRole('button', { name: '加密保存库存' }).click()
   await expect(dialog).toBeHidden()

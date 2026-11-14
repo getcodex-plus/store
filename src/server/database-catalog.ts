@@ -125,6 +125,8 @@ export async function verifyDatabase(client: DbClient = db, baselineOnly = false
     // Additive migrations are checked separately so db:baseline does not require
     // them in advance.
     await client.riskEvent.findFirst()
+    await client.inventory.findFirst({ select: { enabled: true, batchId: true, createdAt: true } })
+    await client.inventoryBatch.findFirst()
     await client.withdrawal.findFirst({ select: { payoutFingerprint: true } })
     const indexes = await client.$queryRaw<{ indexname: string }[]>`
       SELECT indexname FROM pg_indexes WHERE schemaname=current_schema()

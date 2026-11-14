@@ -1,3 +1,4 @@
+import { openAdminPage } from './admin-helpers'
 import { expect, test } from '@playwright/test'
 import { db } from '../src/server/db'
 import { id } from '../src/server/crypto'
@@ -69,7 +70,7 @@ test('admin refunds enforce channel capabilities, required notes and split amoun
     },
   })
   await page.goto('/admin')
-  await page.getByRole('menuitem', { name: '订单管理' }).click()
+  await openAdminPage(page, '订单管理')
   const dialog = page.getByRole('dialog')
   const row = (provider: string) => page.getByRole('row').filter({ hasText: `退款 UI ${provider}` })
   await row('xorpay').getByRole('button', { name: '处理退款' }).click()
