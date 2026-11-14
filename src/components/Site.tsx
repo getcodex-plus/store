@@ -54,8 +54,6 @@ export function LoginDialog() {
 
 function LoginDialogContent() {
   const { data, loginOpen, loginIntent, openLogin, refresh } = useSite()
-  const bot = useBotCheck('login', loginOpen)
-  const botOptions = () => ({ headers: { 'x-turnstile-token': bot.token() || '' } })
   const { message } = App.useApp()
   const [form] = Form.useForm()
   const [sent, setSent] = useState(false)
@@ -70,6 +68,32 @@ function LoginDialogContent() {
   const [mfaMethods, setMfaMethods] = useState<string[]>([])
   const [mfaDemoCode, setMfaDemoCode] = useState('')
   const [mfaCountdown, setMfaCountdown] = useState(0)
+  const [botVerifiedUntil, setBotVerifiedUntil] = useState(0)
+  const bot = useBotCheck('login', loginOpen && !recoveryEmail && !mfa && !botVerifiedUntil)
+  const botOptions = async () => ({
+    headers: {
+      'x-turnstile-token': botVerifiedUntil > Date.now() ? '' : (await bot.verify()) || '',
+    },
+  })
+  function retryBot(error: unknown) {
+    // A wrong OTP does not invalidate the server receipt.
+    if (
+      botVerifiedUntil > Date.now() &&
+      error instanceof Error &&
+      !error.message.includes('安全验证')
+    )
+      return
+    setBotVerifiedUntil(0)
+    bot.reset()
+  }
+  useEffect(() => {
+    if (!botVerifiedUntil) return
+    const timer = setTimeout(
+      () => setBotVerifiedUntil(0),
+      Math.max(0, botVerifiedUntil - Date.now()),
+    )
+    return () => clearTimeout(timer)
+  }, [botVerifiedUntil])
   async function sendMfaCode() {
     authResult(await authClient.twoFactor.sendOtp({}))
     setMfaCountdown(60)
@@ -81,6 +105,7 @@ function LoginDialogContent() {
     } else message.success('验证码已发送至你的账号邮箱')
   }
   async function finish(result: { twoFactorRedirect?: boolean; twoFactorMethods?: string[] }) {
+    setBotVerifiedUntil(0)
     if (result.twoFactorRedirect) {
       const methods = result.twoFactorMethods || ['totp']
       const preferred = methods.includes('totp') ? 'totp' : 'otp'
@@ -113,15 +138,14 @@ function LoginDialogContent() {
   async function passkey() {
     setBusy(true)
     try {
-      await finish(
-        authResult(await authClient.signIn.passkey({ fetchOptions: botOptions() })) as {
-          twoFactorRedirect?: boolean
-        },
-      )
+      const result = authResult(await authClient.signIn.passkey()) as {
+        twoFactorRedirect?: boolean
+      }
+      bot.reset(false)
+      await finish(result)
     } catch {
       message.error('未完成 Passkey 验证，请重试或使用其他登录方式')
     } finally {
-      bot.reset()
       setBusy(false)
     }
   }
@@ -136,30 +160,40 @@ function LoginDialogContent() {
     return () => clearTimeout(timer)
   }, [mfaCountdown])
   async function send() {
+    let submitted = false
     try {
       await form.validateFields(['email'])
       setBusy(true)
+      const email = form.getFieldValue('email')
+      const options = await botOptions()
+      submitted = true
       authResult(
         await authClient.emailOtp.sendVerificationOtp(
           {
-            email: form.getFieldValue('email'),
+            email,
             type: 'sign-in',
           },
-          botOptions(),
+          options,
         ),
       )
+      bot.reset(false)
+      // The server receipt lasts five minutes; require a fresh challenge slightly
+      // earlier on the next action, without extending the deadline on resends.
+      if (!botVerifiedUntil) setBotVerifiedUntil(Date.now() + 270_000)
+      setSent(true)
+      setCountdown(60)
       const result =
         data?.mode === 'demo'
           ? await api<{ demoCode?: string }>('/demo/code', { email: form.getFieldValue('email') })
           : {}
-      setSent(true)
       setDemoCode(result.demoCode || '')
-      setCountdown(60)
       if (!result.demoCode) message.success('验证码已发送，请检查邮箱')
     } catch (e) {
+      if ((e as Error).name === 'AbortError') return
+      if (submitted) retryBot(e)
+      else bot.reset()
       message.error((e as Error).message)
     } finally {
-      bot.reset()
       setBusy(false)
     }
   }
@@ -173,7 +207,7 @@ function LoginDialogContent() {
       } catch {}
       const fetchOptions = {
         headers: {
-          ...botOptions().headers,
+          ...(await botOptions()).headers,
           ...(referral ? { 'x-getgpt-referral': referral } : {}),
           ...(recovery ? { 'x-getgpt-recovery': '1' } : {}),
         },
@@ -187,11 +221,13 @@ function LoginDialogContent() {
                 fetchOptions,
               ),
             )
+      bot.reset(false)
       await finish(result as { twoFactorRedirect?: boolean; twoFactorMethods?: string[] })
     } catch (e) {
+      if ((e as Error).name === 'AbortError') return
+      retryBot(e)
       message.error((e as Error).message)
     } finally {
-      bot.reset()
       setBusy(false)
     }
   }
@@ -207,7 +243,6 @@ function LoginDialogContent() {
       width={420}
       destroyOnHidden
     >
-      {!recoveryEmail && bot.widget}
       {recoveryEmail ? (
         <PasswordResetForm
           email={recoveryEmail}
@@ -288,21 +323,30 @@ function LoginDialogContent() {
               try {
                 authResult(
                   mfa === 'totp'
-                    ? await authClient.twoFactor.verifyTotp({ code: mfaCode }, botOptions())
-                    : await authClient.twoFactor.verifyOtp({ code: mfaCode }, botOptions()),
+                    ? await authClient.twoFactor.verifyTotp({ code: mfaCode })
+                    : await authClient.twoFactor.verifyOtp({ code: mfaCode }),
                 )
                 await finish({})
               } catch (e) {
                 message.error((e as Error).message)
               } finally {
-                bot.reset()
                 setBusy(false)
               }
             }}
           >
             完成二步验证
           </Button>
-          <Button className="mt-24" block onClick={() => setMfa('')}>
+          <Button
+            className="mt-24"
+            block
+            disabled={busy}
+            onClick={() => {
+              setMfa('')
+              setSent(false)
+              setDemoCode('')
+              form.resetFields(['code'])
+            }}
+          >
             {recovery ? '返回身份验证' : '返回登录'}
           </Button>
         </>
@@ -322,8 +366,8 @@ function LoginDialogContent() {
               activeKey={mode}
               onChange={setMode}
               items={[
-                { key: 'email', label: '邮箱验证码' },
-                { key: 'password', label: '密码登录' },
+                { key: 'email', label: '邮箱验证码', disabled: busy },
+                { key: 'password', label: '密码登录', disabled: busy },
               ]}
             />
           )}
@@ -333,6 +377,7 @@ function LoginDialogContent() {
             layout="vertical"
             onFinish={submit}
             requiredMark={false}
+            disabled={busy}
             initialValues={{ email: recovery ? data?.user?.email : undefined }}
           >
             <Form.Item
@@ -364,8 +409,8 @@ function LoginDialogContent() {
                       maxLength={6}
                     />
                   </Form.Item>
-                  <Button onClick={send} loading={busy && !sent} disabled={countdown > 0}>
-                    {countdown > 0 ? `${countdown}s` : '获取验证码'}
+                  <Button onClick={send} loading={busy && !sent} disabled={countdown > 0 || busy}>
+                    {countdown > 0 ? `${countdown}s` : sent ? '重新获取验证码' : '获取验证码'}
                   </Button>
                 </Space.Compact>
               </Form.Item>
@@ -382,6 +427,7 @@ function LoginDialogContent() {
                 description="演示环境不发送邮件，请使用测试邮箱。"
               />
             )}
+            {bot.widget}
             <Button type="primary" htmlType="submit" block loading={busy} className="mt-20">
               {recovery ? '验证身份并继续' : '登录 / 注册'}
             </Button>

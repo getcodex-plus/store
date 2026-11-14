@@ -12,7 +12,7 @@ import { databaseNow } from './database-sql'
 import { appUrl, demo, validateRuntime } from './config'
 import { encrypt, hash, id } from './crypto'
 import { rateLimit } from './rate-limit'
-import { requireTurnstile } from './turnstile'
+import { clearLoginTurnstile, requireLoginTurnstile } from './login-turnstile'
 import { sendLoginEmail } from './integrations/email'
 import { opaqueAuth } from './opaque'
 
@@ -149,19 +149,17 @@ const policy: BetterAuthPlugin = {
             Object.hasOwn(ctx.body, 'password')
           )
             throw new APIError('BAD_REQUEST', { message: '请重新登录后管理二步验证，无需提交密码' })
+          // Email and password share one short-lived Turnstile receipt.
+          // Passkey verifies WebAuthn directly; MFA uses its signed challenge.
           if (
             [
               '/email-otp/send-verification-otp',
               '/sign-in/opaque/challenge',
               '/sign-in/email-otp',
-              '/passkey/verify-authentication',
-              '/two-factor/verify-totp',
-              '/two-factor/verify-otp',
             ].includes(ctx.path)
           ) {
             try {
-              if (!ctx.path.startsWith('/two-factor/') || !(await getSessionFromCtx(ctx)))
-                await requireTurnstile('login', ctx.headers?.get('x-turnstile-token'))
+              await requireLoginTurnstile(ctx)
             } catch {
               throw new APIError('FORBIDDEN', { message: '请完成安全验证后重试' })
             }
@@ -206,6 +204,20 @@ const policy: BetterAuthPlugin = {
       },
     ],
     after: [
+      {
+        matcher: (ctx) =>
+          [
+            '/sign-in/email-otp',
+            '/sign-in/opaque/complete',
+            '/passkey/verify-authentication',
+          ].includes(ctx.path || ''),
+        handler: createAuthMiddleware(async (ctx) => {
+          if (ctx.context.returned instanceof APIError) return
+          // Primary authentication has finished (possibly with MFA still
+          // pending); a new login must obtain its own receipt.
+          await clearLoginTurnstile(ctx)
+        }),
+      },
       {
         matcher: (ctx) =>
           [

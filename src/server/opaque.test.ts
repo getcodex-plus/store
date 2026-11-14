@@ -13,8 +13,9 @@ vi.hoisted(() => {
   process.env.APP_URL = 'http://localhost:3000'
 })
 import { auth } from './better-auth'
-import { Prisma } from './db'
+import { db, Prisma } from './db'
 import { decrypt, hash, id } from './crypto'
+import { saveIntegration } from './integrations/config'
 
 const suite = process.env.TEST_DATABASE_URL ? describe : describe.skip
 const secret = 'synthetic-opaque-test-password'
@@ -41,9 +42,10 @@ class Browser {
     }
     return response
   }
-  async emailCode(email: string) {
+  async emailCode(email: string, headers?: Record<string, string>) {
     expect(
-      (await this.request('/email-otp/send-verification-otp', { email, type: 'sign-in' })).status,
+      (await this.request('/email-otp/send-verification-otp', { email, type: 'sign-in' }, headers))
+        .status,
     ).toBe(200)
     const row = (
       await testQuery(
@@ -62,12 +64,18 @@ class Browser {
   }
 }
 
-async function prepareLogin(browser: Browser, email: string, password = secret) {
+async function prepareLogin(
+  browser: Browser,
+  email: string,
+  password = secret,
+  headers?: Record<string, string>,
+) {
   const start = client.startLogin({ password })
-  const response = await browser.request('/sign-in/opaque/challenge', {
-    email,
-    loginRequest: start.startLoginRequest,
-  })
+  const response = await browser.request(
+    '/sign-in/opaque/challenge',
+    { email, loginRequest: start.startLoginRequest },
+    headers,
+  )
   expect(response.status).toBe(200)
   const { challenge, state } = await response.json()
   const result = client.finishLogin({
@@ -153,6 +161,168 @@ suite('OPAQUE authentication against PostgreSQL', () => {
   afterAll(async () => {
     await testQuery(Prisma.sql`DELETE FROM users WHERE email=ANY(${users})`)
     await cleanupTestDatabase()
+  })
+
+  async function enableTurnstile(actor: string) {
+    await saveIntegration(
+      {
+        provider: 'turnstile',
+        enabled: true,
+        public: { siteKey: 'test-site', login: 'true', purchase: 'false' },
+        secrets: { secret: 'test-secret' },
+      },
+      actor,
+    )
+    const consumed = new Set<string>()
+    return vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, options) => {
+      expect(url).toBe('https://challenges.cloudflare.com/turnstile/v0/siteverify')
+      const token = new URLSearchParams(options?.body as URLSearchParams).get('response')!
+      const success = token === 'single-login-token' && !consumed.has(token)
+      consumed.add(token)
+      return Response.json({ success, action: 'login', hostname: 'localhost' })
+    })
+  }
+
+  it.each(['none', 'email', 'totp'])(
+    'verifies Turnstile once for email login with %s second-factor configuration',
+    async (method) => {
+      const { email, browser: setup, userId } = await fixture(false)
+      if (method !== 'none')
+        expect((await setup.request('/two-factor/enable', { method: 'otp' })).status).toBe(200)
+      let totp
+      if (method === 'totp') {
+        const response = await setup.request('/two-factor/enable', {})
+        expect(response.status).toBe(200)
+        totp = URI.parse((await response.json()).totpURI)
+        expect(
+          (await setup.request('/two-factor/verify-totp', { code: totp.generate() })).status,
+        ).toBe(200)
+      }
+      const siteverify = await enableTurnstile(userId)
+      try {
+        const browser = new Browser()
+        expect(
+          (await browser.request('/email-otp/send-verification-otp', { email, type: 'sign-in' }))
+            .status,
+        ).toBe(403)
+        expect((await browser.request('/sign-in/email-otp', { email, otp: '000000' })).ok).toBe(
+          false,
+        )
+        const otp = await browser.emailCode(email, { 'x-turnstile-token': 'single-login-token' })
+        const receiptCookie = browser.cookies.get('getgpt.login_verification')!
+        expect(receiptCookie).toBeTruthy()
+        const wrongOtp = otp === '000000' ? '000001' : '000000'
+        expect((await browser.request('/sign-in/email-otp', { email, otp: wrongOtp })).ok).toBe(
+          false,
+        )
+        const response = await browser.request('/sign-in/email-otp', { email, otp })
+        expect(response.status).toBe(200)
+        const result = await response.json()
+        if (totp) {
+          expect(result.twoFactorRedirect).toBe(true)
+          expect(await (await browser.request('/get-session')).json()).toBeNull()
+          expect(
+            (await new Browser().request('/two-factor/verify-totp', { code: totp.generate() })).ok,
+          ).toBe(false)
+          expect((await browser.request('/two-factor/verify-totp', { code: 'invalid' })).ok).toBe(
+            false,
+          )
+          expect(
+            (await browser.request('/two-factor/verify-totp', { code: totp.generate() })).status,
+          ).toBe(200)
+        } else {
+          // Email verification already satisfies email-only two-step verification.
+          expect(result.twoFactorRedirect).not.toBe(true)
+        }
+        expect((await (await browser.request('/get-session')).json()).user.email).toBe(email)
+        expect(siteverify).toHaveBeenCalledTimes(1)
+        const replay = new Browser()
+        replay.cookies.set('getgpt.login_verification', receiptCookie)
+        expect(
+          (await replay.request('/email-otp/send-verification-otp', { email, type: 'sign-in' }))
+            .status,
+        ).toBe(403)
+        expect((await new Browser().request('/sign-in/email-otp', { email, otp })).ok).toBe(false)
+        expect(
+          (
+            await browser.request(
+              '/email-otp/send-verification-otp',
+              { email, type: 'sign-in' },
+              { 'x-turnstile-token': 'single-login-token' },
+            )
+          ).status,
+        ).toBe(403)
+      } finally {
+        siteverify.mockRestore()
+        await db.integration.deleteMany({ where: { provider: 'turnstile' } })
+      }
+    },
+  )
+
+  it('verifies Turnstile once across OPAQUE login and email second-factor verification', async () => {
+    const { email, browser: setup, userId } = await fixture()
+    expect((await setup.request('/two-factor/enable', { method: 'otp' })).status).toBe(200)
+    const siteverify = await enableTurnstile(userId)
+    try {
+      const browser = new Browser()
+      // Start with email, then switch to password without another widget.
+      await browser.emailCode(email, { 'x-turnstile-token': 'single-login-token' })
+      const proof = await prepareLogin(browser, email)
+      const response = await browser.request('/sign-in/opaque/complete', proof)
+      expect(response.status).toBe(200)
+      expect(await response.json()).toMatchObject({
+        twoFactorRedirect: true,
+        twoFactorMethods: ['otp'],
+      })
+      expect(await (await browser.request('/get-session')).json()).toBeNull()
+      expect((await browser.request('/two-factor/send-otp', {})).status).toBe(200)
+      const row = await db.demoMailbox.findUniqueOrThrow({
+        where: {
+          browserDigest_email: {
+            browserDigest: hash(browser.cookies.get('getgpt_browser')!),
+            email,
+          },
+        },
+      })
+      const code = decrypt(row.code, 'demo-email')
+      expect((await new Browser().request('/two-factor/verify-otp', { code })).ok).toBe(false)
+      expect((await browser.request('/two-factor/verify-otp', { code })).status).toBe(200)
+      expect((await (await browser.request('/get-session')).json()).session.method).toBe('mfa')
+      expect(siteverify).toHaveBeenCalledTimes(1)
+    } finally {
+      siteverify.mockRestore()
+      await db.integration.deleteMany({ where: { provider: 'turnstile' } })
+    }
+  })
+
+  it('exempts Passkey from Turnstile and rejects forged or expired login receipts', async () => {
+    const { email, userId } = await fixture(false)
+    const siteverify = await enableTurnstile(userId)
+    try {
+      const browser = new Browser()
+      const passkey = await browser.request('/passkey/verify-authentication', { response: {} })
+      expect(passkey.ok).toBe(false)
+      expect(await passkey.text()).not.toContain('请完成安全验证')
+      expect(siteverify).not.toHaveBeenCalled()
+      browser.cookies.set('getgpt.login_verification', 'forged')
+      expect(
+        (await browser.request('/email-otp/send-verification-otp', { email, type: 'sign-in' }))
+          .status,
+      ).toBe(403)
+      await browser.emailCode(email, { 'x-turnstile-token': 'single-login-token' })
+      await db.authVerification.updateMany({
+        where: { identifier: { startsWith: 'turnstile-login:' } },
+        data: { expiresAt: new Date(Date.now() - 1000) },
+      })
+      expect(
+        (await browser.request('/email-otp/send-verification-otp', { email, type: 'sign-in' }))
+          .status,
+      ).toBe(403)
+      expect(siteverify).toHaveBeenCalledTimes(1)
+    } finally {
+      siteverify.mockRestore()
+      await db.integration.deleteMany({ where: { provider: 'turnstile' } })
+    }
   })
 
   it('stores only an OPAQUE record and does not return it in account responses', async () => {

@@ -800,12 +800,28 @@ test('guest checkout requires contact email and only verified owner can claim or
   await stranger.close()
 })
 
-test('optional Turnstile gates direct login and purchase requests on the server', async ({
+test('optional Turnstile gates email and purchase requests but exempts Passkey login', async ({
   page,
   request,
+  context,
 }) => {
+  const cdp = await context.newCDPSession(page)
+  await cdp.send('WebAuthn.enable')
+  await cdp.send('WebAuthn.addVirtualAuthenticator', {
+    options: {
+      protocol: 'ctap2',
+      transport: 'internal',
+      hasResidentKey: true,
+      hasUserVerification: true,
+      isUserVerified: true,
+      automaticPresenceSimulation: true,
+    },
+  })
   await page.goto('/')
   await login(page, 'admin@example.com')
+  await page.goto('/security')
+  await page.getByRole('button', { name: '添加 Passkey' }).click()
+  await expect(page.getByText('Passkey 已添加，密码登录将需要二步验证')).toBeVisible()
   const headers = { Origin: testOrigin, 'X-GetGPT-Request': '1' }
   const body = {
     provider: 'turnstile',
@@ -821,8 +837,8 @@ test('optional Turnstile gates direct login and purchase requests on the server'
     for (const endpoint of [
       '/api/auth/email-otp/send-verification-otp',
       '/api/auth/sign-in/email',
+      '/api/auth/sign-in/opaque/challenge',
       '/api/auth/sign-in/email-otp',
-      '/api/auth/passkey/verify-authentication',
     ]) {
       const result = await request.post(endpoint, {
         headers,
@@ -831,6 +847,7 @@ test('optional Turnstile gates direct login and purchase requests on the server'
           type: 'sign-in',
           password: 'test-password',
           otp: '123456',
+          loginRequest: 'invalid',
           response: {},
         },
       })
@@ -843,6 +860,19 @@ test('optional Turnstile gates direct login and purchase requests on the server'
       purchase: true,
     })
     expect(bootstrap.turnstile.secret).toBeUndefined()
+    // A broken/unavailable widget must not prevent a real WebAuthn sign-in.
+    await page.route('https://challenges.cloudflare.com/**', (route) => route.abort())
+    await page.request.post('/api/auth/sign-out', { headers, data: {} })
+    await page.goto('/')
+    await page
+      .getByRole('button', { name: /登录 \/ 注册/ })
+      .first()
+      .click()
+    const passkeyRequest = page.waitForRequest('**/api/auth/passkey/verify-authentication')
+    await page.getByRole('button', { name: '使用 Passkey 登录' }).click()
+    expect((await passkeyRequest).headers()['x-turnstile-token']).toBeUndefined()
+    await expect(page.getByRole('dialog')).toBeHidden()
+    expect((await page.request.get('/api/account')).status()).toBe(200)
   } finally {
     expect(
       (
