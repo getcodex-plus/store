@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import type {
   Product as ProductRecord,
@@ -153,9 +154,11 @@ export function quoteView(record: QuoteRecord): StoredQuote {
 }
 
 export function userView(record: UserRecord, roleIds?: string[]): User {
+  const avatarHash = createHash('sha256').update(record.email.trim().toLowerCase()).digest('hex')
   return {
     id: record.id,
     email: record.email,
+    avatarUrl: `https://www.gravatar.com/avatar/${avatarHash}?s=128&d=identicon&r=g`,
     role: z.enum(['user', 'admin']).parse(record.role),
     referralCode: record.referralCode,
     invitedBy: record.invitedBy ?? undefined,

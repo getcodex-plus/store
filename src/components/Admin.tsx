@@ -5,7 +5,6 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   App,
   Alert,
-  Avatar,
   Button,
   Card,
   Drawer,
@@ -43,6 +42,7 @@ import {
   FileSearchOutlined,
 } from '@ant-design/icons'
 import { Brand } from './Site'
+import { UserAvatar } from './UserAvatar'
 import { WithdrawalEstimate } from './WithdrawalEstimate'
 import { useSite } from './Providers'
 import { api, channels, dateTime, money, statuses } from '../lib'
@@ -415,9 +415,7 @@ export function Admin() {
             <Tag color={site.mode === 'demo' ? 'warning' : 'default'}>
               {site.mode === 'demo' ? '本地演示' : '正式环境'}
             </Tag>
-            <Avatar style={{ background: 'var(--surface-hover)', color: 'var(--accent)' }}>
-              A
-            </Avatar>
+            <UserAvatar user={site.user} />
             <span className="admin-email">{site.user.email}</span>
             <Button
               type="text"

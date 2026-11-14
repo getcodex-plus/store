@@ -12,7 +12,7 @@ export function proxy(request: NextRequest) {
     // Ant Design uses inline styles. Scripts still require a per-response nonce.
     "style-src 'self' 'unsafe-inline'",
     `connect-src 'self' https://challenges.cloudflare.com${development ? ' ws: wss:' : ''}`,
-    "img-src 'self' data: blob:",
+    "img-src 'self' data: blob: https://www.gravatar.com",
     "font-src 'self'",
     'frame-src https://challenges.cloudflare.com',
     "object-src 'none'",

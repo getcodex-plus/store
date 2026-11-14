@@ -1,23 +1,10 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import {
-  App,
-  Avatar,
-  Button,
-  Dropdown,
-  Modal,
-  Form,
-  Input,
-  Alert,
-  Space,
-  Tabs,
-  Divider,
-} from 'antd'
+import { App, Button, Dropdown, Modal, Form, Input, Alert, Space, Tabs, Divider } from 'antd'
 import {
   ArrowRightOutlined,
   LogoutOutlined,
-  UserOutlined,
   WalletOutlined,
   SafetyCertificateOutlined,
   KeyOutlined,
@@ -30,6 +17,7 @@ import { useSite } from './Providers'
 import { api } from '../lib'
 import { BrandMark } from './BrandMark'
 import { PasswordResetForm } from './PasswordResetForm'
+import { UserAvatar } from './UserAvatar'
 
 export function Brand({ light = false }: { light?: boolean }) {
   return (
@@ -524,11 +512,7 @@ export function SiteHeader() {
                     }}
                   >
                     <Button shape="circle" aria-label="账号菜单">
-                      <Avatar
-                        size={28}
-                        style={{ background: 'var(--surface-hover)', color: 'var(--accent)' }}
-                        icon={<UserOutlined />}
-                      />
+                      <UserAvatar user={data.user} size={28} />
                     </Button>
                   </Dropdown>
                 </>

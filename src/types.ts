@@ -28,6 +28,7 @@ export interface Product {
 export interface User {
   id: string
   email: string
+  avatarUrl?: string
   role: 'user' | 'admin'
   referralCode: string
   invitedBy?: string
