@@ -49,14 +49,22 @@ export async function lockIntegration(client: DbClient, provider: string) {
   await client.$queryRaw`SELECT id FROM integrations WHERE provider=${provider} AND active=true FOR UPDATE`
 }
 
-export async function availableInventory(client: DbClient, productId: string) {
-  await client.$executeRaw`UPDATE inventory i SET status='available',reserved_until=null
-    WHERE status='reserved' AND reserved_until<now()
-    AND NOT EXISTS(SELECT 1 FROM quotes q JOIN orders o ON o.quote_id=q.id
-      WHERE q.inventory_id=i.id AND o.status<>'cancelled')`
-  const [stock] = await client.$queryRaw<{ id: string }[]>`SELECT id FROM inventory
-    WHERE product_id=${productId} AND status='available' FOR UPDATE SKIP LOCKED LIMIT 1`
-  return stock ? client.inventory.findUnique({ where: { id: stock.id } }) : null
+// Must run inside the order transaction. Keep the row lock through preflight,
+// quote binding and order creation; any failure rolls the reservation back.
+export async function reserveInventory(client: DbClient, productId: string) {
+  const [stock] = await client.$queryRaw<{ id: string }[]>`SELECT i.id FROM inventory i
+    WHERE i.product_id=${productId}
+      AND (i.status='available' OR (i.status='reserved' AND i.reserved_until<now()))
+      AND NOT EXISTS(SELECT 1 FROM quotes q JOIN orders o ON o.quote_id=q.id
+        WHERE q.inventory_id=i.id AND o.status<>'cancelled')
+    ORDER BY i.id FOR UPDATE OF i SKIP LOCKED LIMIT 1`
+  if (!stock) return null
+  // Recover only the chosen expired reservation. A bulk expiry UPDATE would
+  // wait on other checkouts before SKIP LOCKED ever gets a chance to run.
+  return client.inventory.update({
+    where: { id: stock.id },
+    data: { status: 'reserved', reservedUntil: null },
+  })
 }
 
 export async function qualifiedInvitesSql(client: DbClient, userId: string) {

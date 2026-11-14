@@ -21,7 +21,8 @@ import {
   openCredential,
   sealCredential,
 } from './credential-storage'
-import { quote, newOrder, confirmSession, adminData, account } from './services'
+import { quote, newOrder, cancelOrder, confirmSession, adminData, account } from './services'
+import { lockRow, reserveInventory } from './database-sql'
 import { fulfillOrder } from './fulfillment'
 import { saveIntegration } from './integrations/config'
 import { permissions } from './rbac'
@@ -156,6 +157,246 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
   async function internal(orderId: string) {
     return paymentOrderView(await db.order.findUniqueOrThrow({ where: { id: orderId } }))
   }
+  // Each contention scenario has its own product, stock and buyers, so unrelated
+  // fixtures and the per-user lock cannot hide a double-allocation bug.
+  async function competingBuyers(cards: number, buyers = 2) {
+    stub()
+    const productId = id('product_')
+    await db.product.create({
+      data: {
+        id: productId,
+        name: 'Concurrent upgrade',
+        subtitle: '',
+        description: '',
+        price: 100,
+        features: [],
+        plan: 'pro20',
+        upgrade: true,
+        pricingMode: 'markup',
+      },
+    })
+    await importInventory(
+      productId,
+      Array.from({ length: cards }, () => `synthetic-card-${id()}`),
+      user.email,
+    )
+    const requests = await Promise.all(
+      Array.from({ length: buyers }, async () => {
+        const buyer = userView(
+          await db.user.create({
+            data: { id: id('u_'), email: `${id()}@example.com`, referralCode: id() },
+          }),
+        )
+        await db.wallet.create({ data: { userId: buyer.id, balance: 100000 } })
+        const browser = id('browser_')
+        const q = await quote(productId, session, browser)
+        const input = { quoteId: q.id, channel: 'balance' as const, requestKey: id(), session }
+        return { buyer, browser, q, input }
+      }),
+    )
+    return { productId, requests }
+  }
+  function gate() {
+    let release!: () => void
+    const promise = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    return { promise, release }
+  }
+  it('lets only one of two different buyers reserve the last card while preflight is in flight', async () => {
+    const {
+      productId,
+      requests: [a, b],
+    } = await competingBuyers(1)
+    const entered = gate()
+    const finish = gate()
+    const fetcher = stub()
+    const response = fetcher.getMockImplementation()!
+    fetcher.mockImplementation(async (url) => {
+      if (url.endsWith('/redemptions/preflights')) {
+        entered.release()
+        await finish.promise
+      }
+      return response(url)
+    })
+    const first = newOrder(a.buyer, a.browser, a.input)
+    try {
+      await entered.promise
+      await expect(newOrder(b.buyer, b.browser, b.input)).rejects.toThrow('缺货')
+      expect((await db.quote.findUniqueOrThrow({ where: { id: b.q.id } })).inventoryId).toBeNull()
+      expect(await db.walletEntry.count({ where: { userId: b.buyer.id } })).toBe(0)
+    } finally {
+      finish.release()
+      await first
+    }
+    expect(await db.order.count({ where: { productId } })).toBe(1)
+    expect(
+      await db.inventory.count({ where: { productId, status: 'reserved', reservedUntil: null } }),
+    ).toBe(1)
+    expect(
+      fetcher.mock.calls.filter(([url]) => url.endsWith('/redemptions/preflights')),
+    ).toHaveLength(1)
+  })
+  it('assigns distinct cards to competing buyers and never oversells a limited pool', async () => {
+    const { productId, requests } = await competingBuyers(3, 12)
+    const results = await Promise.allSettled(
+      requests.map(({ buyer, browser, input }) => newOrder(buyer, browser, input)),
+    )
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(3)
+    for (const result of results)
+      if (result.status === 'rejected') expect(result.reason.message).toContain('缺货')
+    const allocated = await db.quote.findMany({ where: { productId, inventoryId: { not: null } } })
+    expect(allocated).toHaveLength(3)
+    expect(new Set(allocated.map((q) => q.inventoryId)).size).toBe(3)
+    expect(await db.order.count({ where: { productId } })).toBe(3)
+  })
+  it('skips locked expired cards and does not wait on expiry cleanup for another product', async () => {
+    const { productId } = await competingBuyers(2, 0)
+    const { productId: otherProductId } = await competingBuyers(1, 0)
+    const expired = new Date(Date.now() - 60_000)
+    await db.inventory.updateMany({
+      where: { productId: { in: [productId, otherProductId] } },
+      data: { status: 'reserved', reservedUntil: expired },
+    })
+    const cards = await db.inventory.findMany({ where: { productId }, orderBy: { id: 'asc' } })
+    const other = await db.inventory.findFirstOrThrow({ where: { productId: otherProductId } })
+    const entered = gate()
+    const finish = gate()
+    const holder = transaction(async (client) => {
+      await lockRow(client, 'inventory', cards[0].id)
+      await lockRow(client, 'inventory', other.id)
+      entered.release()
+      await finish.promise
+    })
+    try {
+      await entered.promise
+      const reserved = await transaction(async (client) => {
+        await client.$executeRaw`SET LOCAL lock_timeout = '500ms'`
+        return reserveInventory(client, productId)
+      })
+      expect(reserved?.id).toBe(cards[1].id)
+      expect(reserved?.status).toBe('reserved')
+      expect(reserved?.reservedUntil).toBeNull()
+    } finally {
+      finish.release()
+      await holder
+    }
+    expect(
+      (await db.inventory.findUniqueOrThrow({ where: { id: other.id } })).reservedUntil,
+    ).toEqual(expired)
+  })
+  it('never reclaims a card bound to a non-cancelled order even with stale expiry or status', async () => {
+    const {
+      productId,
+      requests: [a, b],
+    } = await competingBuyers(1)
+    const first = await newOrder(a.buyer, a.browser, a.input)
+    const card = await db.inventory.findFirstOrThrow({ where: { productId } })
+    for (const status of [
+      'unpaid',
+      'processing',
+      'needs_session',
+      'completed',
+      'failed',
+      'refunded',
+    ]) {
+      await db.order.update({ where: { id: first.id }, data: { status } })
+      for (const inventoryStatus of ['reserved', 'available']) {
+        await db.inventory.update({
+          where: { id: card.id },
+          data: { status: inventoryStatus, reservedUntil: new Date(Date.now() - 60_000) },
+        })
+        await expect(newOrder(b.buyer, b.browser, b.input)).rejects.toThrow('缺货')
+      }
+    }
+    expect(await db.order.count({ where: { productId } })).toBe(1)
+  })
+  it('rejects unconverted legacy quotes after their former card has been assigned to another buyer', async () => {
+    const {
+      productId,
+      requests: [a, b],
+    } = await competingBuyers(1)
+    const card = await db.inventory.findFirstOrThrow({ where: { productId } })
+    await db.quote.update({
+      where: { id: b.q.id },
+      data: { flowVersion: 1, inventoryId: card.id },
+    })
+    await newOrder(a.buyer, a.browser, a.input)
+    await expect(newOrder(b.buyer, b.browser, b.input)).rejects.toThrow('验证流程已升级')
+    expect(await db.order.count({ where: { productId } })).toBe(1)
+    expect(await db.walletEntry.count({ where: { userId: b.buyer.id } })).toBe(0)
+  })
+  it('rolls back a failed preflight and lets the next buyer reserve the same card', async () => {
+    const {
+      productId,
+      requests: [a, b],
+    } = await competingBuyers(1)
+    stub(accountResult, { ...ready, quote: { ...providerQuote, amount_minor: 9000 } })
+    await expect(newOrder(a.buyer, a.browser, a.input)).rejects.toThrow('成本')
+    expect(await db.inventory.count({ where: { productId, status: 'available' } })).toBe(1)
+    expect(await db.walletEntry.count({ where: { userId: a.buyer.id } })).toBe(0)
+    stub()
+    await newOrder(b.buyer, b.browser, b.input)
+    expect(await db.inventory.count({ where: { productId, status: 'reserved' } })).toBe(1)
+    expect(await db.order.count({ where: { productId } })).toBe(1)
+  })
+  it('reuses a safely cancelled guest card without letting cancellation retries release its new owner', async () => {
+    await saveIntegration(
+      {
+        provider: 'xorpay',
+        enabled: true,
+        public: { appId: 'test' },
+        secrets: { secret: 'synthetic-test-key' },
+      },
+      'test',
+    )
+    const {
+      productId,
+      requests: [a, b],
+    } = await competingBuyers(1)
+    const guestInput = {
+      ...a.input,
+      channel: 'alipay' as const,
+      contactEmail: 'guest@example.com',
+    }
+    const order = await newOrder(null, a.browser, guestInput)
+    await Promise.all(Array.from({ length: 4 }, () => cancelOrder(null, a.browser, order.id)))
+    const next = await newOrder(b.buyer, b.browser, b.input)
+    await cancelOrder(null, a.browser, order.id)
+    expect((await newOrder(null, a.browser, guestInput)).status).toBe('cancelled')
+    const originalQuote = await db.quote.findUniqueOrThrow({ where: { id: a.q.id } })
+    const nextQuote = await db.quote.findUniqueOrThrow({ where: { id: b.q.id } })
+    expect(nextQuote.inventoryId).toBe(originalQuote.inventoryId)
+    expect(await db.inventory.count({ where: { productId, status: 'reserved' } })).toBe(1)
+    expect((await internal(next.id)).status).toBe('processing')
+  })
+  it('does not release another live order when cancelling a conflicting historical binding', async () => {
+    const {
+      productId,
+      requests: [a, b],
+    } = await competingBuyers(1)
+    const order = await newOrder(a.buyer, a.browser, a.input)
+    const card = await db.inventory.findFirstOrThrow({ where: { productId } })
+    // Simulate a historical duplicate created before the legacy-flow guard.
+    await db.quote.update({ where: { id: b.q.id }, data: { inventoryId: card.id, flowVersion: 1 } })
+    const original = await db.order.findUniqueOrThrow({ where: { id: order.id } })
+    const conflicting = await db.order.create({
+      data: {
+        ...original,
+        id: id('o_'),
+        userId: b.buyer.id,
+        quoteId: b.q.id,
+        status: 'unpaid',
+        balanceAmount: 0,
+        externalAmount: original.amount,
+      },
+    })
+    await cancelOrder(b.buyer, b.browser, conflicting.id)
+    expect((await db.inventory.findUniqueOrThrow({ where: { id: card.id } })).status).toBe(
+      'reserved',
+    )
+    expect((await internal(order.id)).status).toBe('processing')
+  })
   it('keeps the order transaction alive during a slow upstream preflight', async () => {
     const q = await stockedQuote()
     const fetcher = stub()

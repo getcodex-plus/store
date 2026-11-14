@@ -25,7 +25,7 @@ import {
 } from './data'
 import {
   advisoryLock,
-  availableInventory,
+  reserveInventory,
   databaseNow,
   lockRow,
   lockSettings,
@@ -368,6 +368,10 @@ export async function newOrder(
       }
       if (Date.parse(quoteRecord.expiresAt) < Date.now())
         throw new ApiError(409, '验证结果已过期，请重新验证账号')
+      // Legacy quotes may still reference a card whose timed reservation was
+      // reclaimed. Only existing orders may reuse that historical binding.
+      if (!demo && quoteRecord.flowVersion !== 2)
+        throw new ApiError(409, '验证流程已升级，请重新检查账号后创建订单')
       const product = await client.product.findFirst({
         where: { id: quoteRecord.productId, enabled: true },
       })
@@ -404,7 +408,7 @@ export async function newOrder(
         if (!wallet || wallet.balance < balanceAmount)
           throw new ApiError(409, '钱包余额不足，请先充值或选择其他支付方式')
       }
-      const stock = await availableInventory(client, quoteRecord.productId)
+      const stock = await reserveInventory(client, quoteRecord.productId)
       if (!stock) throw new ApiError(409, '此套餐暂时缺货，请稍后再试')
       const checked = await preflight(
         openCredential(stock.code, 'inventory', stock.id),
@@ -417,10 +421,6 @@ export async function newOrder(
       validateFulfillment(checked, quoteRecord)
       if (Date.parse(quoteRecord.expiresAt) <= Date.now())
         throw new ApiError(409, '报价已过期，请重新检查账号')
-      await client.inventory.update({
-        where: { id: stock.id },
-        data: { status: 'reserved', reservedUntil: null },
-      })
       await client.quote.update({
         where: { id: quoteRecord.id },
         data: {
@@ -528,7 +528,13 @@ export async function cancelOrder(user: User | null, browser: string, orderId: s
     await client.order.update({ where: { id: order.id }, data: { status: 'cancelled' } })
     if (order.quoteId) {
       await client.inventory.updateMany({
-        where: { quotes: { some: { id: order.quoteId } } },
+        where: {
+          status: 'reserved',
+          quotes: {
+            some: { id: order.quoteId },
+            none: { order: { status: { not: 'cancelled' } } },
+          },
+        },
         data: { status: 'available', reservedUntil: null },
       })
       await client.quote.updateMany({
