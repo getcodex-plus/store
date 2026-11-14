@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { readFile } from 'node:fs/promises'
 
 vi.hoisted(() => {
   if (process.env.TEST_DATABASE_URL) {
@@ -46,11 +47,16 @@ suite('Prisma schema, clock, seeding and worker invariants', () => {
   it('seeds missing records without overwriting prices, configuration or role changes', async () => {
     await transaction(seedDatabase)
     const original = await db.setting.findUniqueOrThrow({ where: { id: 1 } })
+    expect((original.body as Prisma.JsonObject).firstOrderOnly).toBe(false)
     await db.product.update({ where: { id: 'plus' }, data: { price: 43210 } })
     await db.setting.update({
       where: { id: 1 },
       data: {
-        body: { ...(original.body as Prisma.JsonObject), supportEmail: 'owner@example.com' },
+        body: {
+          ...(original.body as Prisma.JsonObject),
+          supportEmail: 'owner@example.com',
+          firstOrderOnly: true,
+        },
       },
     })
     await db.role.update({ where: { id: 'support' }, data: { name: 'Custom support' } })
@@ -61,6 +67,46 @@ suite('Prisma schema, clock, seeding and worker invariants', () => {
     expect((await db.role.findUniqueOrThrow({ where: { id: 'support' } })).name).toBe(
       'Custom support',
     )
+  })
+
+  it('migrates existing referral settings while preserving other settings and order snapshots', async () => {
+    const before = await db.setting.findUniqueOrThrow({ where: { id: 1 } })
+    expect((before.body as Prisma.JsonObject).firstOrderOnly).toBe(true)
+    const buyer = userView(
+      await db.user.create({
+        data: { id: id('u_'), email: `${id()}@example.com`, referralCode: id() },
+      }),
+    )
+    const order = await newOrder(buyer, id(), {
+      amount: 1000,
+      channel: 'alipay',
+      requestKey: id(),
+    })
+    expect(order.firstOrderOnly).toBe(true)
+    const migration = await readFile(
+      new URL(
+        '../../prisma/migrations/20261114010000_recurring_referral_rewards/migration.sql',
+        import.meta.url,
+      ),
+      'utf8',
+    )
+    // The migration is repository-owned SQL; replay also verifies idempotence.
+    await db.$executeRawUnsafe(migration)
+    await db.$executeRawUnsafe(migration)
+    expect((await db.setting.findUniqueOrThrow({ where: { id: 1 } })).body).toEqual({
+      ...(before.body as Prisma.JsonObject),
+      firstOrderOnly: false,
+    })
+    expect((await db.order.findUniqueOrThrow({ where: { id: order.id } })).firstOrderOnly).toBe(
+      true,
+    )
+    const next = await newOrder(buyer, id(), {
+      amount: 1000,
+      channel: 'alipay',
+      requestKey: id(),
+    })
+    expect(next.firstOrderOnly).toBe(false)
+    await db.emailOutbox.deleteMany({ where: { orderId: { in: [order.id, next.id] } } })
   })
 
   it('keeps partial account uniqueness without treating every provider as one-to-one', async () => {

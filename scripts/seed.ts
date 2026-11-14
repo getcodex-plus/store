@@ -106,7 +106,7 @@ export async function seedDatabase(client: DbClient) {
           withdrawalChannels: defaultWithdrawalChannels,
           settlementDays: 7,
           minimumWithdrawal: 5000,
-          firstOrderOnly: true,
+          firstOrderOnly: false,
           supportEmail: '',
           alipay: true,
           wechat: true,

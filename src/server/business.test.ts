@@ -740,6 +740,59 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
       ).rows[0].n,
     ).toBe(0)
   })
+  it.each(['guest', 'registered'] as const)(
+    'rewards every repeat %s order once using its saved policy without inflating invite counts',
+    async (kind) => {
+      const owner = await fixtureUser(`${id()}@example.com`)
+      const contactEmail = `${id()}@guest.example.com`
+      const rechargeEmail = `${id()}@recharge.example.com`
+      const buyer = kind === 'registered' ? await fixtureUser(contactEmail, owner.id) : null
+      const previous = (await db.setting.findUniqueOrThrow({ where: { id: 1 } })).body
+      try {
+        await testQuery(
+          Prisma.sql`UPDATE settings SET body=jsonb_set(body,'{firstOrderOnly}','false') WHERE id=1`,
+        )
+        const orders = []
+        for (let i = 0; i < 2; i++) {
+          const order = await newOrder(buyer, browser, {
+            quoteId: await quote(rechargeEmail),
+            channel: 'alipay',
+            requestKey: id(),
+            contactEmail,
+            ...(buyer ? {} : { referralCode: owner.referralCode }),
+          })
+          expect(order.firstOrderOnly).toBe(false)
+          await acceptPayment('xorpay', null, {
+            orderId: order.id,
+            transactionId: id(),
+            amount: order.amount,
+            paid: true,
+          })
+          orders.push(order)
+        }
+        // A subsequent settings change must not alter these orders' eligibility.
+        await testQuery(
+          Prisma.sql`UPDATE settings SET body=jsonb_set(body,'{firstOrderOnly}','true') WHERE id=1`,
+        )
+        await Promise.all(
+          orders.flatMap((order) => [completeOrder(order.id), completeOrder(order.id)]),
+        )
+        const commissions = await db.commission.findMany({ where: { userId: owner.id } })
+        expect(commissions).toHaveLength(2)
+        expect(new Set(commissions.map((entry) => entry.orderId))).toEqual(
+          new Set(orders.map((order) => order.id)),
+        )
+        expect(commissions.every((entry) => entry.amount === 180)).toBe(true)
+        await db.commission.updateMany({
+          where: { userId: owner.id },
+          data: { status: 'available' },
+        })
+        expect((await account(owner)).referral.qualifiedInvites).toBe(1)
+      } finally {
+        await testQuery(Prisma.sql`UPDATE settings SET body=${JSON.stringify(previous)} WHERE id=1`)
+      }
+    },
+  )
   async function referralOrder(owner: User, contactEmail = `${id()}@guest.example.com`) {
     const order = await newOrder(null, browser, {
       quoteId: await quote(`${id()}@recharge.example.com`),

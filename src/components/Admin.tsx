@@ -1152,6 +1152,7 @@ export function Admin() {
                       <Form.Item
                         name="firstOrderOnly"
                         label="仅首笔成功交付订单返现"
+                        extra="默认关闭，好友每笔符合条件的订单均返现；修改仅影响新订单。"
                         valuePropName="checked"
                       >
                         <Switch />

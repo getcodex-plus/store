@@ -608,7 +608,7 @@ export function Account({ section }: { section: 'orders' | 'wallet' | 'referral'
                 <p>
                   {data.settings.firstOrderOnly
                     ? '仅好友首笔成功交付的套餐订单参与返现。'
-                    : '符合条件的成功交付套餐订单均参与返现。'}
+                    : '好友每笔符合条件的成功交付套餐订单均参与返现，复购也有奖励。'}
                   按下单时邀请等级对应比例计算（当前 {account.referral.current.rateBps / 100}
                   %），结算期为 {data.settings.settlementDays}{' '}
                   天。各提现渠道的最低起提金额与手续费以申请表展示为准。
