@@ -17,6 +17,36 @@ export async function sendEmail(to: string, subject: string, text: string, reque
     settingsData((await db.setting.findUniqueOrThrow({ where: { id: 1 } })).body).emailProvider ||
     'resend'
   const config = await integration(provider)
+  if (provider === 'sendflare') {
+    // Sendflare's API does not document an idempotency key; outbox retries may duplicate mail.
+    try {
+      const response = await fetch('https://api.sendflare.com/v1/send', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${config.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ from: config.from, to, subject, body: text }),
+        signal: AbortSignal.timeout(15000),
+        redirect: 'error',
+        cache: 'no-store',
+      })
+      if (!response.ok) throw new Error('Sendflare HTTP failure')
+      const result: unknown = await response.json()
+      if (
+        !result ||
+        typeof result !== 'object' ||
+        !('success' in result) ||
+        result.success !== true ||
+        !('code' in result) ||
+        result.code !== 0
+      )
+        throw new Error('Sendflare delivery rejected')
+    } catch {
+      throw new ApiError(503, '邮件暂时未能发送，请稍后重试')
+    }
+    return
+  }
   if (provider === 'resend') {
     const { data, error } = await new Resend(config.apiKey).emails.send(
       { from: config.from, to: [to], subject, text },

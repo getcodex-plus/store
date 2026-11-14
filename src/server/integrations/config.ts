@@ -13,6 +13,7 @@ export const providers = [
   'aicdk',
   'smtp',
   'resend',
+  'sendflare',
   'turnstile',
 ] as const
 export type IntegrationKind = (typeof providers)[number]
@@ -32,6 +33,7 @@ const publicKeys: Record<IntegrationKind, string[]> = {
   aicdk: ['url'],
   smtp: ['host', 'port', 'user', 'from'],
   resend: ['from'],
+  sendflare: ['from'],
   turnstile: ['siteKey', 'login', 'purchase'],
 }
 const secretKeys: Record<IntegrationKind, string[]> = {
@@ -42,6 +44,7 @@ const secretKeys: Record<IntegrationKind, string[]> = {
   aicdk: ['apiKey'],
   smtp: ['password'],
   resend: ['apiKey'],
+  sendflare: ['apiKey'],
   turnstile: ['secret'],
 }
 export async function integration(

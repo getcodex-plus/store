@@ -57,7 +57,7 @@ export function settingsData(value: Prisma.JsonValue): Settings {
       wechat: z.boolean(),
       crypto: z.boolean(),
       fiatProvider: z.enum(['xorpay', 'epay_v1', 'epay_v2']),
-      emailProvider: z.enum(['smtp', 'resend']).default('resend'),
+      emailProvider: z.enum(['smtp', 'resend', 'sendflare']).default('resend'),
     })
     .passthrough()
     .parse(value) as Settings

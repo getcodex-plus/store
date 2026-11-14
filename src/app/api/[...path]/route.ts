@@ -380,7 +380,7 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
             wechat: z.boolean(),
             crypto: z.boolean(),
             fiatProvider: z.enum(['xorpay', 'epay', 'epay_v1', 'epay_v2']),
-            emailProvider: z.enum(['smtp', 'resend']),
+            emailProvider: z.enum(['smtp', 'resend', 'sendflare']),
             paymentLimits: z.object({
               alipay: limitSchema,
               wechat: limitSchema,

@@ -118,6 +118,7 @@ const providerNames: Record<IntegrationKind, string> = {
   aicdk: 'AICDK 兑换服务',
   smtp: 'SMTP 邮件',
   resend: 'Resend 邮件',
+  sendflare: 'Sendflare 邮件',
   turnstile: 'Cloudflare Turnstile',
 }
 const publicFields: Record<IntegrationKind, [string, string, string][]> = {
@@ -142,6 +143,7 @@ const publicFields: Record<IntegrationKind, [string, string, string][]> = {
     ['from', '发件地址', 'GetCodex Plus <hello@example.com>'],
   ],
   resend: [['from', '发件地址', 'GetCodex Plus <hello@example.com>']],
+  sendflare: [['from', '发件地址', 'hello@example.com']],
   turnstile: [['siteKey', 'Site Key', 'Cloudflare 站点密钥']],
 }
 const secretFields: Record<IntegrationKind, [string, string][]> = {
@@ -155,6 +157,7 @@ const secretFields: Record<IntegrationKind, [string, string][]> = {
   aicdk: [['apiKey', '开放 API Key']],
   smtp: [['password', 'SMTP 密码 / 授权码']],
   resend: [['apiKey', 'Resend API Key']],
+  sendflare: [['apiKey', 'Sendflare API Key']],
   turnstile: [['secret', 'Secret Key']],
 }
 
@@ -1496,10 +1499,11 @@ export function Admin() {
                       提现后，至少启用一个网络。前台仅展示已启用的网络，打款时须按申请记录核对链与资产。
                     </p>
                     <h3>付款方式</h3>
-                    <Form.Item name="emailProvider" label="验证码邮件服务">
+                    <Form.Item name="emailProvider" label="邮件服务（验证码与订单通知）">
                       <Select
                         options={[
                           { value: 'resend', label: 'Resend' },
+                          { value: 'sendflare', label: 'Sendflare' },
                           { value: 'smtp', label: 'SMTP' },
                         ]}
                       />

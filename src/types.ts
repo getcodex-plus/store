@@ -151,7 +151,7 @@ export interface Settings {
   crypto: boolean
   fiatProvider: 'xorpay' | 'epay_v1' | 'epay_v2'
   epayVersion?: 'epay_v1' | 'epay_v2'
-  emailProvider: 'smtp' | 'resend'
+  emailProvider: 'smtp' | 'resend' | 'sendflare'
   paymentLimits?: Partial<Record<Exclude<Channel, 'balance'>, { min: number; max: number }>>
   upgradePricing?: PricingRules & {
     fxMode?: 'manual' | 'auto'

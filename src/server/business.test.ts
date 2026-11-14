@@ -34,7 +34,7 @@ import { demoSession } from '../lib'
 import { analyticsVisitor, recordView } from './funnel'
 import { authorize, permissionsFor } from './rbac'
 import type { Order, User } from '../types'
-import { integration, saveIntegration } from './integrations/config'
+import { integration, integrationViews, saveIntegration } from './integrations/config'
 import {
   exchangeRate,
   exchangeSources,
@@ -472,6 +472,29 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
       vi.unstubAllGlobals()
     }
   })
+  it('stores Sendflare credentials privately and preserves the key on blank updates', async () => {
+    const input = {
+      provider: 'sendflare' as const,
+      enabled: true,
+      public: { from: 'hello@example.com' },
+      secrets: {},
+    }
+    await expect(saveIntegration(input, user.id)).rejects.toThrow('请先填写完整配置再启用')
+    await saveIntegration({ ...input, secrets: { apiKey: 'sendflare-test-key' } }, user.id)
+    const first = await integration('sendflare')
+    const stored = await db.integration.findUniqueOrThrow({ where: { id: first.id } })
+    expect(stored.secret).not.toContain('sendflare-test-key')
+    const view = (await integrationViews()).find((entry) => entry.provider === 'sendflare')
+    expect(view).toMatchObject({ public: input.public, secrets: ['apiKey'], enabled: true })
+    expect(JSON.stringify(view)).not.toContain('sendflare-test-key')
+    await saveIntegration({ ...input, secrets: { apiKey: '' } }, user.id)
+    const updated = await integration('sendflare')
+    expect(updated.id).not.toBe(first.id)
+    expect(updated.apiKey).toBe('sendflare-test-key')
+    await saveIntegration({ ...input, enabled: false }, user.id)
+    await expect(integration('sendflare')).rejects.toThrow('该服务尚未启用')
+  })
+
   it('selects EPay protocol atomically while preserving historical configuration and isolating secrets', async () => {
     const previous = (await testQuery(Prisma.sql`SELECT body FROM settings WHERE id=1`)).rows[0]
       .body
