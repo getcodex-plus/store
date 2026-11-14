@@ -4,19 +4,25 @@ import { refundSummary } from '../../../product-copy'
 import { Support } from '../../../components/Support'
 
 export const metadata = pageMetadata(
-  '付款、到账与退款｜订单问题帮助',
+  'ChatGPT 充值未到账怎么办｜付款、查单与退款',
   '付款成功但 ChatGPT 尚未到账、订单需要更新账号信息、游客如何查单及钱包退款说明。',
   '/help/payment',
 )
 export default function PaymentHelp() {
   return (
     <main className="container prose-page">
-      <h1>付款、到账与退款</h1>
+      <h1>ChatGPT 充值未到账：付款、查单与退款说明</h1>
       <p className="lead">先查看原订单状态，避免重复下单或重复付款。</p>
       <h2>付款成功，为什么还没有到账？</h2>
       <p>
         收到付款与完成充值是两个步骤。订单显示“正在充值”时，表示收款已确认、交付尚在处理；只有“充值完成”表示已确认交付。支付后跳回本站不等于已到账。
       </p>
+      <ol>
+        <li>回到原订单，核对充值账号、套餐和当前状态，不要重新付款。</li>
+        <li>仍显示未付款但支付账户已经扣款时，联系支持核对收款结果。</li>
+        <li>显示正在充值时，在原订单跟踪进度；提示更新账号信息时按原订单指引处理。</li>
+        <li>显示充值完成后，登录同一充值账号核对订阅信息；不一致时保留订单并联系支持。</li>
+      </ol>
       <h2>订单提示需要更新账号信息</h2>
       <p>
         请在原订单中提交同一充值账号的新信息。原订单金额保持不变，不需要另买一个套餐；账号邮箱不一致时无法继续。

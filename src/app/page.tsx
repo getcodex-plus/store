@@ -10,7 +10,7 @@ import { exchangeRate } from '../server/exchange-rates'
 import { officialPriceComparison } from '../official-prices'
 export const dynamic = 'force-dynamic'
 export const metadata = pageMetadata(
-  'ChatGPT 充值与升级｜套餐与价格',
+  'ChatGPT Plus / Pro 充值与升级｜套餐价格',
   '查看 ChatGPT 充值套餐、服务说明与升级流程。为自己的账号充值，游客无需注册，先检查账号和最终价格，再付款并跟踪订单。',
   '/',
 )
@@ -207,7 +207,7 @@ export default async function Home() {
       <section className="container faq-section">
         <div>
           <div className="eyebrow">购买前，了解清楚</div>
-          <h2>把疑问留在付款前。</h2>
+          <h2>ChatGPT 充值常见问题</h2>
           <p className="muted">账号、交付和售后，你关心的事在这里。</p>
           <Link href="/help/payment" className="text-link">
             查看完整售后说明 →

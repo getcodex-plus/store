@@ -4,7 +4,7 @@ import { notFound } from 'next/navigation'
 import { products } from '../../../server/services'
 import { money } from '../../../lib'
 import { pageMetadata, siteOrigin } from '../../../seo'
-import { refundSummary } from '../../../product-copy'
+import { planBuyingAdvice, refundSummary } from '../../../product-copy'
 import { Support } from '../../../components/Support'
 import { JsonLd } from '../../../components/JsonLd'
 import { FunnelView } from '../../../components/FunnelView'
@@ -26,6 +26,7 @@ export default async function Plan({ params }: { params: Promise<{ id: string }>
   const product = await getProduct(id)
   if (!product) notFound()
   const url = `${siteOrigin()}/plans/${id}`
+  const advice = planBuyingAdvice[product.plan]
   return (
     <main className="container prose-page">
       <FunnelView event="plan_view" productId={id} />
@@ -59,11 +60,16 @@ export default async function Plan({ params }: { params: Promise<{ id: string }>
             : {}),
         }}
       />
-      <Link href="/compare" className="text-link">
-        ← 比较全部套餐
-      </Link>
+      <nav aria-label="面包屑">
+        <Link href="/">套餐与升级</Link>
+        {' / '}
+        <span aria-current="page">{product.name}</span>
+      </nav>
       <div className="eyebrow mt-32">YOUR NEXT UPGRADE</div>
-      <h1>{product.name}</h1>
+      <h1>
+        {product.name}
+        {product.upgrade ? '：升级条件与报价' : '充值：价格与服务说明'}
+      </h1>
       <p className="lead">{product.description}</p>
       <div className="detail-price">
         {product.upgrade
@@ -83,9 +89,33 @@ export default async function Plan({ params }: { params: Promise<{ id: string }>
           <li key={f}>{f}</li>
         ))}
       </ul>
+      {advice && (
+        <>
+          <h2>{product.name} 适合谁？</h2>
+          <p>{advice.audience}</p>
+          <p>{advice.consideration}</p>
+          <p>
+            <Link href="/compare">比较 ChatGPT Go、Plus 与 Pro 的套餐内容和价格 →</Link>
+          </p>
+        </>
+      )}
+      <h2>本次费用与订阅期限如何确认？</h2>
+      <p>
+        {product.upgrade
+          ? '升级金额根据当前账号检查结果确定，不能直接用两个普通充值套餐的售价相减。检查通过后，核对目标套餐、最终总价和报价有效时间。'
+          : '页面金额为本站该商品的本次充值价格，付款前仍需检查账号适用性并核对订单金额。价格更新中时，请等待可用价格后再确认购买。'}
+      </p>
+      <p>
+        订阅期限与交付内容以本商品说明和付款前确认的信息为准。如说明中未明确期限，或你已有订阅但不确定如何处理，
+        请先联系支持确认。本站服务不提供共享账号。
+      </p>
       <h2>哪些账号可以购买？</h2>
       <p>
         服务充值至你有权使用的个人账号，不提供共享账号。已有订阅、登录方式或账号状态可能影响适用性，以本次账号检查结果为准。
+      </p>
+      <p>
+        已有订阅需要变更套餐时，请先阅读<Link href="/upgrade">ChatGPT 订阅升级条件与报价流程</Link>
+        。
       </p>
       <p>
         {product.upgrade

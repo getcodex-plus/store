@@ -544,9 +544,10 @@ export function SiteHeader() {
     </>
   )
 }
-export function SiteFooter() {
+export function SiteFooter({ supportEmail }: { supportEmail: string }) {
   const path = usePathname()
   const { data } = useSite()
+  const email = data?.settings.supportEmail ?? supportEmail
   if (path.startsWith('/admin')) return null
   return (
     <footer className="site-footer">
@@ -561,9 +562,7 @@ export function SiteFooter() {
           <Link href="/upgrade">订阅升级</Link>
           <Link href="/guide">使用指南</Link>
           <Link href="/help/payment">到账与退款</Link>
-          {data?.settings.supportEmail && (
-            <a href={`mailto:${data.settings.supportEmail}`}>联系支持</a>
-          )}
+          {email && <a href={`mailto:${email}`}>联系支持</a>}
           <Link href="/wallet">我的钱包</Link>
           <Link href="/privacy">隐私说明</Link>
           <Link href="/terms">服务说明</Link>

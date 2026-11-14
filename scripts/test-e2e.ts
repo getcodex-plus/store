@@ -22,6 +22,7 @@ Object.assign(process.env, {
 })
 const { db, createDatabase, Prisma } = await import('../src/server/db')
 const { seedDatabase } = await import('./seed')
+const { jsonInput, settingsData } = await import('../src/server/data')
 const adminURL = new URL(connection)
 adminURL.searchParams.set('schema', 'public')
 const admin = createDatabase(adminURL.toString())
@@ -58,6 +59,17 @@ try {
     'prisma7.config.ts',
   ])
   await db.$transaction(seedDatabase)
+  const settings = await db.setting.findUniqueOrThrow({ where: { id: 1 } })
+  await db.setting.update({
+    where: { id: 1 },
+    data: {
+      body: jsonInput({
+        ...settingsData(settings.body),
+        supportEmail: 'support@example.com',
+        sessionGuideUrl: 'https://support.example.com/account-guide',
+      }),
+    },
+  })
   // Deterministic test fixtures, never production seed data or live market rates.
   const now = new Date()
   await db.exchangeRate.updateMany({

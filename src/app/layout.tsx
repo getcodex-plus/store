@@ -5,6 +5,7 @@ import { Providers } from '../components/Providers'
 import { SiteHeader, SiteFooter } from '../components/Site'
 import './globals.css'
 import { siteOrigin } from '../seo'
+import { publicSupport } from '../server/public-support'
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteOrigin()),
@@ -32,6 +33,7 @@ export const metadata: Metadata = {
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   // Dynamic rendering is required: a cached document must not reuse a CSP nonce.
   const nonce = (await headers()).get('x-nonce') || undefined
+  const { supportEmail } = await publicSupport()
 
   return (
     <html lang="zh-CN" data-scroll-behavior="smooth">
@@ -40,7 +42,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <Providers nonce={nonce}>
             <SiteHeader />
             {children}
-            <SiteFooter />
+            <SiteFooter supportEmail={supportEmail} />
           </Providers>
         </AntdRegistry>
       </body>

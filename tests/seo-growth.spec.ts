@@ -1,17 +1,38 @@
 import { test, expect } from '@playwright/test'
 const testOrigin = process.env.E2E_BASE_URL || 'http://localhost:3000'
 
+test('public contact and account guide are present without JavaScript or API requests', async ({
+  request,
+}) => {
+  for (const path of ['/', '/guide', '/compare', '/upgrade', '/plans/plus', '/help/payment']) {
+    const response = await request.get(path)
+    expect(response.status()).toBe(200)
+    // Exclude serialized RSC data: the links must be actual rendered markup.
+    const html = (await response.text()).replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
+    expect(html).toContain('href="mailto:support@example.com"')
+    expect(html).not.toContain('正在加载支持联系方式')
+    if (path === '/guide')
+      expect(html).toContain('href="https://support.example.com/account-guide"')
+  }
+})
+
 test('public discovery pages contain readable content, crawlable tier links and distinct metadata', async ({
   request,
   page,
 }) => {
+  const titles = new Set<string>()
   for (const path of ['/compare', '/upgrade', '/help/payment', '/plans/plus', '/guide']) {
     const response = await request.get(path)
     expect(response.status()).toBe(200)
     const html = await response.text()
     expect(html).toContain(`rel="canonical" href="${testOrigin}${path}"`)
     expect(html).toContain('property="og:title"')
+    const title = html.match(/<title>(.*?)<\/title>/)?.[1]
+    expect(title).toContain('ChatGPT')
+    titles.add(title!)
+    expect(html).toContain('name="robots" content="noindex, nofollow"')
   }
+  expect(titles.size).toBe(5)
   const html = await (await request.get('/compare')).text()
   for (const id of ['plus', 'pro100', 'pro200', 'pro500'])
     expect(html).toContain(`href="/plans/${id}"`)
@@ -24,6 +45,11 @@ test('public discovery pages contain readable content, crawlable tier links and 
   const og = await request.get('/opengraph-image')
   expect(og.status()).toBe(200)
   expect(og.headers()['content-type']).toContain('image/png')
+  expect((await request.get('/plans/nonexistent-seo-check')).status()).toBe(404)
+  for (const path of ['/checkout', '/account', '/wallet', '/admin', '/security', '/referral']) {
+    const html = await (await request.get(path)).text()
+    expect(html).toContain('name="robots" content="noindex, nofollow"')
+  }
 })
 
 test('analytics rejects forged payment events and sensitive extra fields', async ({ request }) => {
