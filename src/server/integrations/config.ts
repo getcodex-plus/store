@@ -107,7 +107,7 @@ export async function saveIntegration(input: z.infer<typeof integrationSchema>, 
       } catch {
         throw new ApiError(400, '服务地址格式不正确')
       }
-      const protocols = input.provider === 'aicdk' ? ['http:', 'https:'] : ['https:']
+      const protocols = ['http:', 'https:']
       if (
         !protocols.includes(url.protocol) ||
         url.username ||
@@ -119,7 +119,7 @@ export async function saveIntegration(input: z.infer<typeof integrationSchema>, 
           400,
           input.provider === 'aicdk'
             ? 'AICDK 地址需为 HTTP 或 HTTPS，不含登录信息、查询参数或片段'
-            : '支付网关地址需为 HTTPS，不含登录信息、查询参数或片段',
+            : '支付网关地址需为 HTTP 或 HTTPS，不含登录信息、查询参数或片段',
         )
       }
     }

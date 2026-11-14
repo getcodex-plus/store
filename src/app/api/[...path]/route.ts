@@ -355,9 +355,11 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
                   .refine(
                     (value) => {
                       const url = new URL(value)
-                      return url.protocol === 'https:' && !url.username && !url.password
+                      return (
+                        ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password
+                      )
                     },
-                    { message: '操作指引必须是无登录凭据的 HTTPS 地址' },
+                    { message: '操作指引必须是无登录凭据的 HTTP 或 HTTPS 地址' },
                   ),
               ])
               .default(''),

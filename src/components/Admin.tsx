@@ -1586,10 +1586,10 @@ export function Admin() {
                     </Form.Item>
                     <Form.Item
                       name="sessionGuideUrl"
-                      label="账号信息操作指引（HTTPS）"
-                      extra="填写已验证可用的指引地址，将展示在新手指南与结算页。请勿填写包含账号信息或访问凭据的地址。"
+                      label="账号信息操作指引"
+                      extra="支持 HTTP 和 HTTPS 地址，将展示在新手指南与结算页。请勿填写包含账号信息或访问凭据的地址。"
                     >
-                      <Input type="url" placeholder="https://…" maxLength={2048} />
+                      <Input type="url" placeholder="http:// 或 https://…" maxLength={2048} />
                     </Form.Item>
                     <Button htmlType="submit" type="primary" loading={busy}>
                       保存设置

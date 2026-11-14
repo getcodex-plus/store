@@ -34,7 +34,7 @@ export interface Receipt {
 }
 const origin = (value: string) => {
   const url = value.replace(/\/$/, '')
-  if (!url.startsWith('https://')) throw new ApiError(503, '支付网关地址必须使用 HTTPS')
+  if (!/^https?:\/\//i.test(url)) throw new ApiError(503, '支付网关地址需使用 HTTP 或 HTTPS')
   return url
 }
 async function post(url: string, fields: Record<string, string>) {
