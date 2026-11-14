@@ -8,14 +8,14 @@ import {
 
 describe('invitation levels and withdrawal policy', () => {
   it.each([
-    [0, 300, 5],
-    [4, 300, 1],
-    [5, 500, 15],
-    [19, 500, 1],
-    [20, 700, 30],
-    [49, 700, 1],
-    [50, 900, 0],
-    [500, 900, 0],
+    [0, 200, 5],
+    [4, 200, 1],
+    [5, 300, 15],
+    [19, 300, 1],
+    [20, 400, 30],
+    [49, 400, 1],
+    [50, 500, 0],
+    [500, 500, 0],
   ])('uses the correct tier at %i qualified referrals', (count, rate, remaining) => {
     const result = referralProgress(count, {})
     expect(result.current.rateBps).toBe(rate)

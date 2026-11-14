@@ -16,7 +16,17 @@ import { databaseNow, claimJob, claimEmail } from './database-sql'
 import { seedDatabase } from '../../scripts/seed'
 import { id } from './crypto'
 import { userView } from './data'
-import { newOrder } from './services'
+import { completeOrder, newOrder } from './services'
+import { defaultReferralTiers } from '../referral'
+
+const lowerReferralRatesMigration = () =>
+  readFile(
+    new URL(
+      '../../prisma/migrations/20261114030000_lower_referral_rates/migration.sql',
+      import.meta.url,
+    ),
+    'utf8',
+  )
 
 const suite = process.env.TEST_DATABASE_URL ? describe : describe.skip
 suite('Prisma schema, clock, seeding and worker invariants', () => {
@@ -62,6 +72,8 @@ suite('Prisma schema, clock, seeding and worker invariants', () => {
     await transaction(seedDatabase)
     const original = await db.setting.findUniqueOrThrow({ where: { id: 1 } })
     expect((original.body as Prisma.JsonObject).firstOrderOnly).toBe(false)
+    expect((original.body as Prisma.JsonObject).referralTiers).toEqual(defaultReferralTiers)
+    expect((original.body as Prisma.JsonObject).rateBps).toBe(200)
     await db.product.update({ where: { id: 'plus' }, data: { price: 43210 } })
     await db.setting.update({
       where: { id: 1 },
@@ -139,6 +151,117 @@ suite('Prisma schema, clock, seeding and worker invariants', () => {
     ).rejects.toMatchObject({ code: 'P2002' })
     expect(await db.authAccount.count({ where: { userId: user.id } })).toBe(2)
   })
+
+  it('lowers default rates without changing tier metadata, saved orders or earned commissions', async () => {
+    const original = (await db.setting.findUniqueOrThrow({ where: { id: 1 } }))
+      .body as Prisma.JsonObject
+    const tiers = defaultReferralTiers.map((tier, index) => ({
+      ...tier,
+      name: `自定义名称${index}`,
+      minimumInvites: index * 10,
+      rateBps: [300, 500, 700, 900][index],
+    }))
+    const owner = await db.user.create({
+      data: { id: id('u_'), email: `${id()}@example.com`, referralCode: id() },
+    })
+    const orderData = {
+      productName: 'Historical purchase',
+      email: `${id()}@example.com`,
+      amount: 10000,
+      externalAmount: 10000,
+      channel: 'alipay',
+      provider: 'xorpay',
+      rateBps: 900,
+      settlementDays: 7,
+      firstOrderOnly: false,
+      inviterId: owner.id,
+    }
+    const unpaid = await db.order.create({
+      data: { ...orderData, id: id('o_'), status: 'unpaid' },
+    })
+    const processing = await db.order.create({
+      data: { ...orderData, id: id('o_'), status: 'processing' },
+    })
+    const completed = await db.order.create({
+      data: {
+        ...orderData,
+        id: id('o_'),
+        status: 'completed',
+        commission: {
+          create: {
+            id: id('c_'),
+            userId: owner.id,
+            amount: 900,
+            status: 'available',
+            availableAt: new Date(),
+          },
+        },
+      },
+      include: { commission: true },
+    })
+    try {
+      const before = { ...original, rateBps: 300, referralTiers: tiers }
+      await db.setting.update({ where: { id: 1 }, data: { body: before } })
+      const migration = await lowerReferralRatesMigration()
+      await db.$executeRawUnsafe(migration)
+      await db.$executeRawUnsafe(migration)
+      expect((await db.setting.findUniqueOrThrow({ where: { id: 1 } })).body).toEqual({
+        ...before,
+        rateBps: 200,
+        referralTiers: tiers.map((tier, index) => ({
+          ...tier,
+          rateBps: [200, 300, 400, 500][index],
+        })),
+      })
+      expect(await db.order.findUniqueOrThrow({ where: { id: unpaid.id } })).toEqual(unpaid)
+      expect(
+        await db.order.findUniqueOrThrow({
+          where: { id: completed.id },
+          include: { commission: true },
+        }),
+      ).toEqual(completed)
+      await completeOrder(processing.id)
+      expect(
+        await db.commission.findUniqueOrThrow({ where: { orderId: processing.id } }),
+      ).toMatchObject({ amount: 900, status: 'pending' })
+      const next = await newOrder(userView(owner), id(), {
+        amount: 1000,
+        channel: 'alipay',
+        requestKey: id(),
+      })
+      expect(next.rateBps).toBe(200)
+      await db.emailOutbox.deleteMany({ where: { orderId: next.id } })
+    } finally {
+      await db.setting.update({ where: { id: 1 }, data: { body: original } })
+    }
+  })
+
+  it.each(['missing', 'null', 'custom'] as const)(
+    'handles %s referral tiers during the rate migration',
+    async (kind) => {
+      const original = (await db.setting.findUniqueOrThrow({ where: { id: 1 } }))
+        .body as Prisma.JsonObject
+      const before: Prisma.JsonObject = { ...original, rateBps: 300 }
+      delete before.referralTiers
+      if (kind === 'null') before.referralTiers = null
+      if (kind === 'custom')
+        before.referralTiers = defaultReferralTiers.map((tier, index) => ({
+          ...tier,
+          rateBps: [300, 400, 600, 800][index],
+        }))
+      try {
+        await db.setting.update({ where: { id: 1 }, data: { body: before } })
+        await db.$executeRawUnsafe(await lowerReferralRatesMigration())
+        expect((await db.setting.findUniqueOrThrow({ where: { id: 1 } })).body).toEqual(
+          kind === 'custom'
+            ? before
+            : { ...before, rateBps: 200, referralTiers: defaultReferralTiers },
+        )
+      } finally {
+        await db.setting.update({ where: { id: 1 }, data: { body: original } })
+      }
+    },
+  )
 
   it('leases jobs and outbox entries once under competing worker connections, then recovers an expired lease', async () => {
     const user = userView(

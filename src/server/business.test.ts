@@ -89,7 +89,11 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
     await testQuery(
       Prisma.sql`INSERT INTO settings(id,body) VALUES(1,${JSON.stringify({
         rateBps: 300,
-        referralTiers: defaultReferralTiers,
+        // Explicit custom rates keep payout and fee-rounding fixtures independent of defaults.
+        referralTiers: defaultReferralTiers.map((tier, index) => ({
+          ...tier,
+          rateBps: [300, 500, 700, 900][index],
+        })),
         settlementDays: 0,
         minimumWithdrawal: 100,
         firstOrderOnly: true,
@@ -807,6 +811,25 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
     await completeOrder(order.id)
     return order
   }
+  it('applies the new default rate to purchases and their commissions', async () => {
+    const previous = (await db.setting.findUniqueOrThrow({ where: { id: 1 } })).body
+    try {
+      await testQuery(
+        Prisma.sql`UPDATE settings SET body=body||${JSON.stringify({
+          rateBps: defaultReferralTiers[0].rateBps,
+          referralTiers: defaultReferralTiers,
+        })}::jsonb WHERE id=1`,
+      )
+      const owner = await fixtureUser(`${id()}@example.com`)
+      const order = await referralOrder(owner)
+      expect(order.rateBps).toBe(200)
+      expect(await db.commission.findUniqueOrThrow({ where: { orderId: order.id } })).toMatchObject(
+        { amount: 120, status: 'pending' },
+      )
+    } finally {
+      await testQuery(Prisma.sql`UPDATE settings SET body=${JSON.stringify(previous)} WHERE id=1`)
+    }
+  })
   it('counts settled guest referrals, locks tier rates on creation and recalculates after reversals', async () => {
     const owner = await fixtureUser(`${id()}@example.com`)
     const delivered = []

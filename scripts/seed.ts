@@ -101,7 +101,7 @@ export async function seedDatabase(client: DbClient) {
       {
         id: 1,
         body: jsonInput({
-          rateBps: 300,
+          rateBps: defaultReferralTiers[0].rateBps,
           referralTiers: defaultReferralTiers,
           withdrawalChannels: defaultWithdrawalChannels,
           settlementDays: 7,

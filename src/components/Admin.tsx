@@ -1092,8 +1092,9 @@ export function Admin() {
                   >
                     <h3>邀请返现</h3>
                     <p className="muted">
-                      按已结算订单的联系邮箱去重统计有效邀请，游客也计入。默认返现为 3% / 5% / 7% /
-                      9%，最高 9%。 调整只影响新订单，已有订单保留原比例。
+                      按已结算订单的联系邮箱去重统计有效邀请，游客也计入。默认返现为{' '}
+                      {defaultReferralTiers.map((tier) => `${tier.rateBps / 100}%`).join(' / ')}
+                      ，后台可配置至 9%。调整只影响新订单，已有订单保留原比例。
                     </p>
                     <Form.List name="tierRules">
                       {(fields) =>

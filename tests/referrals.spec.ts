@@ -19,7 +19,7 @@ async function fixture(page: Page, available = 35000, settings: Partial<Settings
     products: [],
     turnstile: { siteKey: '', login: false, purchase: false },
     settings: {
-      rateBps: 300,
+      rateBps: defaultReferralTiers[0].rateBps,
       referralTiers: defaultReferralTiers,
       settlementDays: 7,
       minimumWithdrawal: 5000,
@@ -85,7 +85,7 @@ test('referral tiers and withdrawal form preserve the invitation-only limit on d
   await page.goto('/referral')
   await expect(page.getByRole('heading', { name: /分享达人/ })).toBeVisible()
   await expect(page.getByText('再邀请 12 位可升至推荐官', { exact: false })).toBeVisible()
-  await expect(page.locator('.referral-level-percent')).toHaveText(['3%', '5%', '7%', '9%'])
+  await expect(page.locator('.referral-level-percent')).toHaveText(['2%', '3%', '4%', '5%'])
   for (const width of [1440, 760, 375, 320]) {
     await page.setViewportSize({ width, height: 1000 })
     expect(
