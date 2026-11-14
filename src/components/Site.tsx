@@ -148,9 +148,13 @@ function LoginDialogContent() {
     return () => clearTimeout(timer)
   }, [mfaCountdown])
   async function send() {
-    let submitted = false
     try {
       await form.validateFields(['email'])
+    } catch {
+      return
+    }
+    let submitted = false
+    try {
       setBusy(true)
       const email = form.getFieldValue('email')
       const options = await botOptions()
@@ -392,6 +396,7 @@ function LoginDialogContent() {
                     rules={[{ required: true, len: 6, message: '请输入 6 位验证码' }]}
                   >
                     <Input
+                      aria-label="登录验证码"
                       placeholder="6 位验证码"
                       inputMode="numeric"
                       autoComplete="one-time-code"

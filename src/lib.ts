@@ -38,6 +38,15 @@ export const channels = {
   crypto: '加密货币',
   balance: '账户余额',
 }
+export class ApiRequestError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+  ) {
+    super(message)
+    this.name = 'ApiRequestError'
+  }
+}
 export async function api<T>(
   path: string,
   body?: unknown,
@@ -51,7 +60,8 @@ export async function api<T>(
     body: body === undefined ? undefined : JSON.stringify(body),
   })
   const result = await response.json()
-  if (!response.ok) throw new Error(result.error || '请求失败，请稍后重试')
+  if (!response.ok)
+    throw new ApiRequestError(result.error || '请求失败，请稍后重试', response.status)
   return result as T
 }
 export function parseSession(input: string): {

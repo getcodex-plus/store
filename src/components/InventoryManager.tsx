@@ -462,7 +462,6 @@ export function InventoryManager({
                           type="link"
                           disabled={busy || loading}
                           onClick={() => {
-                            batchForm.setFieldsValue({ name: batch.name, note: batch.note })
                             setEditBatch(batch)
                           }}
                         >
@@ -532,6 +531,7 @@ export function InventoryManager({
           name="inventory-batch"
           form={batchForm}
           layout="vertical"
+          initialValues={editBatch ? { name: editBatch.name, note: editBatch.note } : undefined}
           clearOnDestroy
           onFinish={async (values) => {
             if (

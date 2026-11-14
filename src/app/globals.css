@@ -102,13 +102,16 @@ svg {
 .mt-20 {
   margin-top: 20px;
 }
-.mt-24 {
+.mt-24,
+.ant-card.mt-24,
+.ant-alert.mt-24 {
   margin-top: 24px;
 }
 .mt-32 {
   margin-top: 32px;
 }
-.mb-24 {
+.mb-24,
+.ant-alert.mb-24 {
   margin-bottom: 24px;
 }
 .wrap-anywhere {
@@ -1254,6 +1257,62 @@ svg {
   font-size: 16px;
   margin: 0;
 }
+.mobile-orders,
+.mobile-table-hint {
+  display: none;
+}
+.mobile-order-list {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.mobile-order {
+  padding-block: 20px;
+  border-bottom: 1px solid var(--line);
+}
+.mobile-order:first-child {
+  padding-top: 0;
+}
+.mobile-order:last-child {
+  border-bottom: 0;
+}
+.mobile-order-heading,
+.mobile-order-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+.mobile-order-heading .ant-tag {
+  margin: 0;
+}
+.mobile-order p {
+  margin-block: 12px;
+  overflow-wrap: anywhere;
+}
+.mobile-order-meta strong {
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+.mobile-order > .text-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  margin-top: 8px;
+}
+@media (max-width: 600px) {
+  .mobile-orders {
+    display: block;
+  }
+  .mobile-table-hint {
+    display: block;
+    margin-bottom: 12px;
+  }
+  .desktop-orders {
+    display: none;
+  }
+}
 .wallet-cards {
   display: grid;
   grid-template-columns: 1.5fr 1fr 1fr;
@@ -1827,9 +1886,28 @@ svg {
   margin: 0 0 9px;
 }
 .admin-heading p {
-  font-size: 12px;
+  font-size: var(--text-ui);
   color: var(--muted);
   margin-bottom: 0;
+}
+.admin-record-id {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.admin-table-hint {
+  display: none;
+}
+@media (max-width: 900px) {
+  .admin-table-hint {
+    display: block;
+    font-size: var(--text-caption);
+  }
+}
+.admin-content .ant-table-content {
+  scrollbar-width: thin;
+}
+.admin-content .ant-pagination {
+  flex-wrap: wrap;
 }
 .admin-stats {
   display: grid;
@@ -1869,7 +1947,7 @@ svg {
   background: var(--warning-bg);
 }
 .admin-stats .tiny {
-  font-size: 9px;
+  font-size: var(--text-caption);
 }
 .admin-overview-grid {
   display: grid;
@@ -1886,19 +1964,19 @@ svg {
   min-height: 58px;
 }
 .admin-shell .ant-table {
-  font-size: 11px;
+  font-size: var(--text-ui);
 }
 .admin-shell .ant-table-thead > tr > th {
   background: var(--surface-subtle);
   color: var(--muted);
   font-weight: 500;
-  font-size: 10px;
+  font-size: var(--text-caption);
 }
 .admin-shell .ant-table-tbody > tr > td {
   padding-block: 16px;
 }
 .admin-shell .ant-tag {
-  font-size: 10px;
+  font-size: var(--text-caption);
 }
 .chart-summary {
   display: flex;
@@ -1912,12 +1990,20 @@ svg {
   letter-spacing: -0.05em;
 }
 .chart-summary span {
-  font-size: 10px;
+  font-size: var(--text-caption);
 }
 .revenue-chart svg {
   width: 100%;
   height: auto;
   max-height: 228px;
+}
+.chart-days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  margin-inline: 0.88%;
+  font-size: var(--text-caption);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 .attention-row {
   display: flex;
@@ -1925,7 +2011,7 @@ svg {
   gap: 12px;
   padding-block: 15px;
   border-bottom: 1px solid var(--line);
-  font-size: 11px;
+  font-size: var(--text-ui);
 }
 .attention-row > span {
   flex: 1;
@@ -1939,8 +2025,8 @@ svg {
   font-weight: 500;
 }
 .attention-row .ant-btn {
-  height: 23px;
-  width: 24px;
+  height: 36px;
+  width: 36px;
   padding: 0;
 }
 .admin-tip {
@@ -1953,7 +2039,7 @@ svg {
   color: var(--muted);
 }
 .admin-tip p {
-  font-size: 10px;
+  font-size: var(--text-caption);
   margin: 0;
   line-height: 1.8;
 }
@@ -2037,6 +2123,9 @@ svg {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0 22px;
+}
+.withdrawal-channel-grid {
+  row-gap: 24px;
 }
 .mobile-menu {
   display: none;
@@ -2441,7 +2530,10 @@ svg {
   }
   .checkout-page .ant-input,
   .order-page .ant-input,
+  .account-page .ant-input,
+  .account-page .ant-input-affix-wrapper input.ant-input,
   .ant-modal .ant-input,
+  .ant-modal .ant-input-number-input,
   .ant-modal .ant-input-affix-wrapper input,
   .checkout-page .ant-input-number-input,
   .ant-select .ant-select-content,
@@ -2527,7 +2619,7 @@ svg {
     font-size: 24px;
   }
   .admin-heading p {
-    font-size: 11px;
+    font-size: var(--text-ui);
   }
   .admin-stats {
     gap: 12px;
@@ -2546,10 +2638,10 @@ svg {
     font-size: 11px;
   }
   .admin-stats .ant-statistic-title {
-    font-size: 11px;
+    font-size: var(--text-caption);
   }
   .admin-stats .tiny {
-    font-size: 8px;
+    font-size: var(--text-caption);
   }
   .integration-grid {
     grid-template-columns: 1fr;
@@ -2559,9 +2651,10 @@ svg {
   }
   .form-three {
     gap: 8px;
+    grid-template-columns: 1fr;
   }
   .revenue-chart svg {
-    min-height: 145px;
+    min-height: 0;
   }
   .admin-overview-grid {
     gap: 18px;

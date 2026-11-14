@@ -16,9 +16,14 @@ import {
 } from 'antd'
 import { useCallback, useEffect, useState } from 'react'
 import { useSite } from './Providers'
-import { api, channels, dateTime, money, orderStatusLabel } from '../lib'
+import { api, ApiRequestError, channels, dateTime, money, orderStatusLabel } from '../lib'
 import type { Order } from '../types'
 export function OrderPage({ id }: { id: string }) {
+  const { data } = useSite()
+  return <OrderContent key={`${id}:${data?.user?.id ?? 'guest'}`} id={id} />
+}
+
+function OrderContent({ id }: { id: string }) {
   const { data, openLogin } = useSite()
   const { message } = App.useApp()
   const [order, setOrder] = useState<Order | null>(null)
@@ -31,6 +36,11 @@ export function OrderPage({ id }: { id: string }) {
       setOrder(await api<Order>(`/orders/${id}`))
       setError('')
     } catch (e) {
+      if (e instanceof ApiRequestError && [401, 403, 404].includes(e.status)) {
+        setOrder(null)
+        setPayment(null)
+        setSession('')
+      }
       setError((e as Error).message)
     }
   }, [id])
@@ -87,7 +97,7 @@ export function OrderPage({ id }: { id: string }) {
       setBusy(false)
     }
   }
-  if (error)
+  if (error && !order)
     return (
       <main className="container page-content">
         <Alert type="error" title={error} action={<Button onClick={load}>重试</Button>} />
@@ -122,6 +132,16 @@ export function OrderPage({ id }: { id: string }) {
       : undefined
   return (
     <main className="container order-page">
+      {error && (
+        <Alert
+          className="mb-24"
+          type="warning"
+          showIcon
+          title="订单状态暂未更新"
+          description="正在显示上次获取的状态。请重试或等待自动刷新，已填写的账号信息会保留。"
+          action={<Button onClick={load}>重试</Button>}
+        />
+      )}
       {order.status === 'refunded' && (
         <p className="support-note">
           {originalRefund

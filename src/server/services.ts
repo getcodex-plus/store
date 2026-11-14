@@ -45,6 +45,7 @@ import {
   savePaymentLocation,
 } from './database-sql'
 import { ApiError, demo } from './config'
+import { adminPageSize, adminQuerySchema, type AdminQuery } from './admin-query'
 import { decrypt, encrypt, hash, id, secretHash } from './crypto'
 import { openCredential, sealCredential } from './credential-storage'
 import { publicPlan } from './safe-errors'
@@ -530,8 +531,18 @@ export async function newOrder(
         if (decision.action === 'allow') inviterId = inviter.id
       }
     }
+    const referralOwner = inviterId
+      ? await client.user.findUniqueOrThrow({
+          where: { id: inviterId },
+          select: { referralTierId: true },
+        })
+      : null
     const referralRate = inviterId
-      ? referralProgress(await qualifiedInvites(inviterId, client), conf).current.rateBps
+      ? referralProgress(
+          await qualifiedInvites(inviterId, client),
+          conf,
+          referralOwner?.referralTierId,
+        ).current.rateBps
       : conf.rateBps
     const order = orderView(
       await client.order.create({
@@ -840,12 +851,16 @@ export async function account(user: User): Promise<AccountData> {
       ).map(walletEntryView)
       const wallet = await client.wallet.findUnique({ where: { userId: user.id } })
       const qualified = await qualifiedInvites(user.id, client)
+      const owner = await client.user.findUniqueOrThrow({
+        where: { id: user.id },
+        select: { referralTierId: true },
+      })
       return {
         orders,
         commissions,
         withdrawals: withdrawals.map(withdrawalView),
         invitedCount,
-        referral: referralProgress(qualified, conf),
+        referral: referralProgress(qualified, conf, owner.referralTierId),
         ...referralFunds(commissions, withdrawals),
         balance: wallet?.balance ?? 0,
         ledger,
@@ -1084,15 +1099,67 @@ export async function reviewWithdrawal(actor: User, data: unknown) {
 }
 export async function adminData(
   actor: User,
+  query: AdminQuery = adminQuerySchema.parse({}),
 ): Promise<
   AdminData & { integrations: Awaited<ReturnType<typeof integrationViews>>; roles: unknown[] }
 > {
+  const can = (permission: string) => actor.permissions.includes(permission)
+  const section = query.section
+  const permission = section === 'risk' ? 'audit' : section === 'roles' ? 'users' : section
+  if (section !== 'overview' && !can(`${permission}:read`))
+    throw new ApiError(403, '当前角色没有此记录的查看权限')
+  const orderBy = [{ createdAt: 'desc' as const }, { id: 'desc' as const }]
+  const window = (active: boolean, recent = 500) =>
+    active
+      ? { take: adminPageSize, skip: (query.page - 1) * adminPageSize }
+      : { take: recent, skip: 0 }
+  const orderWhere: Prisma.OrderWhereInput = {
+    ...(section === 'wallet' || !can('orders:read')
+      ? {
+          OR: [
+            { kind: 'topup' },
+            { balanceAmount: { gt: 0 } },
+            { status: 'refunded', refundDestination: 'wallet' },
+          ],
+        }
+      : {}),
+    ...(['orders', 'wallet'].includes(section) && query.search
+      ? {
+          AND: [
+            {
+              OR: ['id', 'email', 'contactEmail', 'productName'].map((field) => ({
+                [field]: { contains: query.search, mode: 'insensitive' },
+              })),
+            },
+          ],
+        }
+      : {}),
+  }
+  const userWhere: Prisma.UserWhereInput =
+    ['users', 'roles'].includes(section) && query.search
+      ? { email: { contains: query.search, mode: 'insensitive' } }
+      : {}
+  const total =
+    section === 'orders' || section === 'wallet'
+      ? await db.order.count({ where: orderWhere })
+      : section === 'users' || section === 'roles'
+        ? await db.user.count({ where: userWhere })
+        : section === 'referral'
+          ? await db.commission.count()
+          : section === 'withdrawals'
+            ? await db.withdrawal.count()
+            : section === 'audit'
+              ? await db.audit.count()
+              : section === 'risk'
+                ? await db.riskEvent.count()
+                : 0
   const [users, allProducts, orders, commissions, withdrawals, conf, log, stock, integrations] =
     await Promise.all([
       db.user
         .findMany({
-          orderBy: { createdAt: 'desc' },
-          take: 500,
+          orderBy,
+          where: userWhere,
+          ...window(['users', 'roles'].includes(section)),
           include: { userRoles: { select: { roleId: true } } },
         })
         .then((records) =>
@@ -1105,17 +1172,17 @@ export async function adminData(
         ),
       products(true),
       db.order
-        .findMany({ orderBy: { createdAt: 'desc' }, take: 500 })
+        .findMany({ orderBy, where: orderWhere, ...window(['orders', 'wallet'].includes(section)) })
         .then((records) => records.map(adminOrderView)),
       db.commission
-        .findMany({ orderBy: { createdAt: 'desc' }, take: 500 })
+        .findMany({ orderBy, ...window(section === 'referral') })
         .then((records) => records.map(commissionView)),
       db.withdrawal
-        .findMany({ orderBy: { createdAt: 'desc' }, take: 500 })
+        .findMany({ orderBy, ...window(section === 'withdrawals') })
         .then((records) => records.map(storedWithdrawalView)),
       settings(),
       db.audit
-        .findMany({ orderBy: { createdAt: 'desc' }, take: 100 })
+        .findMany({ orderBy, ...window(section === 'audit', 100) })
         .then((records) => records.map(auditView)),
       db.inventory.groupBy({
         by: ['productId', 'batchId', 'status'],
@@ -1142,9 +1209,13 @@ export async function adminData(
     totals.set(item.productId, total)
   }
   const inventory = [...totals.values()]
-  const can = (permission: string) => actor.permissions.includes(permission)
   const { upgradePricing: _pricing, ...publicSettings } = conf
   return {
+    pagination:
+      section === 'overview' ? undefined : { page: query.page, pageSize: adminPageSize, total },
+    pendingWithdrawalCount: can('withdrawals:read')
+      ? await db.withdrawal.count({ where: { status: { in: ['pending', 'processing'] } } })
+      : undefined,
     funnel: can('orders:read') ? await funnelReport() : undefined,
     exchangeRate: can('settings:read') ? await exchangeRateStatus() : undefined,
     users: can('users:read') ? users : [],
@@ -1152,14 +1223,19 @@ export async function adminData(
     orders: can('orders:read')
       ? orders
       : can('wallet:read')
-        ? orders.filter((o) => o.kind === 'topup' || o.balanceAmount > 0)
+        ? orders.filter(
+            (o) =>
+              o.kind === 'topup' ||
+              o.balanceAmount > 0 ||
+              (o.status === 'refunded' && o.refund?.destination === 'wallet'),
+          )
         : [],
     commissions: can('referral:read') ? commissions : [],
     withdrawals: can('withdrawals:read') ? withdrawals.map(withdrawalView) : [],
     settings: can('settings:read') ? conf : publicSettings,
     audit: can('audit:read') ? log : [],
     riskEvents: can('audit:read')
-      ? (await db.riskEvent.findMany({ orderBy: { createdAt: 'desc' }, take: 100 })).map(
+      ? (await db.riskEvent.findMany({ orderBy, ...window(section === 'risk', 100) })).map(
           (event) => ({
             id: event.id,
             scene: event.scene,

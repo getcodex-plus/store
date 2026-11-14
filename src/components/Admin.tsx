@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { authClient, authResult } from '../auth-client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   App,
   Alert,
@@ -56,6 +56,7 @@ import type {
   AdminOrder,
   Order,
   Product,
+  User,
   Withdrawal,
   WithdrawalChannels,
 } from '../types'
@@ -168,7 +169,13 @@ export function Admin() {
   const [mobile, setMobile] = useState(false)
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
+  const [listPage, setListPage] = useState(1)
+  const [loading, setLoading] = useState(false)
+  const requestVersion = useRef(0)
+  const settingsDirty = useRef(false)
   const [busy, setBusy] = useState(false)
+  const [editUser, setEditUser] = useState<User | null>(null)
+  const [userForm] = Form.useForm()
   const [editProduct, setEditProduct] = useState<Product | null>(null)
   const [productOpen, setProductOpen] = useState(false)
   const [stockOpen, setStockOpen] = useState(false)
@@ -196,18 +203,43 @@ export function Admin() {
             .filter((i) => i.provider.startsWith('epay_'))
             .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]?.provider as
             'epay_v1' | 'epay_v2') ?? 'epay_v1'))
+  const recordSection = [
+    'orders',
+    'wallet',
+    'users',
+    'referral',
+    'withdrawals',
+    'audit',
+    'risk',
+  ].includes(page)
+    ? page
+    : page === 'roles' && site?.user?.permissions.includes('users:read')
+      ? 'roles'
+      : 'overview'
   const load = useCallback(async () => {
+    const version = ++requestVersion.current
+    setLoading(true)
     try {
-      const result = await api<Data>('/admin')
+      const params = new URLSearchParams({ section: recordSection, page: String(listPage), search })
+      const result = await api<Data>(`/admin?${params}`)
+      if (version !== requestVersion.current) return
       setData(result)
       setRefreshKey((value) => value + 1)
       setError('')
     } catch (e) {
-      setError((e as Error).message)
+      if (version === requestVersion.current) setError((e as Error).message)
+    } finally {
+      if (version === requestVersion.current) setLoading(false)
     }
-  }, [])
+  }, [recordSection, listPage, search])
   useEffect(() => {
-    if (site?.user?.permissions.includes('admin:access')) void load()
+    if (!site?.user?.permissions.includes('admin:access')) return
+    setLoading(true)
+    const timer = setTimeout(() => void load(), 200)
+    return () => {
+      clearTimeout(timer)
+      requestVersion.current++
+    }
   }, [site?.user, load])
   const pendingRefund = data?.orders.some((order) => order.refund?.status === 'processing')
   useEffect(() => {
@@ -216,7 +248,7 @@ export function Admin() {
     return () => clearInterval(timer)
   }, [pendingRefund, load])
   useEffect(() => {
-    if (data && page === 'settings')
+    if (data && page === 'settings' && !settingsDirty.current)
       settingsForm.setFieldsValue({
         ...data.settings,
         withdrawalChannels: withdrawalChannels(data.settings),
@@ -269,6 +301,7 @@ export function Admin() {
     setBusy(true)
     try {
       await api(`/admin/${path}`, body)
+      if (path === 'settings') settingsDirty.current = false
       await load()
       await refresh()
       message.success('已保存')
@@ -322,6 +355,7 @@ export function Admin() {
   const navigate = useCallback((key: string) => {
     setPage(key)
     setSearch('')
+    setListPage(1)
     setMobile(false)
     const group = navigationGroups.find((group) => group.pages.includes(key))
     if (group) setOpenGroups((current) => [...new Set([...current, group.key])])
@@ -338,6 +372,8 @@ export function Admin() {
           : key
       const permitted = key === 'overview' || site?.user?.permissions.includes(`${resource}:read`)
       setPage(target && permitted ? key : 'overview')
+      setSearch('')
+      setListPage(1)
       const group = navigationGroups.find((group) => group.pages.includes(key))
       if (group && permitted) setOpenGroups((current) => [...new Set([...current, group.key])])
     }
@@ -418,13 +454,21 @@ export function Admin() {
       ['processing', 'completed', 'needs_session', 'failed'].includes(o.status),
     ) || []
   const purchases = paid.filter((o) => o.kind === 'purchase')
-  const pending =
-    data?.withdrawals.filter((w) => ['pending', 'processing'].includes(w.status)) || []
-  const email = (id: string) => data?.users.find((u) => u.id === id)?.email || id.slice(0, 14)
-  const filtered =
-    data?.orders.filter((o) =>
-      `${o.id}${o.email}${o.productName}`.toLowerCase().includes(search.toLowerCase()),
-    ) || []
+  const pendingCount = data?.pendingWithdrawalCount ?? 0
+  const email = (id: string) => data?.users.find((u) => u.id === id)?.email || id
+  const referralTiers = data?.settings.referralTiers ?? defaultReferralTiers
+  const pagination = {
+    current: listPage,
+    pageSize: data?.pagination?.pageSize ?? 12,
+    total: data?.pagination?.total ?? 0,
+    showSizeChanger: false,
+    showTotal: (total: number) => `共 ${total} 条`,
+    onChange: setListPage,
+  }
+  const updateSearch = (value: string) => {
+    setSearch(value)
+    setListPage(1)
+  }
   const orderColumns = [
     {
       title: '订单',
@@ -433,7 +477,7 @@ export function Admin() {
       render: (_: unknown, o: Order) => (
         <div>
           <strong>{o.productName}</strong>
-          <div className="tiny muted mono">{o.id.slice(0, 19)}…</div>
+          <div className="tiny muted mono admin-record-id">{o.id}</div>
         </div>
       ),
     },
@@ -543,7 +587,7 @@ export function Admin() {
                 {page === 'overview'
                   ? '看看网站的经营情况，以及需要处理的事情。'
                   : page === 'batches'
-                    ? '启用批次即可切换国家；同一商品的其他批次自动禁用，已有订单不受影响。'
+                    ? '各批次独立启用或停用，可同时供货；已有订单保留原库存关系。'
                     : page === 'inventory'
                       ? '按商品和批次管理兑换码；已占用或已使用的码保留原订单关系。'
                       : page === 'integrations'
@@ -552,7 +596,7 @@ export function Admin() {
               </p>
             </div>
             <Space>
-              <Button icon={<ReloadOutlined />} onClick={load}>
+              <Button icon={<ReloadOutlined />} onClick={load} loading={loading}>
                 刷新
               </Button>
               {page === 'products' && can('products:write') && (
@@ -567,7 +611,19 @@ export function Admin() {
               )}
             </Space>
           </div>
-          {error && <Alert type="error" title={error} className="mb-24" />}
+          {error && (
+            <Alert
+              type="error"
+              title={error}
+              description="请重试；若登录已过期，请重新登录后继续。"
+              action={
+                <Button onClick={load} loading={loading}>
+                  重试
+                </Button>
+              }
+              className="mb-24"
+            />
+          )}
           {site.mode === 'demo' && (
             <Alert
               className="mb-24"
@@ -576,6 +632,9 @@ export function Admin() {
               title="当前为本地演示环境"
               description="订单、钱包与返现用于功能验证。支付渠道即使已配置，也不会被用于真实扣款。"
             />
+          )}
+          {!['integrations', 'settings'].includes(page) && (
+            <p className="admin-table-hint muted">表格可横向滚动，查看更多信息与操作。</p>
           )}
           {!data ? (
             <Skeleton active />
@@ -618,7 +677,7 @@ export function Admin() {
                       <div className="stat-icon amber">
                         <SafetyCertificateOutlined />
                       </div>
-                      <Statistic title="待审核提现" value={pending.length} suffix="笔" />
+                      <Statistic title="待处理提现" value={pendingCount} suffix="笔" />
                       <Button
                         type="link"
                         size="small"
@@ -641,9 +700,10 @@ export function Admin() {
                         <span>
                           <i className="status-dot" /> 待处理提现
                         </span>
-                        <strong>{pending.length}</strong>
+                        <strong>{pendingCount}</strong>
                         <Button
                           type="text"
+                          aria-label="查看待处理提现"
                           disabled={!can('withdrawals:read')}
                           onClick={() => navigate('withdrawals')}
                         >
@@ -663,6 +723,7 @@ export function Admin() {
                         </strong>
                         <Button
                           type="text"
+                          aria-label="查看异常订单"
                           disabled={!can('orders:read')}
                           onClick={() => navigate('orders')}
                         >
@@ -681,6 +742,7 @@ export function Admin() {
                         </strong>
                         <Button
                           type="text"
+                          aria-label="管理收款渠道"
                           disabled={!can('integrations:read')}
                           onClick={() => navigate('integrations')}
                         >
@@ -724,6 +786,7 @@ export function Admin() {
                   )}
                   <Card
                     title="最近订单"
+                    className={data.funnel ? 'mt-24' : undefined}
                     extra={
                       <Button
                         type="link"
@@ -751,7 +814,8 @@ export function Admin() {
                     <Input.Search
                       placeholder="搜索订单 / 邮箱 / 套餐"
                       value={search}
-                      onChange={(e) => setSearch(e.target.value)}
+                      aria-label="搜索订单、联系邮箱、充值账号或套餐"
+                      onChange={(e) => updateSearch(e.target.value)}
                       style={{ maxWidth: 320 }}
                       allowClear
                     />
@@ -759,9 +823,10 @@ export function Admin() {
                   <Table
                     rowKey="id"
                     columns={orderColumns}
-                    dataSource={filtered}
+                    dataSource={data.orders}
+                    loading={loading}
                     scroll={{ x: 1320 }}
-                    pagination={{ pageSize: 12 }}
+                    pagination={pagination}
                   />
                 </Card>
               )}
@@ -884,7 +949,8 @@ export function Admin() {
                     <h3>用户列表</h3>
                     <Input.Search
                       value={search}
-                      onChange={(e) => setSearch(e.target.value)}
+                      onChange={(e) => updateSearch(e.target.value)}
+                      aria-label="搜索用户邮箱"
                       placeholder="搜索邮箱"
                       style={{ maxWidth: 280 }}
                     />
@@ -892,13 +958,23 @@ export function Admin() {
                   <Table
                     rowKey="id"
                     scroll={{ x: 800 }}
-                    dataSource={data.users.filter((u) => u.email.includes(search))}
+                    dataSource={data.users}
+                    loading={loading}
+                    pagination={pagination}
                     columns={[
                       { title: '邮箱', dataIndex: 'email' },
                       {
                         title: '角色',
                         dataIndex: 'role',
                         render: (v: string) => <Tag>{v === 'admin' ? '管理员' : '用户'}</Tag>,
+                      },
+                      {
+                        title: '返佣等级',
+                        dataIndex: 'referralTierId',
+                        render: (value: string | null) => {
+                          const tier = referralTiers.find((entry) => entry.id === value)
+                          return tier ? `${tier.name} · ${tier.rateBps / 100}%（指定）` : '自动计算'
+                        },
                       },
                       {
                         title: '邀请人',
@@ -917,17 +993,41 @@ export function Admin() {
                         title: '操作',
                         key: 'actions',
                         render: (_, u) =>
-                          !can('users:write') || u.role === 'admin' ? (
-                            <span className="muted">受保护</span>
+                          !can('users:write') ? (
+                            <span className="muted">只读</span>
                           ) : (
-                            <Popconfirm
-                              title={u.disabled ? '启用此用户？' : '停用此用户并注销其会话？'}
-                              onConfirm={() => mutate('users', { id: u.id, disabled: !u.disabled })}
-                            >
-                              <Button type="link" danger={!u.disabled}>
-                                {u.disabled ? '启用' : '停用'}
+                            <Space>
+                              <Button
+                                type="link"
+                                onClick={() => {
+                                  userForm.resetFields()
+                                  userForm.setFieldsValue({
+                                    referralTierId: referralTiers.some(
+                                      (tier) => tier.id === u.referralTierId,
+                                    )
+                                      ? u.referralTierId
+                                      : '',
+                                  })
+                                  setEditUser(u)
+                                }}
+                              >
+                                编辑
                               </Button>
-                            </Popconfirm>
+                              {u.role === 'admin' || u.id === site.user?.id ? (
+                                <span className="muted">受保护</span>
+                              ) : (
+                                <Popconfirm
+                                  title={u.disabled ? '启用此用户？' : '停用此用户并注销其会话？'}
+                                  onConfirm={() =>
+                                    mutate('users', { id: u.id, disabled: !u.disabled })
+                                  }
+                                >
+                                  <Button type="link" danger={!u.disabled}>
+                                    {u.disabled ? '启用' : '停用'}
+                                  </Button>
+                                </Popconfirm>
+                              )}
+                            </Space>
                           ),
                       },
                     ]}
@@ -935,22 +1035,21 @@ export function Admin() {
                 </Card>
               )}
               {page === 'wallet' && (
-                <Card title="钱包充值记录">
+                <Card title="钱包相关订单">
                   <Alert
                     className="mb-24"
                     type="info"
                     showIcon
-                    title="余额变动记录"
-                    description="查看用户的余额充值、消费和退款记录。"
+                    title="充值与余额支付"
+                    description="查看钱包充值、余额抵扣及退回钱包的订单，退款状态可在订单详情中核对。"
                   />
                   <Table
                     rowKey="id"
                     scroll={{ x: 1320 }}
                     columns={orderColumns}
-                    dataSource={data.orders.filter(
-                      (o) => o.kind === 'topup' || o.balanceAmount > 0,
-                    )}
-                    pagination={{ pageSize: 12 }}
+                    dataSource={data.orders}
+                    loading={loading}
+                    pagination={pagination}
                   />
                 </Card>
               )}
@@ -960,12 +1059,16 @@ export function Admin() {
                     rowKey="id"
                     scroll={{ x: 800 }}
                     dataSource={data.commissions}
+                    loading={loading}
+                    pagination={pagination}
                     columns={[
                       { title: '收益用户', dataIndex: 'userId', render: email },
                       {
                         title: '订单',
                         dataIndex: 'orderId',
-                        render: (v: string) => <span className="mono tiny">{v.slice(0, 20)}…</span>,
+                        render: (v: string) => (
+                          <span className="mono tiny admin-record-id">{v}</span>
+                        ),
                       },
                       { title: '金额', dataIndex: 'amount', width: 110, render: money },
                       {
@@ -995,6 +1098,8 @@ export function Admin() {
                     rowKey="id"
                     scroll={{ x: 900 }}
                     dataSource={data.withdrawals}
+                    loading={loading}
+                    pagination={pagination}
                     columns={[
                       { title: '申请人', dataIndex: 'userId', render: email },
                       { title: '申请金额', dataIndex: 'amount', width: 110, render: money },
@@ -1131,6 +1236,9 @@ export function Admin() {
                     disabled={!can('settings:write')}
                     form={settingsForm}
                     layout="vertical"
+                    onValuesChange={() => {
+                      settingsDirty.current = true
+                    }}
                     onFinish={(values) => {
                       if (
                         values.withdrawalChannels.usdt &&
@@ -1317,7 +1425,7 @@ export function Admin() {
                     >
                       <Switch aria-label="USDT提现" />
                     </Form.Item>
-                    <div className="form-two">
+                    <div className="form-two withdrawal-channel-grid">
                       {withdrawalDestinations.map(({ key, label, network }) => (
                         <Card
                           key={key}
@@ -1600,12 +1708,14 @@ export function Admin() {
               {page === 'risk' && (
                 <Card title="风控决策记录">
                   <p className="muted">
-                    展示最近 100 条记录。当前规则全部执行：超限请求会被拒绝，异常提现需人工审核。
+                    当前规则全部执行：超限请求会被拒绝，异常提现需人工审核。
                     历史观察记录保留原模式。记录保留 30 天。
                   </p>
                   <Table
                     rowKey="id"
                     dataSource={data.riskEvents ?? []}
+                    loading={loading}
+                    pagination={pagination}
                     scroll={{ x: 1100 }}
                     columns={[
                       {
@@ -1659,6 +1769,8 @@ export function Admin() {
                   <Table
                     rowKey="id"
                     dataSource={data.audit}
+                    loading={loading}
+                    pagination={pagination}
                     scroll={{ x: 700 }}
                     columns={[
                       { title: '操作人', dataIndex: 'actor' },
@@ -1690,9 +1802,10 @@ export function Admin() {
                     <Table
                       rowKey="id"
                       dataSource={data.roles}
+                      scroll={{ x: 640 }}
                       pagination={false}
                       columns={[
-                        { title: '角色', dataIndex: 'name' },
+                        { title: '角色', dataIndex: 'name', width: 140 },
                         {
                           title: '权限',
                           dataIndex: 'permissions',
@@ -1707,6 +1820,7 @@ export function Admin() {
                         {
                           title: '操作',
                           key: 'action',
+                          width: 110,
                           render: (_, role) =>
                             can('roles:write') && !role.protected ? (
                               <Button
@@ -1726,11 +1840,21 @@ export function Admin() {
                     />
                   </Card>
                   <Card title="分配用户角色" className="mt-24">
+                    {!can('users:read') && (
+                      <Alert
+                        type="info"
+                        showIcon
+                        title="查看和选择用户需要用户查看权限，请联系管理员开通。"
+                      />
+                    )}
                     <Table
                       rowKey="id"
                       dataSource={data.users}
+                      loading={loading}
+                      pagination={pagination}
+                      scroll={{ x: 640 }}
                       columns={[
-                        { title: '用户', dataIndex: 'email' },
+                        { title: '用户', dataIndex: 'email', width: 280 },
                         {
                           title: '角色',
                           key: 'roles',
@@ -1762,6 +1886,50 @@ export function Admin() {
           )}
         </div>
       </div>
+      <Modal
+        forceRender
+        title="编辑用户"
+        open={!!editUser}
+        onCancel={() => setEditUser(null)}
+        footer={null}
+      >
+        <p>{editUser?.email}</p>
+        <Form
+          form={userForm}
+          layout="vertical"
+          onFinish={(values) => {
+            if (editUser)
+              void mutate(
+                'users',
+                {
+                  id: editUser.id,
+                  referralTierId: values.referralTierId || null,
+                },
+                () => setEditUser(null),
+              )
+          }}
+        >
+          <Form.Item
+            name="referralTierId"
+            label="返佣等级"
+            extra="自动计算按有效邀请人数升级；指定等级后固定使用该等级，仅影响新订单。"
+          >
+            <Select
+              virtual={false}
+              options={[
+                { value: '', label: '自动计算（按有效邀请人数）' },
+                ...referralTiers.map((tier) => ({
+                  value: tier.id,
+                  label: `${tier.name} · ${tier.rateBps / 100}%`,
+                })),
+              ]}
+            />
+          </Form.Item>
+          <Button type="primary" htmlType="submit" loading={busy}>
+            保存
+          </Button>
+        </Form>
+      </Modal>
       <Modal
         forceRender
         title={editProduct ? '编辑商品' : '新增商品'}
@@ -2164,7 +2332,7 @@ function RevenueChart({ orders }: { orders: Order[] }) {
         <span className="muted">最近 7 天</span>
       </div>
       <svg
-        viewBox="0 0 570 210"
+        viewBox="0 0 570 180"
         role="img"
         aria-label={`近七天每日成交额：${values.map(money).join('、')}`}
       >
@@ -2188,19 +2356,14 @@ function RevenueChart({ orders }: { orders: Order[] }) {
         {values.map((v, i) => (
           <circle key={i} cx={45 + i * 80} cy={170 - (v / max) * 135} r={4} fill="var(--accent)" />
         ))}
-        {days.map((d, i) => (
-          <text
-            key={i}
-            x={45 + i * 80}
-            y={202}
-            textAnchor="middle"
-            fill="var(--muted)"
-            fontSize="11"
-          >
-            {d.getMonth() + 1}/{d.getDate()}
-          </text>
-        ))}
       </svg>
+      <div className="chart-days muted">
+        {days.map((d) => (
+          <span key={d.toISOString()}>
+            {d.getMonth() + 1}/{d.getDate()}
+          </span>
+        ))}
+      </div>
     </div>
   )
 }

@@ -29,6 +29,11 @@ interface SecurityData {
   passkeys: { id: string; name: string; createdAt: string }[]
 }
 export function Security() {
+  const { data } = useSite()
+  return <SecurityContent key={data?.user?.id ?? 'guest'} />
+}
+
+function SecurityContent() {
   const { data: site, openLogin } = useSite()
   const { message } = App.useApp()
   const [data, setData] = useState<SecurityData | null>(null)
@@ -80,7 +85,14 @@ export function Security() {
     <main className="container prose-page security-page">
       <h1>账号安全</h1>
       <p className="lead">管理登录方式，为账号增加一道验证。</p>
-      {error && <Alert type="error" title={error} />}
+      {error && (
+        <Alert
+          className="mb-24"
+          type="error"
+          title={error}
+          action={<Button onClick={load}>重试</Button>}
+        />
+      )}
       {!data ? (
         <Skeleton active />
       ) : (

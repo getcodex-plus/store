@@ -12,9 +12,11 @@ export function ReferralLevels({ referral }: { referral: AccountData['referral']
           </h2>
           <p className="muted">
             已有 {referral.qualifiedInvites} 位有效邀请
-            {referral.next
-              ? `，再邀请 ${referral.remaining} 位可升至${referral.next.name}。`
-              : '，已达到最高等级。'}
+            {referral.manual
+              ? '，当前等级由管理员指定。'
+              : referral.next
+                ? `，再邀请 ${referral.remaining} 位可升至${referral.next.name}。`
+                : '，已达到最高等级。'}
           </p>
         </div>
         <span className="referral-level-rate">
@@ -22,15 +24,17 @@ export function ReferralLevels({ referral }: { referral: AccountData['referral']
           <small>%</small>
         </span>
       </div>
-      <Progress
-        percent={Math.round(referral.progress)}
-        showInfo={false}
-        aria-label={
-          referral.next
-            ? `距离${referral.next.name}还差 ${referral.remaining} 位有效邀请`
-            : '已达到最高等级'
-        }
-      />
+      {!referral.manual && (
+        <Progress
+          percent={Math.round(referral.progress)}
+          showInfo={false}
+          aria-label={
+            referral.next
+              ? `距离${referral.next.name}还差 ${referral.remaining} 位有效邀请`
+              : '已达到最高等级'
+          }
+        />
+      )}
       <ol className="referral-level-list">
         {referral.tiers.map((tier) => (
           <li
@@ -51,7 +55,10 @@ export function ReferralLevels({ referral }: { referral: AccountData['referral']
       </ol>
       <p className="tiny muted">
         好友的套餐订单成功交付且收益已结算后，按联系邮箱去重计入有效邀请，游客也计入。
-        等级随有效邀请人数更新；退款冲回会重新计算。新订单锁定下单时的返现比例，已有订单不变。
+        {referral.manual
+          ? '当前按指定等级返现，不随有效邀请人数自动调整。'
+          : '等级随有效邀请人数更新；退款冲回会重新计算。'}
+        新订单锁定下单时的返现比例，已有订单不变。
       </p>
     </Card>
   )

@@ -50,11 +50,16 @@ function StateProvider({ children, nonce }: { children: React.ReactNode; nonce?:
       try {
         previous = JSON.parse(localStorage.getItem('getgpt_referral') || 'null')
       } catch {}
-      if (!previous || previous.expires < Date.now())
-        localStorage.setItem(
-          'getgpt_referral',
-          JSON.stringify({ code: ref, expires: Date.now() + 30 * 86400000 }),
-        )
+      if (!previous || previous.expires < Date.now()) {
+        try {
+          localStorage.setItem(
+            'getgpt_referral',
+            JSON.stringify({ code: ref, expires: Date.now() + 30 * 86400000 }),
+          )
+        } catch {
+          // Private browsing or storage policies must not prevent shopping.
+        }
+      }
     }
   }, [refresh])
   return (

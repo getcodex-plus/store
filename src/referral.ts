@@ -10,15 +10,20 @@ export const defaultReferralTiers: ReferralTier[] = [
 export function referralProgress(
   qualifiedInvites: number,
   settings: Pick<Settings, 'referralTiers'>,
+  referralTierId?: string | null,
 ) {
   const tiers = settings.referralTiers ?? defaultReferralTiers
   let currentIndex = 0
   tiers.forEach((tier, index) => {
     if (qualifiedInvites >= tier.minimumInvites) currentIndex = index
   })
+  const manualIndex = tiers.findIndex((tier) => tier.id === referralTierId)
+  const manual = manualIndex >= 0
+  if (manual) currentIndex = manualIndex
   const current = tiers[Math.max(0, currentIndex)]
-  const next = tiers[currentIndex + 1] ?? null
+  const next = manual ? null : (tiers[currentIndex + 1] ?? null)
   return {
+    manual,
     qualifiedInvites,
     current,
     next,

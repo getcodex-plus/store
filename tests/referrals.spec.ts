@@ -1,7 +1,7 @@
 import { openAdminPage } from './admin-helpers'
 import { test, expect, type Page } from '@playwright/test'
 import { defaultReferralTiers, referralProgress } from '../src/referral'
-import type { AccountData, Bootstrap, Settings, Withdrawal } from '../src/types'
+import type { AccountData, Bootstrap, Settings, User, Withdrawal } from '../src/types'
 import { defaultWithdrawalChannels } from '../src/withdrawals'
 
 const user = {
@@ -53,6 +53,93 @@ async function fixture(page: Page, available = 35000, settings: Partial<Settings
   await page.route('**/api/account', (route) => route.fulfill({ json: account }))
   return { account, bootstrap }
 }
+
+test('admin edits referral levels, retains failed edits and restores automatic calculation', async ({
+  page,
+}) => {
+  const { bootstrap } = await fixture(page)
+  bootstrap.user = {
+    ...user,
+    id: 'preview-admin',
+    role: 'admin',
+    permissions: ['admin:access', 'users:read', 'users:write'],
+  }
+  const target: User = { ...user, referralTierId: null }
+  await page.route(/\/api\/admin(?:\?.*)?$/, (route) =>
+    route.fulfill({
+      json: {
+        users: [target],
+        products: [],
+        orders: [],
+        commissions: [],
+        withdrawals: [],
+        settings: bootstrap.settings,
+        audit: [],
+        inventory: [],
+        roles: [],
+        integrations: [],
+      },
+    }),
+  )
+  const submissions: unknown[] = []
+  await page.route('**/api/admin/users', async (route) => {
+    const input = route.request().postDataJSON()
+    submissions.push(input)
+    if (submissions.length === 1)
+      return route.fulfill({ status: 400, json: { error: '返佣等级不存在，请刷新后重新选择' } })
+    target.referralTierId = input.referralTierId
+    await route.fulfill({ json: { saved: true } })
+  })
+  await page.goto('/admin')
+  await openAdminPage(page, '用户管理')
+  await expect(page.getByRole('cell', { name: '自动计算', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '编辑', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toContainText(target.email)
+  await dialog.getByLabel('返佣等级', { exact: true }).click()
+  await page.getByRole('option', { name: '邀请合伙人 · 5%', exact: true }).click()
+  await dialog.getByRole('button', { name: /保\s*存/ }).click()
+  await expect(page.getByText('返佣等级不存在，请刷新后重新选择', { exact: true })).toBeVisible()
+  await expect(dialog).toBeVisible()
+  await expect(dialog.locator('.ant-select')).toContainText('邀请合伙人 · 5%')
+  await dialog.getByRole('button', { name: /保\s*存/ }).click()
+  await expect(dialog).toBeHidden()
+  await expect(
+    page.getByRole('cell', { name: '邀请合伙人 · 5%（指定）', exact: true }),
+  ).toBeVisible()
+  await page.getByRole('button', { name: '编辑', exact: true }).click()
+  await expect(dialog.locator('.ant-select')).toContainText('邀请合伙人 · 5%')
+  await dialog.getByLabel('返佣等级', { exact: true }).click()
+  await page.getByRole('option', { name: '自动计算（按有效邀请人数）', exact: true }).click()
+  await dialog.getByRole('button', { name: /保\s*存/ }).click()
+  await expect(dialog).toBeHidden()
+  await expect(page.getByRole('cell', { name: '自动计算', exact: true })).toBeVisible()
+  expect(submissions).toEqual([
+    { id: target.id, referralTierId: 'partner' },
+    { id: target.id, referralTierId: 'partner' },
+    { id: target.id, referralTierId: null },
+  ])
+  bootstrap.user.permissions = ['admin:access', 'users:read']
+  await page.reload()
+  await openAdminPage(page, '用户管理')
+  await expect(page.getByRole('cell', { name: '只读', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '编辑', exact: true })).toHaveCount(0)
+})
+
+test('assigned referral levels explain manual rates without automatic promotion progress', async ({
+  page,
+}) => {
+  const { account, bootstrap } = await fixture(page)
+  account.referral = referralProgress(50, bootstrap.settings, 'sharer')
+  await page.goto('/referral')
+  await expect(page.getByRole('heading', { name: /分享达人/ })).toBeVisible()
+  await expect(page.getByText('当前等级由管理员指定。', { exact: false })).toBeVisible()
+  await expect(
+    page.getByText('当前按指定等级返现，不随有效邀请人数自动调整。', { exact: false }),
+  ).toBeVisible()
+  await expect(page.locator('.referral-levels .ant-progress')).toHaveCount(0)
+  await expect(page.getByText('已达到最高等级', { exact: false })).toHaveCount(0)
+})
 
 test('referral tiers and withdrawal form preserve the invitation-only limit on desktop and mobile', async ({
   page,
@@ -321,7 +408,7 @@ test('admin sees net-based USDT estimates, can refresh and fill them, and keeps 
     reviewedAt: new Date().toISOString(),
     createdAt: new Date().toISOString(),
   }
-  await page.route('**/api/admin', (route) =>
+  await page.route(/\/api\/admin(?:\?.*)?$/, (route) =>
     route.fulfill({
       json: {
         users: [user, bootstrap.user],

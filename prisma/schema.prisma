@@ -452,6 +452,7 @@ model User {
   email               String        @unique
   role                String        @default("user")
   referralCode        String        @unique @map("referral_code")
+  referralTierId      String?       @map("referral_tier_id")
   invitedBy           String?       @map("invited_by")
   disabled            Boolean       @default(false)
   createdAt           DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)

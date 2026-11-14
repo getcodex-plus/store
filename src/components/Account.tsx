@@ -12,6 +12,7 @@ import {
   Input,
   InputNumber,
   Modal,
+  Pagination,
   Result,
   Select,
   Skeleton,
@@ -31,15 +32,9 @@ import { useCallback, useEffect, useState } from 'react'
 import { useBotCheck } from './BotCheck'
 import { useSite } from './Providers'
 import { api, channels, dateTime, money, orderStatusLabel } from '../lib'
-import type {
-  AccountData,
-  Channel,
-  Order,
-  WalletEntry,
-  Withdrawal,
-  WithdrawalNetwork,
-} from '../types'
-import { PaymentOptions } from './Checkout'
+import type { AccountData, Order, WalletEntry, Withdrawal, WithdrawalNetwork } from '../types'
+import { PaymentOptions, usePaymentChannel } from './PaymentOptions'
+import { useAccountHistory } from './useAccountHistory'
 import { paymentLimitError } from '../pricing'
 import { withdrawalStatuses } from '../referral'
 import { ReferralLevels } from './ReferralLevels'
@@ -55,6 +50,11 @@ import {
 } from '../withdrawals'
 
 export function Account({ section }: { section: 'orders' | 'wallet' | 'referral' }) {
+  const { data } = useSite()
+  return <AccountContent key={data?.user?.id ?? 'guest'} section={section} />
+}
+
+function AccountContent({ section }: { section: 'orders' | 'wallet' | 'referral' }) {
   const { data, openLogin, refresh } = useSite()
   const { message } = App.useApp()
   const router = useRouter()
@@ -62,11 +62,18 @@ export function Account({ section }: { section: 'orders' | 'wallet' | 'referral'
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
+  const orders = useAccountHistory<Order>(
+    'orders',
+    !!data?.user && section === 'orders',
+    search,
+    filter,
+  )
+  const ledger = useAccountHistory<WalletEntry>('ledger', !!data?.user && section === 'wallet')
   const [topup, setTopup] = useState(false)
   const bot = useBotCheck('purchase', topup)
   const [withdraw, setWithdraw] = useState(false)
   const [amount, setAmount] = useState<number | null>(100)
-  const [channel, setChannel] = useState<Channel>('alipay')
+  const { channel, setChannel, paymentAvailable } = usePaymentChannel()
   const [busy, setBusy] = useState(false)
   const [requestKey, setRequestKey] = useState('')
   const [withdrawalError, setWithdrawalError] = useState('')
@@ -88,6 +95,38 @@ export function Account({ section }: { section: 'orders' | 'wallet' | 'referral'
     selectedRule && withdrawalAmount && withdrawalAmount > 0
       ? withdrawalFee(Math.round(withdrawalAmount * 100), selectedRule)
       : null
+  const filteredOrders = orders.rows
+  const orderAction = (order: Order) =>
+    order.status === 'unpaid'
+      ? '继续付款'
+      : order.status === 'needs_session'
+        ? '更新账号'
+        : '查看订单'
+  const ordersEmpty = (
+    <Empty
+      description={
+        search.trim() || filter !== 'all'
+          ? '没有符合当前搜索或状态的订单'
+          : '还没有订单，去选一个适合的套餐吧'
+      }
+    >
+      {search.trim() || filter !== 'all' ? (
+        <Button
+          onClick={() => {
+            setSearch('')
+            setFilter('all')
+            orders.setPage(1)
+          }}
+        >
+          清除筛选
+        </Button>
+      ) : (
+        <Link href="/#plans" className="text-link">
+          选择套餐 →
+        </Link>
+      )}
+    </Empty>
+  )
   useEffect(() => {
     if (!withdraw) return
     if (withdrawalMethod && !methodEnabled)
@@ -122,7 +161,8 @@ export function Account({ section }: { section: 'orders' | 'wallet' | 'referral'
     setTopup(true)
   }
   async function recharge() {
-    if (!amount) return
+    if (!amount || !paymentAvailable || busy) return
+    if (data && paymentLimitError(data.settings, channel, Math.round(amount * 100))) return
     setBusy(true)
     try {
       const order = await api<Order>('/orders', {
@@ -229,19 +269,8 @@ export function Account({ section }: { section: 'orders' | 'wallet' | 'referral'
       </div>
       <div className="page-title title-with-action">
         <div>
-          <div className="eyebrow">
-            {section === 'orders'
-              ? 'YOUR ORDERS'
-              : section === 'wallet'
-                ? 'YOUR WALLET'
-                : 'BETTER TOGETHER'}
-          </div>
           <h1>
-            {section === 'orders'
-              ? '每一笔订单，都有迹可循。'
-              : section === 'wallet'
-                ? '我的钱包'
-                : '分享好用的，收获一点奖励。'}
+            {section === 'orders' ? '我的订单' : section === 'wallet' ? '我的钱包' : '邀请有礼'}
           </h1>
           <p>
             {section === 'orders'
@@ -271,7 +300,10 @@ export function Account({ section }: { section: 'orders' | 'wallet' | 'referral'
               <div className="table-toolbar">
                 <Tabs
                   activeKey={filter}
-                  onChange={setFilter}
+                  onChange={(value) => {
+                    setFilter(value)
+                    orders.setPage(1)
+                  }}
                   items={[
                     { key: 'all', label: '全部订单' },
                     { key: 'unpaid', label: '待付款' },
@@ -280,23 +312,78 @@ export function Account({ section }: { section: 'orders' | 'wallet' | 'referral'
                   ]}
                 />
                 <Input.Search
+                  aria-label="搜索订单号或套餐"
                   placeholder="搜索订单号或套餐"
                   value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+                  onChange={(e) => {
+                    setSearch(e.target.value)
+                    orders.setPage(1)
+                  }}
                   allowClear
                   style={{ maxWidth: 260 }}
                 />
               </div>
+              {orders.error && (
+                <Alert
+                  className="mb-24"
+                  type="error"
+                  title={orders.error}
+                  action={<Button onClick={orders.retry}>重试</Button>}
+                />
+              )}
+              <div className="mobile-orders">
+                {orders.loading ? (
+                  <Skeleton active />
+                ) : filteredOrders.length ? (
+                  <ul className="mobile-order-list">
+                    {filteredOrders.map((order) => {
+                      const status = orderStatusLabel(order)
+                      return (
+                        <li key={order.id} className="mobile-order">
+                          <div className="mobile-order-heading">
+                            <strong>{order.productName}</strong>
+                            <Tag color={status.color}>{status.text}</Tag>
+                          </div>
+                          <p className="muted">
+                            {order.kind === 'topup' ? '充值到本站钱包' : order.email}
+                          </p>
+                          <div className="mobile-order-meta">
+                            <strong>{money(order.amount)}</strong>
+                            <span className="tiny muted">{dateTime(order.createdAt)}</span>
+                          </div>
+                          <Link href={`/orders/${order.id}`} className="text-link">
+                            {orderAction(order)} →
+                          </Link>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                ) : (
+                  !orders.error && ordersEmpty
+                )}
+                <Pagination
+                  simple
+                  hideOnSinglePage
+                  current={orders.page}
+                  pageSize={8}
+                  total={orders.total}
+                  onChange={orders.setPage}
+                />
+              </div>
               <Table<Order>
+                className="desktop-orders"
+                loading={orders.loading}
                 rowKey="id"
                 scroll={{ x: 760 }}
-                locale={{ emptyText: <Empty description="还没有订单，去选一个适合的套餐吧" /> }}
-                dataSource={account.orders.filter(
-                  (o) =>
-                    (filter === 'all' || o.status === filter) &&
-                    `${o.id}${o.productName}`.toLowerCase().includes(search.toLowerCase()),
-                )}
-                pagination={{ pageSize: 8 }}
+                locale={{ emptyText: orders.error ? '订单暂未加载，请重试' : ordersEmpty }}
+                dataSource={filteredOrders}
+                pagination={{
+                  pageSize: 8,
+                  showSizeChanger: false,
+                  current: orders.page,
+                  total: orders.total,
+                  onChange: orders.setPage,
+                }}
                 columns={[
                   {
                     title: '订单 / 套餐',
@@ -320,13 +407,11 @@ export function Account({ section }: { section: 'orders' | 'wallet' | 'referral'
                   },
                   { title: '时间', dataIndex: 'createdAt', render: dateTime },
                   {
-                    title: '',
+                    title: '操作',
                     key: 'action',
-                    render: (_, o) => (
-                      <Link href={`/orders/${o.id}`}>
-                        {o.status === 'unpaid' ? '继续付款' : '查看订单'} →
-                      </Link>
-                    ),
+                    fixed: 'right',
+                    width: 112,
+                    render: (_, o) => <Link href={`/orders/${o.id}`}>{orderAction(o)} →</Link>,
                   },
                 ]}
               />
@@ -403,101 +488,133 @@ export function Account({ section }: { section: 'orders' | 'wallet' | 'referral'
                       key: 'ledger',
                       label: '余额明细',
                       children: (
-                        <Table<WalletEntry>
-                          rowKey="id"
-                          scroll={{ x: 560 }}
-                          dataSource={account.ledger}
-                          pagination={{ pageSize: 8 }}
-                          columns={[
-                            {
-                              title: '类型',
-                              dataIndex: 'kind',
-                              render: (k: WalletEntry['kind']) =>
-                                ({ topup: '钱包充值', purchase: '余额付款', refund: '退款入账' })[
-                                  k
-                                ],
-                            },
-                            {
-                              title: '金额',
-                              dataIndex: 'amount',
-                              render: (n: number) => (
-                                <span className={n > 0 ? 'income' : ''}>
-                                  {n > 0 ? '+' : ''}
-                                  {money(n)}
-                                </span>
-                              ),
-                            },
-                            { title: '变动后余额', dataIndex: 'balanceAfter', render: money },
-                            { title: '时间', dataIndex: 'createdAt', render: dateTime },
-                            {
-                              title: '关联订单',
-                              dataIndex: 'orderId',
-                              render: (id: string) => (
-                                <Link href={`/orders/${id}`}>查看订单 →</Link>
-                              ),
-                            },
-                          ]}
-                        />
+                        <>
+                          {ledger.rows.length > 0 && (
+                            <p className="mobile-table-hint tiny muted">
+                              左右滑动可查看完整流水与关联订单。
+                            </p>
+                          )}
+                          {ledger.error && (
+                            <Alert
+                              className="mb-24"
+                              type="error"
+                              title={ledger.error}
+                              action={<Button onClick={ledger.retry}>重试</Button>}
+                            />
+                          )}
+                          <Table<WalletEntry>
+                            loading={ledger.loading}
+                            rowKey="id"
+                            scroll={{ x: 560 }}
+                            dataSource={ledger.rows}
+                            pagination={{
+                              pageSize: 8,
+                              showSizeChanger: false,
+                              current: ledger.page,
+                              total: ledger.total,
+                              onChange: ledger.setPage,
+                            }}
+                            locale={{
+                              emptyText: ledger.error
+                                ? '余额明细暂未加载，请重试'
+                                : '还没有余额变动，充值或使用余额后会显示在这里',
+                            }}
+                            columns={[
+                              {
+                                title: '类型',
+                                dataIndex: 'kind',
+                                render: (k: WalletEntry['kind']) =>
+                                  ({ topup: '钱包充值', purchase: '余额付款', refund: '退款入账' })[
+                                    k
+                                  ],
+                              },
+                              {
+                                title: '金额',
+                                dataIndex: 'amount',
+                                render: (n: number) => (
+                                  <span className={n > 0 ? 'income' : ''}>
+                                    {n > 0 ? '+' : ''}
+                                    {money(n)}
+                                  </span>
+                                ),
+                              },
+                              { title: '变动后余额', dataIndex: 'balanceAfter', render: money },
+                              { title: '时间', dataIndex: 'createdAt', render: dateTime },
+                              {
+                                title: '关联订单',
+                                dataIndex: 'orderId',
+                                render: (id: string) => (
+                                  <Link href={`/orders/${id}`}>查看订单 →</Link>
+                                ),
+                              },
+                            ]}
+                          />
+                        </>
                       ),
                     },
                     {
                       key: 'withdrawals',
                       label: '提现记录',
                       children: (
-                        <Table<Withdrawal>
-                          rowKey="id"
-                          scroll={{ x: 580 }}
-                          dataSource={account.withdrawals}
-                          pagination={{ pageSize: 8 }}
-                          columns={[
-                            {
-                              title: '申请单',
-                              dataIndex: 'id',
-                              render: (id: string) => (
-                                <span className="mono tiny">{id.slice(0, 14)}…</span>
-                              ),
-                            },
-                            { title: '申请金额', dataIndex: 'amount', render: money },
-                            { title: '手续费', dataIndex: 'feeAmount', render: money },
-                            { title: '净额（元）', dataIndex: 'netAmount', render: money },
-                            {
-                              title: '方式',
-                              key: 'method',
-                              render: (_, w) =>
-                                `${w.method}${w.network ? ` · ${usdtNetworkLabels[w.network]}` : ''}`,
-                            },
-                            {
-                              title: '收款人',
-                              dataIndex: 'recipientName',
-                              render: (name: string) => name || '—',
-                            },
-                            { title: '收款账号', dataIndex: 'account' },
-                            {
-                              title: '状态',
-                              dataIndex: 'status',
-                              render: (s: Withdrawal['status']) => (
-                                <Tag color={withdrawalStatuses[s].color}>
-                                  {withdrawalStatuses[s].text}
-                                </Tag>
-                              ),
-                            },
-                            {
-                              title: '实际打款',
-                              key: 'payout',
-                              render: (_, w) =>
-                                w.payoutAmount
-                                  ? `${Number(w.payoutAmount)} ${w.method === 'USDT' ? 'USDT' : 'CNY'}`
-                                  : '—',
-                            },
-                            {
-                              title: '打款流水号',
-                              dataIndex: 'payoutReference',
-                              render: (value: string) => value || '—',
-                            },
-                            { title: '说明', dataIndex: 'note' },
-                            { title: '时间', dataIndex: 'createdAt', render: dateTime },
-                          ]}
-                        />
+                        <>
+                          {account.withdrawals.length > 0 && (
+                            <p className="mobile-table-hint tiny muted">
+                              左右滑动可查看完整收款信息与处理说明。
+                            </p>
+                          )}
+                          <Table<Withdrawal>
+                            rowKey="id"
+                            scroll={{ x: 580 }}
+                            dataSource={account.withdrawals}
+                            pagination={{ pageSize: 8 }}
+                            columns={[
+                              {
+                                title: '申请单',
+                                dataIndex: 'id',
+                                render: (id: string) => <span className="mono tiny">{id}</span>,
+                              },
+                              { title: '申请金额', dataIndex: 'amount', render: money },
+                              { title: '手续费', dataIndex: 'feeAmount', render: money },
+                              { title: '净额（元）', dataIndex: 'netAmount', render: money },
+                              {
+                                title: '方式',
+                                key: 'method',
+                                render: (_, w) =>
+                                  `${w.method}${w.network ? ` · ${usdtNetworkLabels[w.network]}` : ''}`,
+                              },
+                              {
+                                title: '收款人',
+                                dataIndex: 'recipientName',
+                                render: (name: string) => name || '—',
+                              },
+                              { title: '收款账号', dataIndex: 'account' },
+                              {
+                                title: '状态',
+                                dataIndex: 'status',
+                                render: (s: Withdrawal['status']) => (
+                                  <Tag color={withdrawalStatuses[s].color}>
+                                    {withdrawalStatuses[s].text}
+                                  </Tag>
+                                ),
+                              },
+                              {
+                                title: '实际打款',
+                                key: 'payout',
+                                render: (_, w) =>
+                                  w.payoutAmount
+                                    ? `${Number(w.payoutAmount)} ${w.method === 'USDT' ? 'USDT' : 'CNY'}`
+                                    : '—',
+                              },
+                              {
+                                title: '打款流水号',
+                                dataIndex: 'payoutReference',
+                                render: (value: string) => value || '—',
+                              },
+                              { title: '说明', dataIndex: 'note' },
+                              { title: '时间', dataIndex: 'createdAt', render: dateTime },
+                            ]}
+                          />
+                        </>
                       ),
                     },
                   ]}
@@ -577,11 +694,6 @@ export function Account({ section }: { section: 'orders' | 'wallet' | 'referral'
                   dataSource={account.commissions}
                   pagination={{ pageSize: 8 }}
                   columns={[
-                    {
-                      title: '记录',
-                      dataIndex: 'id',
-                      render: (v: string) => <span className="mono">{v.slice(0, 16)}…</span>,
-                    },
                     { title: '奖励', dataIndex: 'amount', render: money },
                     {
                       title: '状态',
@@ -621,12 +733,23 @@ export function Account({ section }: { section: 'orders' | 'wallet' | 'referral'
           )}
         </>
       )}
-      <Modal title="充值到我的钱包" open={topup} onCancel={() => setTopup(false)} footer={null}>
+      <Modal
+        title="充值到我的钱包"
+        open={topup}
+        onCancel={() => {
+          if (!busy) setTopup(false)
+        }}
+        closable={!busy}
+        mask={{ closable: !busy }}
+        keyboard={!busy}
+        footer={null}
+      >
         <p className="muted">充值余额用于购买套餐，实际到账以服务端收款确认结果为准。</p>
         {bot.widget}
-        <Form layout="vertical">
-          <Form.Item label="充值金额（元）">
+        <Form layout="vertical" disabled={busy} onFinish={recharge}>
+          <Form.Item label="充值金额（元）" htmlFor="wallet-topup-amount">
             <InputNumber
+              id="wallet-topup-amount"
               min={1}
               max={10000}
               precision={2}
@@ -639,11 +762,14 @@ export function Account({ section }: { section: 'orders' | 'wallet' | 'referral'
             <PaymentOptions
               value={channel}
               onChange={setChannel}
-              allowBalance={false}
+              disabled={busy}
               amount={Math.round((amount ?? 0) * 100)}
             />
           </Form.Item>
-          {data && amount && paymentLimitError(data.settings, channel, Math.round(amount * 100)) ? (
+          {paymentAvailable &&
+          data &&
+          amount &&
+          paymentLimitError(data.settings, channel, Math.round(amount * 100)) ? (
             <Alert
               className="mb-24"
               type="warning"
@@ -653,10 +779,11 @@ export function Account({ section }: { section: 'orders' | 'wallet' | 'referral'
           <Button
             type="primary"
             block
-            onClick={recharge}
+            htmlType="submit"
             loading={busy}
             disabled={
               !amount ||
+              !paymentAvailable ||
               !!(data && paymentLimitError(data.settings, channel, Math.round((amount ?? 0) * 100)))
             }
           >

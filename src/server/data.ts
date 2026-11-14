@@ -186,6 +186,7 @@ export function userView(record: UserRecord, roleIds?: string[]): User {
     avatarUrl: `https://www.gravatar.com/avatar/${avatarHash}?s=128&d=identicon&r=g`,
     role: z.enum(['user', 'admin']).parse(record.role),
     referralCode: record.referralCode,
+    referralTierId: record.referralTierId,
     invitedBy: record.invitedBy ?? undefined,
     createdAt: record.createdAt.toISOString(),
     disabled: record.disabled,

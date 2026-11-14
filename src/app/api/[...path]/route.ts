@@ -47,6 +47,9 @@ import { recordView } from '../../../server/funnel'
 import { referralTiersSchema, withdrawalChannelsSchema } from '../../../server/referral-policy'
 import { defaultReferralTiers } from '../../../referral'
 import { withdrawalChannels } from '../../../withdrawals'
+import { updateAdminUser } from '../../../server/admin-users'
+import { adminQuerySchema } from '../../../server/admin-query'
+import { accountHistory, accountHistoryQuery } from '../../../server/account-history'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -227,6 +230,12 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
         demo ? normalizeDemoSession(input.session) : input.session,
         await browserDigest(),
       )
+    } else if (path === 'account/history' && method === 'GET') {
+      const user = await requireUser()
+      result = await accountHistory(
+        user.id,
+        accountHistoryQuery.parse(Object.fromEntries(request.nextUrl.searchParams)),
+      )
     } else if (path === 'account' && method === 'GET') result = await account(await requireUser())
     else if (path === 'wallet/withdraw' && method === 'POST') {
       const user = await requireUser()
@@ -260,7 +269,11 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
         if (['integrations:write', 'roles:write', 'withdrawals:write'].includes(required))
           await requireRecent(admin)
       }
-      if (path === 'admin' && method === 'GET') result = await adminData(admin)
+      if (path === 'admin' && method === 'GET')
+        result = await adminData(
+          admin,
+          adminQuerySchema.parse(Object.fromEntries(request.nextUrl.searchParams)),
+        )
       else if (path === 'admin/integrations' && method === 'POST')
         result = await saveIntegration(integrationSchema.parse(data), admin.email)
       else if (path === 'admin/roles' && method === 'POST') {
@@ -454,17 +467,7 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
           .parse(data)
         result = await importInventory(input.productId, input.codes, admin.email, input)
       } else if (path === 'admin/users' && method === 'POST') {
-        const input = z.object({ id: z.string(), disabled: z.boolean() }).parse(data)
-        if (input.id === admin.id) throw new ApiError(400, '不能停用当前管理员')
-        await transaction(async (client) => {
-          await client.user.updateMany({
-            where: { id: input.id, role: { not: 'admin' } },
-            data: { disabled: input.disabled },
-          })
-          if (input.disabled) await client.authSession.deleteMany({ where: { userId: input.id } })
-          await audit(admin.email, input.disabled ? '停用用户' : '启用用户', input.id, client)
-        })
-        result = { saved: true }
+        result = await updateAdminUser(admin, data)
       } else if (path === 'admin/withdrawals/estimate' && method === 'POST') {
         const input = z
           .object({ id: z.string().min(1), refresh: z.boolean().default(false) })

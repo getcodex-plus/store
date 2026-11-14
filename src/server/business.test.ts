@@ -11,6 +11,7 @@ vi.hoisted(() => {
 })
 import { db, Prisma } from './db'
 import { userView } from './data'
+import { updateAdminUser } from './admin-users'
 import {
   accessibleOrder,
   acceptPayment,
@@ -829,6 +830,99 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
     } finally {
       await testQuery(Prisma.sql`UPDATE settings SET body=${JSON.stringify(previous)} WHERE id=1`)
     }
+  })
+  it('persists admin-assigned tiers for account views and new orders while preserving existing commissions', async () => {
+    const admin = { ...(await fixtureUser(`${id()}@example.com`)), permissions: ['users:write'] }
+    const owner = await fixtureUser(`${id()}@example.com`)
+    const oldOrder = await referralOrder(owner)
+    await updateAdminUser(admin, { id: owner.id, referralTierId: 'partner' })
+    expect(
+      userView(await db.user.findUniqueOrThrow({ where: { id: owner.id } })).referralTierId,
+    ).toBe('partner')
+    // Account reads must reflect edits even when the caller holds an older user object.
+    expect((await account(owner)).referral).toMatchObject({
+      manual: true,
+      qualifiedInvites: 0,
+      current: { id: 'partner', rateBps: 900 },
+    })
+    const assignedOrder = await referralOrder(owner)
+    expect(assignedOrder.rateBps).toBe(900)
+    expect(
+      await db.commission.findUniqueOrThrow({ where: { orderId: assignedOrder.id } }),
+    ).toMatchObject({ amount: 540 })
+    const invitedBuyer = await fixtureUser(`${id()}@example.com`, owner.id)
+    const registeredOrder = await newOrder(invitedBuyer, browser, {
+      quoteId: await quote(),
+      channel: 'alipay',
+      requestKey: id(),
+    })
+    expect(registeredOrder.rateBps).toBe(900)
+    await updateAdminUser(admin, { id: owner.id, referralTierId: null })
+    expect((await account(owner)).referral).toMatchObject({
+      manual: false,
+      current: { id: 'starter', rateBps: 300 },
+    })
+    expect((await referralOrder(owner)).rateBps).toBe(300)
+    expect(await db.order.findUniqueOrThrow({ where: { id: oldOrder.id } })).toMatchObject({
+      rateBps: 300,
+    })
+    expect(
+      await db.commission.findUniqueOrThrow({ where: { orderId: oldOrder.id } }),
+    ).toMatchObject({ amount: 180 })
+    expect(await db.order.findUniqueOrThrow({ where: { id: assignedOrder.id } })).toMatchObject({
+      rateBps: 900,
+    })
+    expect(
+      await db.audit.findMany({ where: { target: owner.id }, orderBy: { createdAt: 'asc' } }),
+    ).toMatchObject([
+      { actor: admin.email, action: '修改返佣等级：邀请合伙人' },
+      { actor: admin.email, action: '修改返佣等级：自动计算' },
+    ])
+  })
+  it('validates user edits, enforces write permission and retains account protections', async () => {
+    const owner = await fixtureUser(`${id()}@example.com`)
+    const admin = {
+      ...(await fixtureUser(`${id()}@example.com`)),
+      role: 'admin' as const,
+      permissions: ['users:write'],
+    }
+    await db.user.update({ where: { id: admin.id }, data: { role: 'admin' } })
+    await expect(
+      updateAdminUser(owner, { id: owner.id, referralTierId: 'partner' }),
+    ).rejects.toMatchObject({ status: 403 })
+    await expect(
+      updateAdminUser(admin, { id: owner.id, referralTierId: 'missing', disabled: true }),
+    ).rejects.toMatchObject({ status: 400 })
+    await expect(
+      updateAdminUser(admin, { id: 'missing', referralTierId: 'partner' }),
+    ).rejects.toMatchObject({ status: 404 })
+    await expect(updateAdminUser(admin, { id: admin.id, disabled: true })).rejects.toMatchObject({
+      status: 400,
+    })
+    await expect(updateAdminUser(admin, { id: owner.id })).rejects.toThrow()
+    expect(await db.user.findUniqueOrThrow({ where: { id: owner.id } })).toMatchObject({
+      disabled: false,
+      referralTierId: null,
+    })
+    expect(await db.audit.count({ where: { target: owner.id } })).toBe(0)
+    await updateAdminUser(admin, { id: admin.id, referralTierId: 'sharer' })
+    await updateAdminUser(admin, { id: owner.id, referralTierId: 'partner' })
+    await db.authSession.create({
+      data: {
+        id: id(),
+        userId: owner.id,
+        token: id(),
+        expiresAt: new Date(Date.now() + 3600_000),
+        updatedAt: new Date(),
+      },
+    })
+    await updateAdminUser(admin, { id: owner.id, disabled: true })
+    expect(await db.user.findUniqueOrThrow({ where: { id: owner.id } })).toMatchObject({
+      disabled: true,
+      referralTierId: 'partner',
+    })
+    expect(await db.authSession.count({ where: { userId: owner.id } })).toBe(0)
+    await updateAdminUser(admin, { id: owner.id, disabled: false })
   })
   it('counts settled guest referrals, locks tier rates on creation and recalculates after reversals', async () => {
     const owner = await fixtureUser(`${id()}@example.com`)

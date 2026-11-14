@@ -74,10 +74,15 @@ test('CSV batches supply independently and keep editable notes without exposing 
   await expect(first).toContainText('土耳其第一批')
   await expect(first.getByRole('switch')).toBeChecked()
   await first.getByRole('button', { name: '编辑备注' }).click()
+  await expect(dialog.getByLabel('批次名称')).toHaveValue(firstName)
   await dialog.getByLabel('批次备注').fill('已核实：较低成本国家')
   await dialog.getByRole('button', { name: '保存批次' }).click()
   await expect(dialog).toBeHidden()
   await expect(first).toContainText('已核实：较低成本国家')
+  await first.getByRole('button', { name: '编辑备注' }).click()
+  await expect(dialog.getByLabel('批次名称')).toHaveValue(firstName)
+  await expect(dialog.getByLabel('批次备注')).toHaveValue('已核实：较低成本国家')
+  await dialog.getByRole('button', { name: '关闭', exact: true }).click()
   const origin = process.env.E2E_BASE_URL || 'http://localhost:3000'
   const secondName = `TR-second-${token}`
   const response = await page.request.post('/api/admin/inventory', {

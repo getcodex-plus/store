@@ -10,7 +10,6 @@ import {
   Form,
   Input,
   InputNumber,
-  Radio,
   Result,
   Skeleton,
   Select,
@@ -27,57 +26,21 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useBotCheck } from './BotCheck'
 import { useSite } from './Providers'
 import { api, channels, money, parseSession, demoSession, normalizeDemoSession } from '../lib'
-import type { AccountData, Channel, Order, Quote } from '../types'
+import type { AccountData, Order, Quote } from '../types'
+import { PaymentOptions, usePaymentChannel } from './PaymentOptions'
 import { paymentLimitError, planNames } from '../pricing'
 import { refundSummary } from '../product-copy'
 import { FunnelView } from './FunnelView'
 import { trackFunnel, attributionSource, analyticsAllowed } from '../funnel-client'
 
-export function PaymentOptions({
-  value,
-  onChange,
-  allowBalance = true,
-  amount,
-}: {
-  value: Channel
-  onChange: (v: Channel) => void
-  allowBalance?: boolean
-  amount?: number
-}) {
-  const { data } = useSite()
-  const choices: Channel[] = [
-    'alipay',
-    'wechat',
-    'crypto',
-    ...(allowBalance ? ['balance' as const] : []),
-  ]
-  return (
-    <Radio.Group
-      className="payment-options"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-    >
-      {choices
-        .filter((c) => c === 'balance' || data?.settings[c])
-        .map((c) => (
-          <Radio key={c} value={c}>
-            <span className={`payment-logo ${c}`}>
-              {c === 'alipay' ? '支' : c === 'wechat' ? '微' : c === 'crypto' ? '₮' : '¥'}
-            </span>
-            <span>{channels[c]}</span>
-            {amount !== undefined &&
-              c !== 'balance' &&
-              data &&
-              paymentLimitError(data.settings, c, amount) && <small>（不在金额范围内）</small>}
-          </Radio>
-        ))}
-    </Radio.Group>
-  )
-}
 export function Checkout() {
+  const productId = useSearchParams().get('product')
+  return <CheckoutContent key={productId} productId={productId} />
+}
+
+function CheckoutContent({ productId }: { productId: string | null }) {
   const { data, openLogin } = useSite()
   const bot = useBotCheck('purchase')
-  const productId = useSearchParams().get('product')
   const router = useRouter()
   const { message } = App.useApp()
   const [quote, setQuote] = useState<Quote | null>(null)
@@ -97,7 +60,7 @@ export function Checkout() {
   const [contactEmail, setContactEmail] = useState('')
   const [consent, setConsent] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [channel, setChannel] = useState<Channel>('alipay')
+  const { channel, setChannel, paymentAvailable } = usePaymentChannel()
   const [error, setError] = useState('')
   const [requestKey, setRequestKey] = useState('')
   const [upgradeId, setUpgradeId] = useState('')
@@ -152,6 +115,7 @@ export function Checkout() {
   const externalAmount = Math.max(0, (quote?.amount ?? 0) - walletUsed)
   const expired = quote ? clock >= new Date(quote.expiresAt).getTime() : false
   const limitError = data && quote ? paymentLimitError(data.settings, channel, externalAmount) : ''
+  const paymentUnavailable = externalAmount > 0 && !paymentAvailable
   if (!data)
     return (
       <div className="container page-content">
@@ -211,8 +175,14 @@ export function Checkout() {
       setError('账号信息已清除，请重新检查账号')
       return
     }
-    if (expired || limitError) {
-      setError(expired ? '报价已过期，请重新验证账号' : limitError)
+    if (expired || limitError || paymentUnavailable) {
+      setError(
+        expired
+          ? '报价已过期，请重新验证账号'
+          : paymentUnavailable
+            ? '在线支付暂未开放，请稍后再试或使用足额账户余额'
+            : limitError,
+      )
       return
     }
     setBusy(true)
@@ -283,6 +253,7 @@ export function Checkout() {
             <Form layout="vertical">
               <Form.Item label="想升级到哪个套餐？">
                 <Select
+                  disabled={busy}
                   aria-label="目标升级套餐"
                   styles={{ popup: { root: { maxWidth: 'calc(100vw - 36px)' } } }}
                   value={product.id}
@@ -309,6 +280,7 @@ export function Checkout() {
                 extra="用于接收通知和找回订单，可以与充值账号邮箱不同。"
               >
                 <Input
+                  disabled={busy}
                   id="checkout-contact-email"
                   aria-label="联系邮箱"
                   required
@@ -322,7 +294,7 @@ export function Checkout() {
               </Form.Item>
               <p className="tiny muted">
                 无需注册即可购买。已有账号？
-                <Button type="link" onClick={() => openLogin(true)}>
+                <Button type="link" disabled={busy} onClick={() => openLogin(true)}>
                   登录
                 </Button>
               </p>
@@ -333,12 +305,17 @@ export function Checkout() {
 
           {!quote ? (
             <>
-              <Form layout="vertical" requiredMark={false}>
+              <Form layout="vertical" requiredMark={false} disabled={busy}>
                 <div className="session-guide">
                   <strong>如何准备账号信息？</strong>
                   <ol>
                     <li>登录需要充值的 ChatGPT 账号，确认当前邮箱。</li>
-                    <li>打开下方操作指引，复制完整账号信息。</li>
+                    <li>
+                      <Link href="/guide#account-info" target="_blank">
+                        打开账号信息操作指引 ↗
+                      </Link>
+                      ，复制完整账号信息。
+                    </li>
                     <li>粘贴到下方，核对识别出的邮箱，再验证账号。</li>
                   </ol>
                   <details className="session-explanation">
@@ -347,9 +324,6 @@ export function Checkout() {
                       会话信息是敏感登录凭证，用于检查账号和执行本次充值。本站会将其转交充值服务方处理，
                       不将完整会话写入本站数据库或浏览器持久存储。请确认服务方和用途后再提交。
                     </p>
-                    <Link href="/guide#account-info" target="_blank">
-                      查看完整准备说明 ↗
-                    </Link>
                   </details>
                 </div>
                 {sessionEmail && (
@@ -437,6 +411,7 @@ export function Checkout() {
                 </div>
                 <Button
                   type="link"
+                  disabled={busy}
                   onClick={() => {
                     setQuote(null)
                     setConsent(false)
@@ -460,6 +435,7 @@ export function Checkout() {
                   : `报价还剩 ${Math.max(0, Math.ceil((new Date(quote.expiresAt).getTime() - clock) / 60000))} 分钟有效。`}
                 <Button
                   type="link"
+                  disabled={busy}
                   onClick={() => {
                     setQuote(null)
                     setBalanceAmount(0)
@@ -473,7 +449,7 @@ export function Checkout() {
                 <PaymentOptions
                   value={channel}
                   onChange={setChannel}
-                  allowBalance={false}
+                  disabled={busy}
                   amount={externalAmount}
                 />
               )}
@@ -481,7 +457,7 @@ export function Checkout() {
                 <div className="mt-24">
                   <Checkbox
                     checked={balanceAmount > 0}
-                    disabled={!walletBalance}
+                    disabled={busy || !walletBalance}
                     onChange={(e) =>
                       setBalanceAmount(
                         e.target.checked ? Math.min(walletBalance ?? 0, quote.amount) : 0,
@@ -494,6 +470,7 @@ export function Checkout() {
                   {balanceAmount > 0 && (
                     <Form.Item label="本次抵扣（元）" className="mt-20">
                       <InputNumber
+                        disabled={busy}
                         aria-label="本次余额抵扣"
                         min={0}
                         max={Math.min(walletBalance ?? 0, quote.amount) / 100}
@@ -515,9 +492,15 @@ export function Checkout() {
                   <span>−{money(walletUsed)}</span>
                 </div>
               </div>
-              {limitError && <Alert className="mt-20" type="warning" showIcon title={limitError} />}
+              {!paymentUnavailable && limitError && (
+                <Alert className="mt-20" type="warning" showIcon title={limitError} />
+              )}
               <div className="checkout-total">
-                <span>{externalAmount === 0 ? '还需支付' : `${channels[channel]}待付`}</span>
+                <span>
+                  {externalAmount === 0 || paymentUnavailable
+                    ? '还需支付'
+                    : `${channels[channel]}待付`}
+                </span>
                 <strong>{money(externalAmount)}</strong>
               </div>
               <div className="checkout-conditions">
@@ -530,7 +513,7 @@ export function Checkout() {
                 block
                 loading={busy}
                 onClick={purchase}
-                disabled={expired || !!limitError}
+                disabled={expired || !!limitError || paymentUnavailable}
               >
                 {`确认订单 · ${money(quote.amount)}`} <ArrowRightOutlined />
               </Button>

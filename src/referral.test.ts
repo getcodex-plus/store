@@ -24,6 +24,35 @@ describe('invitation levels and withdrawal policy', () => {
     expect(result.progress).toBeLessThanOrEqual(100)
   })
 
+  it('uses the assigned tier regardless of invite count and supports returning to automatic levels', () => {
+    expect(referralProgress(0, {}, 'partner')).toMatchObject({
+      manual: true,
+      current: { id: 'partner', rateBps: 500 },
+      next: null,
+    })
+    expect(referralProgress(100, {}, 'sharer')).toMatchObject({
+      manual: true,
+      current: { id: 'sharer', rateBps: 300 },
+      next: null,
+    })
+    for (const tierId of [null, 'deleted-tier'])
+      expect(referralProgress(8, {}, tierId)).toMatchObject({
+        manual: false,
+        current: { id: 'sharer' },
+        next: { id: 'ambassador' },
+        remaining: 12,
+      })
+    expect(
+      referralProgress(
+        0,
+        {
+          referralTiers: defaultReferralTiers.map((tier) => ({ ...tier, rateBps: 600 })),
+        },
+        'partner',
+      ).current.rateBps,
+    ).toBe(600)
+  })
+
   it('keeps unsettled, reversed and rejected amounts out of the withdrawable limit', () => {
     expect(
       referralFunds(

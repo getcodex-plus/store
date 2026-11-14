@@ -49,6 +49,7 @@ export interface User {
   avatarUrl?: string
   role: 'user' | 'admin'
   referralCode: string
+  referralTierId?: string | null
   invitedBy?: string
   createdAt: string
   disabled: boolean
@@ -194,6 +195,7 @@ export interface AccountData {
   withdrawals: Withdrawal[]
   invitedCount: number
   referral: {
+    manual?: boolean
     qualifiedInvites: number
     current: ReferralTier
     next: ReferralTier | null
@@ -211,6 +213,8 @@ export interface AccountData {
   ledger: WalletEntry[]
 }
 export interface AdminData {
+  pagination?: { page: number; pageSize: number; total: number }
+  pendingWithdrawalCount?: number
   riskEvents?: {
     id: string
     scene: string
