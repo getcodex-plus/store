@@ -23,7 +23,6 @@ import { sendEmail, sendLoginEmail } from './email'
 const settings = {
   rateBps: 200,
   settlementDays: 7,
-  minimumWithdrawal: 1000,
   firstOrderOnly: false,
   alipay: true,
   wechat: true,

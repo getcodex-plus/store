@@ -8,9 +8,5 @@ if (existsSync(envFile)) loadEnvFile(envFile)
 
 export default defineConfig({
   schema: 'prisma/schema.prisma',
-  migrations: {
-    path: 'prisma/migrations',
-    seed: 'bun scripts/seed.ts',
-  },
   datasource: { url: process.env.DATABASE_URL },
 })

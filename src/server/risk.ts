@@ -1,7 +1,7 @@
 import { isIP } from 'node:net'
 import { db, transaction, type DbClient } from './db'
 import { incrementRateLimit } from './database-sql'
-import { hash, id, secretHash } from './crypto'
+import { id, secretHash } from './crypto'
 import { ApiError, appUrl, demo } from './config'
 import {
   decideRisk,
@@ -76,11 +76,6 @@ export async function recordRisk(
 }
 
 function counterKey(rule: RiskLimit, value: string) {
-  // Preserve every existing counter bucket during rollout; new dimensions use HMAC.
-  if (rule.legacy) {
-    if (rule.dimension === 'global') return rule.prefix
-    return `${rule.prefix}:${rule.dimension === 'email' ? hash(value) : value}`
-  }
   return `risk:${rule.prefix}:${rule.dimension}:${riskDigest(rule.dimension, value)}`
 }
 

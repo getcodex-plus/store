@@ -75,7 +75,7 @@ export async function reserveInventory(
   discountCountry: string | null = null,
 ) {
   // Batch toggles wait for allocations already in flight. New allocations then
-  // use all enabled batches (and enabled legacy inventory without a batch).
+  // use all enabled batches (and enabled inventory without a batch).
   const [product] = await client.$queryRaw<{ id: string }[]>`
     SELECT id FROM products WHERE id=${productId} FOR SHARE`
   if (!product) return null
@@ -162,8 +162,4 @@ export async function savePaymentLocation(orderId: string, paymentId: string, pa
 
 export async function readOnlyTransaction(client: DbClient) {
   await client.$executeRaw`SET TRANSACTION READ ONLY`
-}
-
-export async function lockCredentialTables(client: DbClient) {
-  await client.$executeRaw`LOCK TABLE inventory, quotes IN SHARE ROW EXCLUSIVE MODE`
 }

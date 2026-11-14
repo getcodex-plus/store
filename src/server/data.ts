@@ -51,7 +51,6 @@ export function settingsData(value: Prisma.JsonValue): Settings {
     .object({
       rateBps: z.number(),
       settlementDays: z.number(),
-      minimumWithdrawal: z.number(),
       firstOrderOnly: z.boolean(),
       supportEmail: z.string().default(''),
       tawk: tawkSettingsSchema.default({ enabled: false, propertyId: '', widgetId: '' }),
@@ -168,7 +167,6 @@ export function quoteView(record: QuoteRecord): StoredQuote {
     inventoryId: record.inventoryId ?? undefined,
     preflightToken: record.preflightToken ?? undefined,
     preflightExpiresAt: record.preflightExpiresAt?.toISOString(),
-    flowVersion: record.flowVersion,
     // The pricing policy creates and revalidates this server-side snapshot.
     pricingSnapshot:
       record.pricingSnapshot === null

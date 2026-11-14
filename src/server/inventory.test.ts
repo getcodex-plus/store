@@ -207,9 +207,12 @@ suite('inventory batches and allocation in PostgreSQL', () => {
 
   it('keeps enabled historical inventory in the common supply pool', async () => {
     const p = await product()
-    const legacy = await importInventory(p.id, [id('legacy_')], actor)
-    await db.inventory.updateMany({ where: { batchId: legacy.batchId }, data: { batchId: null } })
-    await changeInventory({ action: 'disable-batch', batchId: legacy.batchId }, actor)
+    const unbatched = await importInventory(p.id, [id('unbatched_')], actor)
+    await db.inventory.updateMany({
+      where: { batchId: unbatched.batchId },
+      data: { batchId: null },
+    })
+    await changeInventory({ action: 'disable-batch', batchId: unbatched.batchId }, actor)
     const batch = await importInventory(p.id, [id('batch_')], actor)
     const allocations = [
       await transaction((client) => reserveInventory(client, p.id)),

@@ -105,12 +105,12 @@ test('saves dashboard configuration, loads once across routes, and disables on r
     data: { ...current, tawk: { ...config, widgetId: '../untrusted' } },
   })
   expect(rejected.status()).toBe(400)
-  const { tawk: _tawk, ...legacySettings } = current
-  const legacySave = await page.request.post('/api/admin/settings', {
+  const { tawk: _tawk, ...partialSettings } = current
+  const partialSave = await page.request.post('/api/admin/settings', {
     headers: { origin: new URL(baseURL!).origin, 'X-GetGPT-Request': '1' },
-    data: legacySettings,
+    data: partialSettings,
   })
-  expect(legacySave.ok()).toBe(true)
+  expect(partialSave.ok()).toBe(true)
   expect(
     settingsData((await db.setting.findUniqueOrThrow({ where: { id: 1 } })).body).tawk,
   ).toEqual(config)

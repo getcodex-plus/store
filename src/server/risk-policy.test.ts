@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { decideRisk, riskLimits, riskScenes, riskVersion } from './risk-policy'
 
-describe('ZEN risk policy migration', () => {
-  it('uses relaxed business budgets while preserving legacy counter namespaces and windows', async () => {
+describe('ZEN risk policy', () => {
+  it('enforces the configured budgets and windows for each business dimension', async () => {
     const expected = [
       ['events', 'browser', 'events', 120, 60],
       ['quote', 'browser', 'quote', 12, 60],
@@ -66,7 +66,7 @@ describe('ZEN risk policy migration', () => {
     }
   })
 
-  it('migrates self-referral and first-order eligibility with self-referral taking precedence', async () => {
+  it('checks self-referral and first-order eligibility with self-referral taking precedence', async () => {
     for (const self of [false, true]) {
       for (const firstOrderOnly of [false, true]) {
         for (const previous of [false, true]) {

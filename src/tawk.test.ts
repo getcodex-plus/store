@@ -8,11 +8,10 @@ const configured = {
   widgetId: 'default',
 }
 
-it('keeps existing settings disabled without a migration', () => {
+it('disables chat when settings are absent', () => {
   const settings = settingsData({
     rateBps: 200,
     settlementDays: 7,
-    minimumWithdrawal: 1000,
     firstOrderOnly: false,
     alipay: true,
     wechat: true,

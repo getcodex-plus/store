@@ -1,18 +1,4 @@
--- Final schema of the existing application, including PostgreSQL constraints and triggers.
--- Existing databases must pass db:baseline validation before this migration is marked applied.
-BEGIN;
---
--- PostgreSQL database dump
---
-
-
--- Dumped from database version 18.6 (Homebrew)
--- Dumped by pg_dump version 18.6 (Homebrew)
-
-
---
--- Name: auth_last_passkey_removed(); Type: FUNCTION; Schema: public; Owner: -
---
+-- Current database structure for an empty schema. Apply with bun run db:init.
 
 CREATE FUNCTION auth_last_passkey_removed() RETURNS trigger
     LANGUAGE plpgsql
@@ -25,11 +11,6 @@ BEGIN
   RETURN OLD;
 END $$;
 
-
---
--- Name: auth_passkey_enable_mfa(); Type: FUNCTION; Schema: public; Owner: -
---
-
 CREATE FUNCTION auth_passkey_enable_mfa() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
@@ -37,11 +18,6 @@ BEGIN
   UPDATE users SET two_factor_enabled=true WHERE id=NEW."userId";
   RETURN NEW;
 END $$;
-
-
---
--- Name: auth_passkey_owner_lock(); Type: FUNCTION; Schema: public; Owner: -
---
 
 CREATE FUNCTION auth_passkey_owner_lock() RETURNS trigger
     LANGUAGE plpgsql
@@ -51,11 +27,6 @@ BEGIN
   IF TG_OP='DELETE' THEN RETURN OLD; END IF;
   RETURN NEW;
 END $$;
-
-
---
--- Name: auth_passkey_requires_mfa(); Type: FUNCTION; Schema: public; Owner: -
---
 
 CREATE FUNCTION auth_passkey_requires_mfa() RETURNS trigger
     LANGUAGE plpgsql
@@ -67,11 +38,6 @@ BEGIN
   RETURN NEW;
 END $$;
 
-
---
--- Name: enqueue_order_email(); Type: FUNCTION; Schema: public; Owner: -
---
-
 CREATE FUNCTION enqueue_order_email() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
@@ -81,11 +47,6 @@ BEGIN
   END IF;
   RETURN NEW;
 END $$;
-
-
---
--- Name: record_funnel_order(); Type: FUNCTION; Schema: public; Owner: -
---
 
 CREATE FUNCTION record_funnel_order() RETURNS trigger
     LANGUAGE plpgsql
@@ -114,13 +75,6 @@ BEGIN
   RETURN NEW;
 END $$;
 
-
-
-
---
--- Name: audit; Type: TABLE; Schema: public; Owner: -
---
-
 CREATE TABLE audit (
     id text NOT NULL,
     actor text NOT NULL,
@@ -128,11 +82,6 @@ CREATE TABLE audit (
     target text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL
 );
-
-
---
--- Name: auth_account; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE auth_account (
     id text NOT NULL,
@@ -151,11 +100,6 @@ CREATE TABLE auth_account (
     "registrationRecord" text
 );
 
-
---
--- Name: auth_passkey; Type: TABLE; Schema: public; Owner: -
---
-
 CREATE TABLE auth_passkey (
     id text NOT NULL,
     name text,
@@ -170,22 +114,12 @@ CREATE TABLE auth_passkey (
     aaguid text
 );
 
-
---
--- Name: auth_rate_limit; Type: TABLE; Schema: public; Owner: -
---
-
 CREATE TABLE auth_rate_limit (
     id text NOT NULL,
     key text NOT NULL,
     count integer NOT NULL,
     "lastRequest" bigint NOT NULL
 );
-
-
---
--- Name: auth_session; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE auth_session (
     id text NOT NULL,
@@ -199,11 +133,6 @@ CREATE TABLE auth_session (
     method text
 );
 
-
---
--- Name: auth_verification; Type: TABLE; Schema: public; Owner: -
---
-
 CREATE TABLE auth_verification (
     id text NOT NULL,
     identifier text NOT NULL,
@@ -212,11 +141,6 @@ CREATE TABLE auth_verification (
     "createdAt" timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     "updatedAt" timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
-
-
---
--- Name: commissions; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE commissions (
     id text NOT NULL,
@@ -230,22 +154,12 @@ CREATE TABLE commissions (
     CONSTRAINT commissions_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'available'::text, 'reversed'::text])))
 );
 
-
---
--- Name: demo_mailbox; Type: TABLE; Schema: public; Owner: -
---
-
 CREATE TABLE demo_mailbox (
     browser_digest text NOT NULL,
     email text NOT NULL,
     code text NOT NULL,
     expires_at timestamp with time zone NOT NULL
 );
-
-
---
--- Name: email_outbox; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE email_outbox (
     id text NOT NULL,
@@ -255,11 +169,6 @@ CREATE TABLE email_outbox (
     run_at timestamp with time zone DEFAULT now() NOT NULL,
     sent_at timestamp with time zone
 );
-
-
---
--- Name: exchange_rates; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE exchange_rates (
     id text NOT NULL,
@@ -276,11 +185,6 @@ CREATE TABLE exchange_rates (
     CONSTRAINT exchange_rates_rate_e8_check CHECK (((rate_e8 > 0) AND (rate_e8 <= '10000000000'::bigint)))
 );
 
-
---
--- Name: funnel_events; Type: TABLE; Schema: public; Owner: -
---
-
 CREATE TABLE funnel_events (
     id text NOT NULL,
     event text NOT NULL,
@@ -292,11 +196,6 @@ CREATE TABLE funnel_events (
     CONSTRAINT funnel_events_source_check CHECK ((source = ANY (ARRAY['direct'::text, 'google'::text, 'bing'::text, 'baidu'::text, 'referral'::text, 'other'::text])))
 );
 
-
---
--- Name: integrations; Type: TABLE; Schema: public; Owner: -
---
-
 CREATE TABLE integrations (
     id text NOT NULL,
     provider text NOT NULL,
@@ -307,11 +206,6 @@ CREATE TABLE integrations (
     created_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
-
---
--- Name: inventory; Type: TABLE; Schema: public; Owner: -
---
-
 CREATE TABLE inventory (
     id text NOT NULL,
     product_id text NOT NULL,
@@ -319,13 +213,43 @@ CREATE TABLE inventory (
     fingerprint text NOT NULL,
     status text DEFAULT 'available'::text NOT NULL,
     reserved_until timestamp with time zone,
+    enabled boolean DEFAULT true NOT NULL,
+    batch_id text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    discount_country text,
+    CONSTRAINT inventory_discount_country_check CHECK (((discount_country IS NULL) OR (discount_country ~ '^[a-z]{2}$'::text))),
     CONSTRAINT inventory_status_check CHECK ((status = ANY (ARRAY['available'::text, 'reserved'::text, 'consumed'::text])))
 );
 
+CREATE TABLE inventory_batches (
+    id text NOT NULL,
+    name text NOT NULL,
+    product_id text NOT NULL,
+    imported_by text NOT NULL,
+    imported integer NOT NULL,
+    duplicates integer DEFAULT 0 NOT NULL,
+    note text DEFAULT ''::text NOT NULL,
+    enabled boolean DEFAULT true NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    discount_country text,
+    CONSTRAINT inventory_batches_discount_country_check CHECK (((discount_country IS NULL) OR (discount_country ~ '^[a-z]{2}$'::text))),
+    CONSTRAINT inventory_batches_duplicates_check CHECK ((duplicates >= 0)),
+    CONSTRAINT inventory_batches_imported_check CHECK ((imported >= 0))
+);
 
---
--- Name: jobs; Type: TABLE; Schema: public; Owner: -
---
+CREATE TABLE inventory_replacements (
+    id text NOT NULL,
+    inventory_id text NOT NULL,
+    integration_id text NOT NULL,
+    state text DEFAULT 'pending'::text NOT NULL,
+    preview jsonb NOT NULL,
+    restore_enabled boolean NOT NULL,
+    replacement_inventory_id text,
+    upstream_replacement_id text,
+    upstream_code_id text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT inventory_replacements_state_check CHECK ((state = ANY (ARRAY['pending'::text, 'review'::text, 'completed'::text])))
+);
 
 CREATE TABLE jobs (
     id text NOT NULL,
@@ -337,11 +261,6 @@ CREATE TABLE jobs (
     last_error text,
     done boolean DEFAULT false NOT NULL
 );
-
-
---
--- Name: orders; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE orders (
     id text NOT NULL,
@@ -375,21 +294,27 @@ CREATE TABLE orders (
     external_amount integer NOT NULL,
     inviter_id text,
     buyer_key text,
-    service_terms text DEFAULT ''::text NOT NULL,
     fulfillment_status text,
     redemption_version integer DEFAULT 0 NOT NULL,
     submission_attempted boolean DEFAULT false NOT NULL,
+    refund_destination text,
+    refund_status text,
+    refund_automatic boolean DEFAULT false NOT NULL,
+    refund_note text DEFAULT ''::text NOT NULL,
+    refund_actor text,
+    refund_requested_at timestamp with time zone,
+    refund_completed_at timestamp with time zone,
+    refund_resolution_note text DEFAULT ''::text NOT NULL,
+    refund_resolved_by text,
     CONSTRAINT orders_amount_check CHECK ((amount > 0)),
     CONSTRAINT orders_channel_check CHECK ((channel = ANY (ARRAY['alipay'::text, 'wechat'::text, 'crypto'::text, 'balance'::text]))),
     CONSTRAINT orders_kind_check CHECK ((kind = ANY (ARRAY['purchase'::text, 'topup'::text]))),
+    CONSTRAINT orders_refund_destination_check CHECK ((refund_destination = ANY (ARRAY['wallet'::text, 'original'::text]))),
+    CONSTRAINT orders_refund_record_check CHECK ((((refund_status IS NULL) AND (refund_destination IS NULL) AND (NOT refund_automatic) AND (refund_requested_at IS NULL) AND (refund_completed_at IS NULL)) OR ((refund_status IS NOT NULL) AND (refund_destination IS NOT NULL) AND (refund_requested_at IS NOT NULL) AND (refund_actor IS NOT NULL) AND (kind = 'purchase'::text) AND ((NOT refund_automatic) OR ((refund_destination = 'original'::text) AND (provider = 'xorpay'::text) AND (external_amount > 0))) AND ((refund_destination <> 'original'::text) OR refund_automatic OR (length(TRIM(BOTH FROM refund_note)) > 0)) AND (((refund_status = ANY (ARRAY['processing'::text, 'review'::text])) AND (status = 'failed'::text) AND refund_automatic AND (refund_completed_at IS NULL)) OR ((refund_status = 'completed'::text) AND (status = 'refunded'::text) AND (refund_completed_at IS NOT NULL)))))),
+    CONSTRAINT orders_refund_status_check CHECK ((refund_status = ANY (ARRAY['processing'::text, 'review'::text, 'completed'::text]))),
     CONSTRAINT orders_split_check CHECK (((balance_amount >= 0) AND (external_amount >= 0) AND ((balance_amount + external_amount) = amount) AND ((balance_amount = 0) OR (user_id IS NOT NULL)))),
     CONSTRAINT orders_status_check CHECK ((status = ANY (ARRAY['unpaid'::text, 'processing'::text, 'completed'::text, 'needs_session'::text, 'failed'::text, 'refunded'::text, 'cancelled'::text])))
 );
-
-
---
--- Name: payment_events; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE payment_events (
     provider text NOT NULL,
@@ -397,11 +322,6 @@ CREATE TABLE payment_events (
     order_id text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL
 );
-
-
---
--- Name: products; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE products (
     id text NOT NULL,
@@ -418,18 +338,12 @@ CREATE TABLE products (
     pricing jsonb,
     price_currency text DEFAULT 'CNY'::text NOT NULL,
     rounding_step integer DEFAULT 100 NOT NULL,
-    service_terms text DEFAULT ''::text NOT NULL,
     CONSTRAINT products_plan_check CHECK ((plan = ANY (ARRAY['go'::text, 'plus'::text, 'pro5'::text, 'pro20'::text, 'promax'::text]))),
     CONSTRAINT products_price_check CHECK (((price > 0) AND (price <= 100000000))),
     CONSTRAINT products_price_currency_check CHECK ((price_currency = ANY (ARRAY['CNY'::text, 'USD'::text]))),
     CONSTRAINT products_pricing_mode_check CHECK (((upgrade AND (pricing_mode = 'markup'::text)) OR ((NOT upgrade) AND (pricing_mode = 'fixed'::text)))),
     CONSTRAINT products_rounding_step_check CHECK ((rounding_step = ANY (ARRAY[1, 10, 100, 1000])))
 );
-
-
---
--- Name: quotes; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE quotes (
     id text NOT NULL,
@@ -445,18 +359,11 @@ CREATE TABLE quotes (
     pricing_snapshot jsonb,
     current_plan text,
     target_plan text,
-    service_terms text DEFAULT ''::text NOT NULL,
     analytics_visitor text,
     attribution_source text DEFAULT 'direct'::text NOT NULL,
-    flow_version integer DEFAULT 2 NOT NULL,
     preflight_expires_at timestamp with time zone,
     CONSTRAINT quotes_amount_check CHECK ((amount > 0))
 );
-
-
---
--- Name: rate_limits; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE rate_limits (
     key text NOT NULL,
@@ -464,10 +371,22 @@ CREATE TABLE rate_limits (
     expires_at timestamp with time zone NOT NULL
 );
 
-
---
--- Name: roles; Type: TABLE; Schema: public; Owner: -
---
+CREATE TABLE risk_events (
+    id text NOT NULL,
+    scene text NOT NULL,
+    action text NOT NULL,
+    effective_action text NOT NULL,
+    mode text NOT NULL,
+    rule_version text NOT NULL,
+    reason_codes jsonb NOT NULL,
+    subjects jsonb NOT NULL,
+    facts jsonb NOT NULL,
+    reference_id text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT risk_events_action_check CHECK ((action = ANY (ARRAY['allow'::text, 'deny'::text, 'challenge'::text, 'review'::text]))),
+    CONSTRAINT risk_events_effective_action_check CHECK ((effective_action = ANY (ARRAY['allow'::text, 'deny'::text, 'challenge'::text, 'review'::text]))),
+    CONSTRAINT risk_events_mode_check CHECK ((mode = ANY (ARRAY['enforce'::text, 'observe'::text])))
+);
 
 CREATE TABLE roles (
     id text NOT NULL,
@@ -476,21 +395,11 @@ CREATE TABLE roles (
     protected boolean DEFAULT false NOT NULL
 );
 
-
---
--- Name: settings; Type: TABLE; Schema: public; Owner: -
---
-
 CREATE TABLE settings (
     id integer NOT NULL,
     body jsonb NOT NULL,
     CONSTRAINT settings_id_check CHECK ((id = 1))
 );
-
-
---
--- Name: twoFactor; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE "twoFactor" (
     id text NOT NULL,
@@ -502,20 +411,10 @@ CREATE TABLE "twoFactor" (
     "lockedUntil" timestamp with time zone
 );
 
-
---
--- Name: user_roles; Type: TABLE; Schema: public; Owner: -
---
-
 CREATE TABLE user_roles (
     user_id text NOT NULL,
     role_id text NOT NULL
 );
-
-
---
--- Name: users; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE users (
     id text NOT NULL,
@@ -530,13 +429,9 @@ CREATE TABLE users (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     image text,
     two_factor_enabled boolean DEFAULT false,
+    referral_tier_id text,
     CONSTRAINT users_role_check CHECK ((role = ANY (ARRAY['user'::text, 'admin'::text])))
 );
-
-
---
--- Name: wallet_ledger; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE wallet_ledger (
     id text NOT NULL,
@@ -551,21 +446,11 @@ CREATE TABLE wallet_ledger (
     CONSTRAINT wallet_ledger_kind_check CHECK ((kind = ANY (ARRAY['topup'::text, 'purchase'::text, 'refund'::text])))
 );
 
-
---
--- Name: wallets; Type: TABLE; Schema: public; Owner: -
---
-
 CREATE TABLE wallets (
     user_id text NOT NULL,
     balance integer DEFAULT 0 NOT NULL,
     CONSTRAINT wallets_balance_check CHECK ((balance >= 0))
 );
-
-
---
--- Name: withdrawals; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE withdrawals (
     id text NOT NULL,
@@ -587,6 +472,7 @@ CREATE TABLE withdrawals (
     payout_amount numeric(20,6),
     reviewer_id text,
     reviewed_at timestamp with time zone,
+    payout_fingerprint text,
     CONSTRAINT withdrawals_amount_check CHECK ((amount > 0)),
     CONSTRAINT withdrawals_check CHECK (((fee_amount >= 0) AND (fee_amount < amount))),
     CONSTRAINT withdrawals_fee_rate_bps_check CHECK (((fee_rate_bps >= 0) AND (fee_rate_bps < 10000))),
@@ -596,704 +482,289 @@ CREATE TABLE withdrawals (
     CONSTRAINT withdrawals_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'processing'::text, 'paid'::text, 'rejected'::text])))
 );
 
-
---
--- Name: audit audit_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY audit
     ADD CONSTRAINT audit_pkey PRIMARY KEY (id);
-
-
---
--- Name: auth_account auth_account_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY auth_account
     ADD CONSTRAINT auth_account_pkey PRIMARY KEY (id);
 
-
---
--- Name: auth_account auth_account_registrationRecord_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY auth_account
     ADD CONSTRAINT "auth_account_registrationRecord_key" UNIQUE ("registrationRecord");
-
-
---
--- Name: auth_passkey auth_passkey_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY auth_passkey
     ADD CONSTRAINT auth_passkey_pkey PRIMARY KEY (id);
 
-
---
--- Name: auth_rate_limit auth_rate_limit_key_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY auth_rate_limit
     ADD CONSTRAINT auth_rate_limit_key_key UNIQUE (key);
-
-
---
--- Name: auth_rate_limit auth_rate_limit_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY auth_rate_limit
     ADD CONSTRAINT auth_rate_limit_pkey PRIMARY KEY (id);
 
-
---
--- Name: auth_session auth_session_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY auth_session
     ADD CONSTRAINT auth_session_pkey PRIMARY KEY (id);
-
-
---
--- Name: auth_session auth_session_token_key; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY auth_session
     ADD CONSTRAINT auth_session_token_key UNIQUE (token);
 
-
---
--- Name: auth_verification auth_verification_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY auth_verification
     ADD CONSTRAINT auth_verification_pkey PRIMARY KEY (id);
-
-
---
--- Name: commissions commissions_order_id_key; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY commissions
     ADD CONSTRAINT commissions_order_id_key UNIQUE (order_id);
 
-
---
--- Name: commissions commissions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY commissions
     ADD CONSTRAINT commissions_pkey PRIMARY KEY (id);
-
-
---
--- Name: demo_mailbox demo_mailbox_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY demo_mailbox
     ADD CONSTRAINT demo_mailbox_pkey PRIMARY KEY (browser_digest, email);
 
-
---
--- Name: email_outbox email_outbox_order_id_status_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY email_outbox
     ADD CONSTRAINT email_outbox_order_id_status_key UNIQUE (order_id, status);
-
-
---
--- Name: email_outbox email_outbox_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY email_outbox
     ADD CONSTRAINT email_outbox_pkey PRIMARY KEY (id);
 
-
---
--- Name: exchange_rates exchange_rates_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY exchange_rates
     ADD CONSTRAINT exchange_rates_pkey PRIMARY KEY (id);
-
-
---
--- Name: funnel_events funnel_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY funnel_events
     ADD CONSTRAINT funnel_events_pkey PRIMARY KEY (id);
 
-
---
--- Name: integrations integrations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY integrations
     ADD CONSTRAINT integrations_pkey PRIMARY KEY (id);
 
-
---
--- Name: inventory inventory_fingerprint_key; Type: CONSTRAINT; Schema: public; Owner: -
---
+ALTER TABLE ONLY inventory_batches
+    ADD CONSTRAINT inventory_batches_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY inventory
     ADD CONSTRAINT inventory_fingerprint_key UNIQUE (fingerprint);
 
-
---
--- Name: inventory inventory_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY inventory
     ADD CONSTRAINT inventory_pkey PRIMARY KEY (id);
 
+ALTER TABLE ONLY inventory_replacements
+    ADD CONSTRAINT inventory_replacements_inventory_id_key UNIQUE (inventory_id);
 
---
--- Name: jobs jobs_order_id_key; Type: CONSTRAINT; Schema: public; Owner: -
---
+ALTER TABLE ONLY inventory_replacements
+    ADD CONSTRAINT inventory_replacements_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY jobs
     ADD CONSTRAINT jobs_order_id_key UNIQUE (order_id);
 
-
---
--- Name: jobs jobs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY jobs
     ADD CONSTRAINT jobs_pkey PRIMARY KEY (id);
-
-
---
--- Name: orders orders_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY orders
     ADD CONSTRAINT orders_pkey PRIMARY KEY (id);
 
-
---
--- Name: orders orders_quote_id_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY orders
     ADD CONSTRAINT orders_quote_id_key UNIQUE (quote_id);
-
-
---
--- Name: payment_events payment_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY payment_events
     ADD CONSTRAINT payment_events_pkey PRIMARY KEY (provider, transaction_id);
 
-
---
--- Name: products products_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY products
     ADD CONSTRAINT products_pkey PRIMARY KEY (id);
-
-
---
--- Name: quotes quotes_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY quotes
     ADD CONSTRAINT quotes_pkey PRIMARY KEY (id);
 
-
---
--- Name: rate_limits rate_limits_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY rate_limits
     ADD CONSTRAINT rate_limits_pkey PRIMARY KEY (key);
 
-
---
--- Name: roles roles_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
+ALTER TABLE ONLY risk_events
+    ADD CONSTRAINT risk_events_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY roles
     ADD CONSTRAINT roles_pkey PRIMARY KEY (id);
 
-
---
--- Name: settings settings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY settings
     ADD CONSTRAINT settings_pkey PRIMARY KEY (id);
-
-
---
--- Name: twoFactor twoFactor_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY "twoFactor"
     ADD CONSTRAINT "twoFactor_pkey" PRIMARY KEY (id);
 
-
---
--- Name: user_roles user_roles_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY user_roles
     ADD CONSTRAINT user_roles_pkey PRIMARY KEY (user_id, role_id);
-
-
---
--- Name: users users_email_key; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY users
     ADD CONSTRAINT users_email_key UNIQUE (email);
 
-
---
--- Name: users users_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY users
     ADD CONSTRAINT users_pkey PRIMARY KEY (id);
-
-
---
--- Name: users users_referral_code_key; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY users
     ADD CONSTRAINT users_referral_code_key UNIQUE (referral_code);
 
-
---
--- Name: wallet_ledger wallet_ledger_order_id_kind_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY wallet_ledger
     ADD CONSTRAINT wallet_ledger_order_id_kind_key UNIQUE (order_id, kind);
-
-
---
--- Name: wallet_ledger wallet_ledger_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY wallet_ledger
     ADD CONSTRAINT wallet_ledger_pkey PRIMARY KEY (id);
 
-
---
--- Name: wallets wallets_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY wallets
     ADD CONSTRAINT wallets_pkey PRIMARY KEY (user_id);
-
-
---
--- Name: withdrawals withdrawals_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY withdrawals
     ADD CONSTRAINT withdrawals_pkey PRIMARY KEY (id);
 
-
---
--- Name: withdrawals withdrawals_request_key_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY withdrawals
     ADD CONSTRAINT withdrawals_request_key_key UNIQUE (request_key);
 
-
---
--- Name: auth_account_userId_idx; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX "auth_account_userId_idx" ON auth_account USING btree ("userId");
-
-
---
--- Name: auth_one_opaque_account; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE UNIQUE INDEX auth_one_opaque_account ON auth_account USING btree ("userId") WHERE ("providerId" = 'opaque'::text);
 
-
---
--- Name: auth_passkey_credentialID_idx; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX "auth_passkey_credentialID_idx" ON auth_passkey USING btree ("credentialID");
-
-
---
--- Name: auth_passkey_userId_idx; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX "auth_passkey_userId_idx" ON auth_passkey USING btree ("userId");
 
-
---
--- Name: auth_session_userId_idx; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX "auth_session_userId_idx" ON auth_session USING btree ("userId");
-
-
---
--- Name: auth_verification_identifier_idx; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX auth_verification_identifier_idx ON auth_verification USING btree (identifier);
 
-
---
--- Name: commissions_user; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX commissions_user ON commissions USING btree (user_id);
-
-
---
--- Name: funnel_events_date; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX funnel_events_date ON funnel_events USING btree (created_at);
 
-
---
--- Name: integrations_active; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE UNIQUE INDEX integrations_active ON integrations USING btree (provider) WHERE (active = true);
 
+CREATE INDEX inventory_batch ON inventory USING btree (batch_id);
 
---
--- Name: jobs_ready; Type: INDEX; Schema: public; Owner: -
---
+CREATE INDEX inventory_batches_created ON inventory_batches USING btree (created_at, id);
+
+CREATE INDEX inventory_discount_availability ON inventory USING btree (product_id, discount_country, enabled, status);
+
+CREATE INDEX inventory_product_availability ON inventory USING btree (product_id, enabled, status);
 
 CREATE INDEX jobs_ready ON jobs USING btree (run_at) WHERE (done = false);
 
-
---
--- Name: orders_buyer; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX orders_buyer ON orders USING btree (buyer_key) WHERE (kind = 'purchase'::text);
-
-
---
--- Name: orders_unclaimed_email; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX orders_unclaimed_email ON orders USING btree (contact_email) WHERE (user_id IS NULL);
 
-
---
--- Name: orders_user; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX orders_user ON orders USING btree (user_id, created_at DESC);
 
+CREATE INDEX risk_events_created ON risk_events USING btree (created_at DESC);
 
---
--- Name: twoFactor_secret_idx; Type: INDEX; Schema: public; Owner: -
---
+CREATE INDEX risk_events_reference ON risk_events USING btree (reference_id);
 
 CREATE INDEX "twoFactor_secret_idx" ON "twoFactor" USING btree (secret);
 
-
---
--- Name: twoFactor_userId_idx; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX "twoFactor_userId_idx" ON "twoFactor" USING btree ("userId");
-
-
---
--- Name: wallet_ledger_user; Type: INDEX; Schema: public; Owner: -
---
 
 CREATE INDEX wallet_ledger_user ON wallet_ledger USING btree (user_id, created_at DESC);
 
-
---
--- Name: withdrawals_payout_reference; Type: INDEX; Schema: public; Owner: -
---
+CREATE INDEX withdrawals_payout_identity ON withdrawals USING btree (payout_fingerprint, user_id);
 
 CREATE UNIQUE INDEX withdrawals_payout_reference ON withdrawals USING btree (method, COALESCE(network, ''::text), payout_reference) WHERE (payout_reference <> ''::text);
 
-
---
--- Name: withdrawals_user; Type: INDEX; Schema: public; Owner: -
---
-
 CREATE INDEX withdrawals_user ON withdrawals USING btree (user_id, created_at DESC);
-
-
---
--- Name: auth_passkey auth_last_passkey_removed; Type: TRIGGER; Schema: public; Owner: -
---
 
 CREATE TRIGGER auth_last_passkey_removed AFTER DELETE ON auth_passkey FOR EACH ROW EXECUTE FUNCTION auth_last_passkey_removed();
 
-
---
--- Name: auth_passkey auth_passkey_enable_mfa; Type: TRIGGER; Schema: public; Owner: -
---
-
 CREATE TRIGGER auth_passkey_enable_mfa AFTER INSERT ON auth_passkey FOR EACH ROW EXECUTE FUNCTION auth_passkey_enable_mfa();
-
-
---
--- Name: auth_passkey auth_passkey_owner_lock; Type: TRIGGER; Schema: public; Owner: -
---
 
 CREATE TRIGGER auth_passkey_owner_lock BEFORE INSERT OR DELETE ON auth_passkey FOR EACH ROW EXECUTE FUNCTION auth_passkey_owner_lock();
 
-
---
--- Name: users auth_passkey_requires_mfa; Type: TRIGGER; Schema: public; Owner: -
---
-
 CREATE TRIGGER auth_passkey_requires_mfa BEFORE UPDATE OF two_factor_enabled ON users FOR EACH ROW EXECUTE FUNCTION auth_passkey_requires_mfa();
-
-
---
--- Name: orders order_email_outbox; Type: TRIGGER; Schema: public; Owner: -
---
 
 CREATE TRIGGER order_email_outbox AFTER INSERT OR UPDATE OF status ON orders FOR EACH ROW EXECUTE FUNCTION enqueue_order_email();
 
-
---
--- Name: orders order_funnel; Type: TRIGGER; Schema: public; Owner: -
---
-
 CREATE TRIGGER order_funnel AFTER INSERT OR UPDATE OF status ON orders FOR EACH ROW EXECUTE FUNCTION record_funnel_order();
-
-
---
--- Name: auth_account auth_account_userId_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY auth_account
     ADD CONSTRAINT "auth_account_userId_fkey" FOREIGN KEY ("userId") REFERENCES users(id) ON DELETE CASCADE;
 
-
---
--- Name: auth_passkey auth_passkey_userId_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY auth_passkey
     ADD CONSTRAINT "auth_passkey_userId_fkey" FOREIGN KEY ("userId") REFERENCES users(id) ON DELETE CASCADE;
-
-
---
--- Name: auth_session auth_session_userId_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY auth_session
     ADD CONSTRAINT "auth_session_userId_fkey" FOREIGN KEY ("userId") REFERENCES users(id) ON DELETE CASCADE;
 
-
---
--- Name: commissions commissions_order_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY commissions
     ADD CONSTRAINT commissions_order_id_fkey FOREIGN KEY (order_id) REFERENCES orders(id);
-
-
---
--- Name: commissions commissions_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY commissions
     ADD CONSTRAINT commissions_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id);
 
-
---
--- Name: email_outbox email_outbox_order_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY email_outbox
     ADD CONSTRAINT email_outbox_order_id_fkey FOREIGN KEY (order_id) REFERENCES orders(id);
 
+ALTER TABLE ONLY inventory
+    ADD CONSTRAINT inventory_batch_id_fkey FOREIGN KEY (batch_id) REFERENCES inventory_batches(id);
 
---
--- Name: inventory inventory_product_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
+ALTER TABLE ONLY inventory_batches
+    ADD CONSTRAINT inventory_batches_product_id_fkey FOREIGN KEY (product_id) REFERENCES products(id);
 
 ALTER TABLE ONLY inventory
     ADD CONSTRAINT inventory_product_id_fkey FOREIGN KEY (product_id) REFERENCES products(id);
 
+ALTER TABLE ONLY inventory_replacements
+    ADD CONSTRAINT inventory_replacements_integration_id_fkey FOREIGN KEY (integration_id) REFERENCES integrations(id);
 
---
--- Name: jobs jobs_order_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
+ALTER TABLE ONLY inventory_replacements
+    ADD CONSTRAINT inventory_replacements_inventory_id_fkey FOREIGN KEY (inventory_id) REFERENCES inventory(id);
+
+ALTER TABLE ONLY inventory_replacements
+    ADD CONSTRAINT inventory_replacements_replacement_inventory_id_fkey FOREIGN KEY (replacement_inventory_id) REFERENCES inventory(id);
 
 ALTER TABLE ONLY jobs
     ADD CONSTRAINT jobs_order_id_fkey FOREIGN KEY (order_id) REFERENCES orders(id);
 
-
---
--- Name: orders orders_aicdk_integration_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY orders
     ADD CONSTRAINT orders_aicdk_integration_id_fkey FOREIGN KEY (aicdk_integration_id) REFERENCES integrations(id);
-
-
---
--- Name: orders orders_integration_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY orders
     ADD CONSTRAINT orders_integration_id_fkey FOREIGN KEY (integration_id) REFERENCES integrations(id);
 
-
---
--- Name: orders orders_inviter_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY orders
     ADD CONSTRAINT orders_inviter_id_fkey FOREIGN KEY (inviter_id) REFERENCES users(id);
-
-
---
--- Name: orders orders_product_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY orders
     ADD CONSTRAINT orders_product_id_fkey FOREIGN KEY (product_id) REFERENCES products(id);
 
-
---
--- Name: orders orders_quote_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY orders
     ADD CONSTRAINT orders_quote_id_fkey FOREIGN KEY (quote_id) REFERENCES quotes(id);
-
-
---
--- Name: orders orders_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY orders
     ADD CONSTRAINT orders_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id);
 
-
---
--- Name: payment_events payment_events_order_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY payment_events
     ADD CONSTRAINT payment_events_order_id_fkey FOREIGN KEY (order_id) REFERENCES orders(id);
-
-
---
--- Name: quotes quotes_aicdk_integration_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY quotes
     ADD CONSTRAINT quotes_aicdk_integration_id_fkey FOREIGN KEY (aicdk_integration_id) REFERENCES integrations(id);
 
-
---
--- Name: quotes quotes_inventory_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY quotes
     ADD CONSTRAINT quotes_inventory_id_fkey FOREIGN KEY (inventory_id) REFERENCES inventory(id);
-
-
---
--- Name: quotes quotes_product_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY quotes
     ADD CONSTRAINT quotes_product_id_fkey FOREIGN KEY (product_id) REFERENCES products(id);
 
-
---
--- Name: twoFactor twoFactor_userId_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY "twoFactor"
     ADD CONSTRAINT "twoFactor_userId_fkey" FOREIGN KEY ("userId") REFERENCES users(id) ON DELETE CASCADE;
-
-
---
--- Name: user_roles user_roles_role_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY user_roles
     ADD CONSTRAINT user_roles_role_id_fkey FOREIGN KEY (role_id) REFERENCES roles(id);
 
-
---
--- Name: user_roles user_roles_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY user_roles
     ADD CONSTRAINT user_roles_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id);
-
-
---
--- Name: users users_invited_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY users
     ADD CONSTRAINT users_invited_by_fkey FOREIGN KEY (invited_by) REFERENCES users(id);
 
-
---
--- Name: wallet_ledger wallet_ledger_order_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY wallet_ledger
     ADD CONSTRAINT wallet_ledger_order_id_fkey FOREIGN KEY (order_id) REFERENCES orders(id);
-
-
---
--- Name: wallet_ledger wallet_ledger_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY wallet_ledger
     ADD CONSTRAINT wallet_ledger_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id);
 
-
---
--- Name: wallets wallets_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY wallets
     ADD CONSTRAINT wallets_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id);
-
-
---
--- Name: withdrawals withdrawals_reviewer_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY withdrawals
     ADD CONSTRAINT withdrawals_reviewer_id_fkey FOREIGN KEY (reviewer_id) REFERENCES users(id);
 
-
---
--- Name: withdrawals withdrawals_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
 ALTER TABLE ONLY withdrawals
     ADD CONSTRAINT withdrawals_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id);
-
-
---
--- PostgreSQL database dump complete
---
-COMMIT;

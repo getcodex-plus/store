@@ -23,7 +23,6 @@ async function fixture(page: Page, available = 35000, settings: Partial<Settings
       rateBps: defaultReferralTiers[0].rateBps,
       referralTiers: defaultReferralTiers,
       settlementDays: 7,
-      minimumWithdrawal: 5000,
       firstOrderOnly: true,
       supportEmail: '',
       alipay: true,

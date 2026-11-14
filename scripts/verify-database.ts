@@ -2,7 +2,7 @@ import { db } from '../src/server/db'
 import { verifyDatabase } from '../src/server/database-catalog'
 
 try {
-  const contract = await verifyDatabase(db, process.argv.includes('--baseline'))
+  const contract = await verifyDatabase(db)
   console.log(
     'Database verified:',
     Object.fromEntries(Object.entries(contract).map(([key, entries]) => [key, entries.length])),

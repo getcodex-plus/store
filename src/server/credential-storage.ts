@@ -1,19 +1,16 @@
 import { ApiError } from './config'
 import { decrypt, encrypt, id, secretHash } from './crypto'
-import { transaction, uniqueConflict, type DbClient } from './db'
-import { lockCredentialTables } from './database-sql'
+import { transaction } from './db'
 import { validateInventoryCodes } from '../inventory-import'
 
-// The version is outside the ciphertext so legacy data can be migrated explicitly.
-// Runtime readers never fall back to the old shared encryption purpose.
+// Credentials bind their encrypted contents to a purpose and record ID.
 const version = 'v2:'
 type Kind = 'inventory' | 'preflight'
 export function sealCredential(value: string, kind: Kind, recordId: string) {
   return version + encrypt(value, `${kind}:${recordId}`)
 }
 export function openCredential(value: string, kind: Kind, recordId: string) {
-  if (!value.startsWith(version))
-    throw new ApiError(503, '凭据存储需要升级，请联系管理员执行数据库迁移')
+  if (!value.startsWith(version)) throw new ApiError(503, '凭据格式无效，请联系管理员核对')
   return decrypt(value.slice(version.length), `${kind}:${recordId}`)
 }
 // Match AICDK's owned-code identity: display prefixes, case and separators do
@@ -51,10 +48,6 @@ export async function importInventory(
       (!/^[a-z]{2}$/.test(discountCountry) || product.plan !== 'plus' || product.upgrade)
     )
       throw new ApiError(400, '半价库存仅支持普通 Plus 商品，地区须为两位国家代码')
-    // Do not mix old SHA-256 indexes with keyed indexes: the same card could
-    // otherwise be imported twice before the migration is run.
-    if (await client.inventory.count({ where: { NOT: { code: { startsWith: version } } } }))
-      throw new ApiError(503, '凭据存储需要升级，请联系管理员执行数据库迁移')
     const batchId = id('batch_')
     await client.inventoryBatch.create({
       data: {
@@ -91,60 +84,4 @@ export async function importInventory(
       await client.inventoryBatch.update({ where: { id: batchId }, data: { enabled: false } })
     return { saved: true as const, imported, duplicates, batchId }
   })
-}
-
-// Run inside the schema migration transaction with the app and worker stopped.
-// A failure rolls back all changes; no plaintext, row values or keys are logged.
-export async function migrateCredentialStorage(client: DbClient) {
-  await lockCredentialTables(client)
-  let after = ''
-  for (;;) {
-    const batch = await client.inventory.findMany({
-      where: { id: { gt: after } },
-      orderBy: { id: 'asc' },
-      take: 200,
-    })
-    if (!batch.length) break
-    for (const item of batch) {
-      const legacy = !item.code.startsWith(version)
-      const plaintext = legacy
-        ? decrypt(item.code, 'getgpt')
-        : openCredential(item.code, 'inventory', item.id)
-      const fingerprint = inventoryFingerprint(plaintext)
-      try {
-        if (legacy || item.fingerprint !== fingerprint)
-          await client.inventory.update({
-            where: { id: item.id },
-            data: {
-              code: legacy ? sealCredential(plaintext, 'inventory', item.id) : item.code,
-              fingerprint,
-            },
-          })
-      } catch (error) {
-        if (uniqueConflict(error))
-          throw new ApiError(409, '存在同一卡密的不同展示格式，请核对重复库存后重新迁移')
-        throw error
-      }
-      after = item.id
-    }
-  }
-  for (;;) {
-    const batch = await client.quote.findMany({
-      where: { preflightToken: { not: null }, NOT: { preflightToken: { startsWith: version } } },
-      orderBy: { id: 'asc' },
-      take: 200,
-    })
-    if (!batch.length) break
-    for (const quote of batch)
-      await client.quote.update({
-        where: { id: quote.id },
-        data: {
-          preflightToken: sealCredential(
-            decrypt(quote.preflightToken!, 'getgpt'),
-            'preflight',
-            quote.id,
-          ),
-        },
-      })
-  }
 }

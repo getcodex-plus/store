@@ -13,15 +13,14 @@ import {
 } from './withdrawals'
 
 describe('withdrawal channels, minimums and fees', () => {
-  it('inherits legacy minimums without enabling explicitly disabled destinations', () => {
-    const legacy = withdrawalChannels({ minimumWithdrawal: 1234 })
+  it('uses default rules without enabling explicitly disabled destinations', () => {
+    const defaults = withdrawalChannels({})
     expect(
-      Object.values(legacy.rules).every(
-        (rule) => rule.minimum === 1234 && rule.feeRateBps === 0 && rule.fixedFee === 0,
+      Object.values(defaults.rules).every(
+        (rule) => rule.minimum === 5000 && rule.feeRateBps === 0 && rule.fixedFee === 0,
       ),
     ).toBe(true)
     const configured = withdrawalChannels({
-      minimumWithdrawal: 1234,
       withdrawalChannels: {
         alipay: false,
         wechat: true,
@@ -33,10 +32,8 @@ describe('withdrawal channels, minimums and fees', () => {
     expect(configured.alipay).toBe(false)
     expect(configured.networks).toEqual({ BSC: true, Polygon: false, ERC20: false, TRC20: false })
     expect(configured.rules.BSC).toEqual({ minimum: 2500, feeRateBps: 150, fixedFee: 100 })
-    expect(configured.rules.wechat.minimum).toBe(1234)
-    expect(withdrawalChannels({ minimumWithdrawal: 9999, withdrawalChannels: configured })).toEqual(
-      configured,
-    )
+    expect(configured.rules.wechat.minimum).toBe(5000)
+    expect(withdrawalChannels({ withdrawalChannels: configured })).toEqual(configured)
   })
 
   it('uses only enabled withdrawal destinations, independently of purchase payment switches', () => {

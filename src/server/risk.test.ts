@@ -9,7 +9,7 @@ vi.hoisted(() => {
   }
 })
 import { db, transaction } from './db'
-import { id, hash, encrypt } from './crypto'
+import { id } from './crypto'
 import { prepareTestDatabase, cleanupTestDatabase } from './database-test-support'
 import {
   checkRiskRate,
@@ -19,7 +19,6 @@ import {
   riskDigest,
   assessRisk,
 } from './risk'
-import { backfillRiskIdentities } from '../../scripts/backfill-risk'
 import { saveIntegration } from './integrations/config'
 import { adminData } from './services'
 import { userView } from './data'
@@ -63,10 +62,14 @@ suite('Risk persistence and concurrency', () => {
   afterAll(cleanupTestDatabase)
   afterEach(() => vi.unstubAllGlobals())
 
-  it('keeps existing buckets, rejects concurrent excess requests and persists denial evidence', async () => {
+  it('rejects concurrent excess requests and persists denial evidence', async () => {
     const user = id()
     await db.rateLimit.create({
-      data: { key: `fx-refresh:${user}`, count: 11, expiresAt: new Date(Date.now() + 60000) },
+      data: {
+        key: `risk:fx-refresh:user:${riskDigest('user', user)}`,
+        count: 11,
+        expiresAt: new Date(Date.now() + 60000),
+      },
     })
     const outcomes = await Promise.allSettled(
       Array.from({ length: 10 }, () => checkRiskRate('fx-refresh', { user })),
@@ -76,18 +79,26 @@ suite('Risk persistence and concurrency', () => {
       outcomes.filter((r) => r.status === 'rejected').every((r) => r.reason.status === 429),
     ).toBe(true)
     expect(
-      (await db.rateLimit.findUniqueOrThrow({ where: { key: `fx-refresh:${user}` } })).count,
+      (
+        await db.rateLimit.findUniqueOrThrow({
+          where: { key: `risk:fx-refresh:user:${riskDigest('user', user)}` },
+        })
+      ).count,
     ).toBe(21)
     expect(
       await db.riskEvent.count({ where: { scene: 'fx-refresh', effectiveAction: 'deny' } }),
     ).toBe(9)
     await db.rateLimit.update({
-      where: { key: `fx-refresh:${user}` },
+      where: { key: `risk:fx-refresh:user:${riskDigest('user', user)}` },
       data: { expiresAt: new Date(0) },
     })
     await expect(checkRiskRate('fx-refresh', { user })).resolves.toBeUndefined()
     expect(
-      (await db.rateLimit.findUniqueOrThrow({ where: { key: `fx-refresh:${user}` } })).count,
+      (
+        await db.rateLimit.findUniqueOrThrow({
+          where: { key: `risk:fx-refresh:user:${riskDigest('user', user)}` },
+        })
+      ).count,
     ).toBe(1)
   })
 
@@ -98,8 +109,11 @@ suite('Risk persistence and concurrency', () => {
       status: 429,
     })
     expect(
-      (await db.rateLimit.findUniqueOrThrow({ where: { key: `guest-contact:${hash(email)}` } }))
-        .count,
+      (
+        await db.rateLimit.findUniqueOrThrow({
+          where: { key: `risk:guest-contact:email:${riskDigest('email', email)}` },
+        })
+      ).count,
     ).toBe(11)
   })
 
@@ -123,7 +137,7 @@ suite('Risk persistence and concurrency', () => {
     expect(events.some((e) => (e.reasonCodes as string[]).includes('ORDER_IP_RATE'))).toBe(true)
   })
 
-  it('requires mandatory legacy subjects and does not silently bypass them', async () => {
+  it('requires mandatory subjects and does not silently bypass them', async () => {
     await expect(checkRiskRate('order', {})).rejects.toMatchObject({ status: 503 })
     await expect(checkRiskRate('order', { browser: id() })).resolves.toBeUndefined()
     await expect(checkRiskRate('withdrawal-request', {})).rejects.toMatchObject({ status: 503 })
@@ -192,36 +206,6 @@ suite('Risk persistence and concurrency', () => {
       assessRisk('order-assessment', { kind: 'order', unpaidOrders: 5 }, {}, referenceId, client),
     )
     expect(await db.riskEvent.count({ where: { referenceId } })).toBe(1)
-  })
-
-  it('backfills historical encrypted payout identities idempotently without exposing the accounts', async () => {
-    const users = await Promise.all(
-      [1, 2].map(() =>
-        db.user.create({
-          data: { id: id('u_'), email: `${id()}@example.com`, referralCode: id() },
-        }),
-      ),
-    )
-    const account = 'historical@example.com'
-    for (const user of users) {
-      await db.withdrawal.create({
-        data: {
-          id: id('w_'),
-          userId: user.id,
-          amount: 100,
-          method: '支付宝',
-          account: encrypt(account, `withdrawal:${user.id}`),
-          requestKey: id(),
-        },
-      })
-    }
-    expect(await backfillRiskIdentities()).toBe(2)
-    expect(await backfillRiskIdentities()).toBe(0)
-    const rows = await db.withdrawal.findMany()
-    expect(new Set(rows.map((r) => r.payoutFingerprint))).toEqual(
-      new Set([payoutFingerprint('支付宝', null, account)]),
-    )
-    expect(rows.every((r) => r.account !== account)).toBe(true)
   })
 
   it('only exposes risk history to administrators with audit read permission', async () => {

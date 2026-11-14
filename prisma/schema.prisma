@@ -114,7 +114,6 @@ model AuthVerification {
   @@map("auth_verification")
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model Commission {
   id          String   @id
   userId      String   @map("user_id")
@@ -153,7 +152,6 @@ model EmailOutbox {
   @@map("email_outbox")
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model ExchangeRate {
   id           String    @id
   rateE8       BigInt?   @map("rate_e8")
@@ -169,7 +167,6 @@ model ExchangeRate {
   @@map("exchange_rates")
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model FunnelEvent {
   id         String   @id
   event      String
@@ -198,7 +195,6 @@ model Integration {
   @@map("integrations")
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model Inventory {
   id                 String                 @id
   productId          String                 @map("product_id")
@@ -272,7 +268,6 @@ model Job {
   @@map("jobs")
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model Order {
   id                  String         @id
   userId              String?        @map("user_id")
@@ -344,7 +339,6 @@ model PaymentEvent {
   @@map("payment_events")
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model Product {
   inventoryBatches InventoryBatch[] @relation("InventoryBatches")
   id               String           @id
@@ -368,7 +362,6 @@ model Product {
   @@map("products")
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model Quote {
   id                 String       @id
   browserDigest      String       @map("browser_digest")
@@ -385,7 +378,6 @@ model Quote {
   targetPlan         String?      @map("target_plan")
   analyticsVisitor   String?      @map("analytics_visitor")
   attributionSource  String       @default("direct") @map("attribution_source")
-  flowVersion        Int          @default(2) @map("flow_version")
   preflightExpiresAt DateTime?    @map("preflight_expires_at") @db.Timestamptz(6)
   order              Order?
   aicdkIntegration   Integration? @relation(fields: [aicdkIntegrationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -413,7 +405,6 @@ model Role {
   @@map("roles")
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model Setting {
   id   Int  @id
   body Json
@@ -446,7 +437,6 @@ model UserRole {
   @@map("user_roles")
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model User {
   id                  String        @id
   email               String        @unique
@@ -479,7 +469,6 @@ model User {
   @@map("users")
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model WalletEntry {
   id           String   @id
   userId       String   @map("user_id")
@@ -496,7 +485,6 @@ model WalletEntry {
   @@map("wallet_ledger")
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model Wallet {
   userId  String @id @map("user_id")
   balance Int    @default(0)
@@ -505,8 +493,6 @@ model Wallet {
   @@map("wallets")
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model Withdrawal {
   id                String    @id
   userId            String    @map("user_id")

@@ -108,7 +108,6 @@ export type StoredQuote = Quote & {
   preflightToken?: string
   preflightExpiresAt?: string
   pricingSnapshot?: PricingSnapshot
-  flowVersion: number
 }
 export async function settings(): Promise<Settings> {
   const result = await db.setting.findUnique({ where: { id: 1 } })
@@ -420,10 +419,6 @@ export async function newOrder(
       }
       if (Date.parse(quoteRecord.expiresAt) < Date.now())
         throw new ApiError(409, '验证结果已过期，请重新验证账号')
-      // Legacy quotes may still reference a card whose timed reservation was
-      // reclaimed. Only existing orders may reuse that historical binding.
-      if (!demo && quoteRecord.flowVersion !== 2)
-        throw new ApiError(409, '验证流程已升级，请重新检查账号后创建订单')
       const product = await client.product.findFirst({
         where: { id: quoteRecord.productId, enabled: true },
       })
@@ -445,7 +440,7 @@ export async function newOrder(
         : (await integration(provider, undefined, client)).id
     const limitError = paymentLimitError(conf, input.channel, externalAmount)
     if (limitError) throw new ApiError(409, limitError)
-    if (!demo && quoteRecord && quoteRecord.flowVersion === 2) {
+    if (!demo && quoteRecord) {
       if (!input.session) throw new ApiError(400, '账号信息已清除，请重新检查账号')
       let session: ReturnType<typeof parseSession>
       try {

@@ -16,6 +16,8 @@ export const managedTables = [
   'funnel_events',
   'integrations',
   'inventory',
+  'inventory_batches',
+  'inventory_replacements',
   'jobs',
   'orders',
   'payment_events',
@@ -23,6 +25,7 @@ export const managedTables = [
   'quotes',
   'rate_limits',
   'roles',
+  'risk_events',
   'settings',
   'twoFactor',
   'user_roles',
@@ -92,100 +95,21 @@ export async function databaseContract(client: DbClient = db): Promise<DatabaseC
   }
 }
 
-export async function verifyDatabase(client: DbClient = db, baselineOnly = false) {
+export async function verifyDatabase(client: DbClient = db) {
   const expected: DatabaseContract = JSON.parse(
     await readFile(new URL('../../prisma/database-contract.json', import.meta.url), 'utf8'),
   )
   const actual = await databaseContract(client)
   const problems: string[] = []
-  // Keep the historical contract intact for legacy adoption. Current installations
-  // must have applied the migration removing these columns and their constraints.
-  const removedColumns = ['products', 'quotes', 'orders'].map((table) => `${table}.service_terms`)
-  const removedConstraints = ['products', 'quotes', 'orders'].map(
-    (table) => `${table}.${table}_service_terms_not_null`,
-  )
   for (const category of Object.keys(expected) as (keyof DatabaseContract)[]) {
     const entries = new Map(actual[category].map((e) => [e.key, e.definition]))
     for (const item of expected[category]) {
-      if (
-        !baselineOnly &&
-        ((category === 'columns' && removedColumns.includes(item.key)) ||
-          (category === 'constraints' && removedConstraints.includes(item.key)))
-      ) {
-        if (entries.has(item.key)) problems.push(`Removed ${category} still present: ${item.key}`)
-        continue
-      }
       if (entries.get(item.key) !== item.definition) problems.push(`${category}: ${item.key}`)
+      entries.delete(item.key)
     }
+    for (const key of entries.keys()) problems.push(`Unexpected ${category}: ${key}`)
   }
   if (problems.length)
-    throw new Error(`Database is not at the required baseline:\n${problems.join('\n')}`)
-  await verifyDataPrerequisites(client)
-  if (!baselineOnly) {
-    // Additive migrations are checked separately so db:baseline does not require
-    // them in advance.
-    await client.riskEvent.findFirst()
-    await client.inventory.findFirst({
-      select: { enabled: true, batchId: true, createdAt: true, discountCountry: true },
-    })
-    await client.inventoryBatch.findFirst()
-    const discountConstraints = await client.$queryRaw<{ conname: string }[]>`
-      SELECT k.conname FROM pg_constraint k
-      JOIN pg_class c ON c.oid=k.conrelid
-      JOIN pg_namespace n ON n.oid=c.relnamespace
-      WHERE n.nspname=current_schema()
-      AND (c.relname,k.conname) IN (
-        ('inventory','inventory_discount_country_check'),
-        ('inventory_batches','inventory_batches_discount_country_check')
-      )`
-    if (discountConstraints.length !== 2)
-      throw new Error('Plus discount inventory migration is incomplete')
-    await client.withdrawal.findFirst({ select: { payoutFingerprint: true } })
-    const indexes = await client.$queryRaw<{ indexname: string }[]>`
-      SELECT indexname FROM pg_indexes WHERE schemaname=current_schema()
-      AND indexname IN ('risk_events_created','risk_events_reference','withdrawals_payout_identity')`
-    if (indexes.length !== 3) throw new Error('ZEN risk migration is incomplete')
-    await client.order.findFirst({
-      select: {
-        refundDestination: true,
-        refundStatus: true,
-        refundAutomatic: true,
-        refundNote: true,
-        refundActor: true,
-        refundRequestedAt: true,
-        refundCompletedAt: true,
-        refundResolutionNote: true,
-        refundResolvedBy: true,
-      },
-    })
-    const refundConstraints = actual.constraints.filter((entry) =>
-      [
-        'orders.orders_refund_destination_check',
-        'orders.orders_refund_status_check',
-        'orders.orders_refund_record_check',
-      ].includes(entry.key),
-    )
-    if (refundConstraints.length !== 3) throw new Error('Order refund migration is incomplete')
-  }
+    throw new Error(`Database structure does not match the schema:\n${problems.join('\n')}`)
   return actual
-}
-
-export async function verifyDataPrerequisites(client: DbClient = db) {
-  if (
-    (await client.inventory.count({ where: { NOT: { code: { startsWith: 'v2:' } } } })) ||
-    (await client.quote.count({
-      where: { preflightToken: { not: null }, NOT: { preflightToken: { startsWith: 'v2:' } } },
-    }))
-  )
-    throw new Error('Legacy credentials require the pre-Prisma upgrade before baselining')
-  if (
-    (await client.twoFactor.count({ where: { backupCodes: { not: '' } } })) ||
-    (await client.user.count({
-      where: {
-        passkeys: { some: {} },
-        OR: [{ twoFactorEnabled: false }, { twoFactorEnabled: null }],
-      },
-    }))
-  )
-    throw new Error('Authentication invariants require the pre-Prisma upgrade before baselining')
 }

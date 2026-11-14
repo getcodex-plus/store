@@ -22,6 +22,7 @@ Object.assign(process.env, {
 })
 const { db, createDatabase, Prisma } = await import('../src/server/db')
 const { seedDatabase } = await import('./seed')
+const { initializeDatabase } = await import('../src/server/database-init')
 const { jsonInput, settingsData } = await import('../src/server/data')
 const adminURL = new URL(connection)
 adminURL.searchParams.set('schema', 'public')
@@ -52,12 +53,7 @@ let created = false
 try {
   await admin.$executeRaw(Prisma.sql`CREATE SCHEMA ${Prisma.raw(`"${schema}"`)}`)
   created = true
-  await run('node_modules/prisma/build/index.js', [
-    'migrate',
-    'deploy',
-    '--config',
-    'prisma7.config.ts',
-  ])
+  await initializeDatabase(target.toString())
   await db.$transaction(seedDatabase)
   const settings = await db.setting.findUniqueOrThrow({ where: { id: 1 } })
   await db.setting.update({
@@ -82,7 +78,7 @@ try {
       source: 'E2E fixture',
     },
   })
-  console.log('E2E database migrated and seeded in an isolated schema.')
+  console.log('E2E database initialized and seeded in an isolated schema.')
   await run('node_modules/@playwright/test/cli.js', ['test', ...process.argv.slice(2)])
 } finally {
   await db.$disconnect()

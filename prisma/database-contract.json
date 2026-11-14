@@ -357,8 +357,24 @@
       "definition": "text|true|"
     },
     {
+      "key": "inventory.batch_id",
+      "definition": "text|false|"
+    },
+    {
       "key": "inventory.code",
       "definition": "text|true|"
+    },
+    {
+      "key": "inventory.created_at",
+      "definition": "timestamp with time zone|true|now()"
+    },
+    {
+      "key": "inventory.discount_country",
+      "definition": "text|false|"
+    },
+    {
+      "key": "inventory.enabled",
+      "definition": "boolean|true|true"
     },
     {
       "key": "inventory.fingerprint",
@@ -379,6 +395,86 @@
     {
       "key": "inventory.status",
       "definition": "text|true|'available'::text"
+    },
+    {
+      "key": "inventory_batches.created_at",
+      "definition": "timestamp with time zone|true|now()"
+    },
+    {
+      "key": "inventory_batches.discount_country",
+      "definition": "text|false|"
+    },
+    {
+      "key": "inventory_batches.duplicates",
+      "definition": "integer|true|0"
+    },
+    {
+      "key": "inventory_batches.enabled",
+      "definition": "boolean|true|true"
+    },
+    {
+      "key": "inventory_batches.id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "inventory_batches.imported",
+      "definition": "integer|true|"
+    },
+    {
+      "key": "inventory_batches.imported_by",
+      "definition": "text|true|"
+    },
+    {
+      "key": "inventory_batches.name",
+      "definition": "text|true|"
+    },
+    {
+      "key": "inventory_batches.note",
+      "definition": "text|true|''::text"
+    },
+    {
+      "key": "inventory_batches.product_id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "inventory_replacements.created_at",
+      "definition": "timestamp with time zone|true|now()"
+    },
+    {
+      "key": "inventory_replacements.id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "inventory_replacements.integration_id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "inventory_replacements.inventory_id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "inventory_replacements.preview",
+      "definition": "jsonb|true|"
+    },
+    {
+      "key": "inventory_replacements.replacement_inventory_id",
+      "definition": "text|false|"
+    },
+    {
+      "key": "inventory_replacements.restore_enabled",
+      "definition": "boolean|true|"
+    },
+    {
+      "key": "inventory_replacements.state",
+      "definition": "text|true|'pending'::text"
+    },
+    {
+      "key": "inventory_replacements.upstream_code_id",
+      "definition": "text|false|"
+    },
+    {
+      "key": "inventory_replacements.upstream_replacement_id",
+      "definition": "text|false|"
     },
     {
       "key": "jobs.attempts",
@@ -529,11 +625,43 @@
       "definition": "integer|true|0"
     },
     {
-      "key": "orders.request_hash",
+      "key": "orders.refund_actor",
+      "definition": "text|false|"
+    },
+    {
+      "key": "orders.refund_automatic",
+      "definition": "boolean|true|false"
+    },
+    {
+      "key": "orders.refund_completed_at",
+      "definition": "timestamp with time zone|false|"
+    },
+    {
+      "key": "orders.refund_destination",
+      "definition": "text|false|"
+    },
+    {
+      "key": "orders.refund_note",
       "definition": "text|true|''::text"
     },
     {
-      "key": "orders.service_terms",
+      "key": "orders.refund_requested_at",
+      "definition": "timestamp with time zone|false|"
+    },
+    {
+      "key": "orders.refund_resolution_note",
+      "definition": "text|true|''::text"
+    },
+    {
+      "key": "orders.refund_resolved_by",
+      "definition": "text|false|"
+    },
+    {
+      "key": "orders.refund_status",
+      "definition": "text|false|"
+    },
+    {
+      "key": "orders.request_hash",
       "definition": "text|true|''::text"
     },
     {
@@ -617,10 +745,6 @@
       "definition": "integer|true|100"
     },
     {
-      "key": "products.service_terms",
-      "definition": "text|true|''::text"
-    },
-    {
       "key": "products.subtitle",
       "definition": "text|true|"
     },
@@ -661,10 +785,6 @@
       "definition": "timestamp with time zone|true|"
     },
     {
-      "key": "quotes.flow_version",
-      "definition": "integer|true|2"
-    },
-    {
       "key": "quotes.id",
       "definition": "text|true|"
     },
@@ -689,10 +809,6 @@
       "definition": "text|true|"
     },
     {
-      "key": "quotes.service_terms",
-      "definition": "text|true|''::text"
-    },
-    {
       "key": "quotes.status",
       "definition": "text|true|'ready'::text"
     },
@@ -711,6 +827,50 @@
     {
       "key": "rate_limits.key",
       "definition": "text|true|"
+    },
+    {
+      "key": "risk_events.action",
+      "definition": "text|true|"
+    },
+    {
+      "key": "risk_events.created_at",
+      "definition": "timestamp with time zone|true|now()"
+    },
+    {
+      "key": "risk_events.effective_action",
+      "definition": "text|true|"
+    },
+    {
+      "key": "risk_events.facts",
+      "definition": "jsonb|true|"
+    },
+    {
+      "key": "risk_events.id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "risk_events.mode",
+      "definition": "text|true|"
+    },
+    {
+      "key": "risk_events.reason_codes",
+      "definition": "jsonb|true|"
+    },
+    {
+      "key": "risk_events.reference_id",
+      "definition": "text|false|"
+    },
+    {
+      "key": "risk_events.rule_version",
+      "definition": "text|true|"
+    },
+    {
+      "key": "risk_events.scene",
+      "definition": "text|true|"
+    },
+    {
+      "key": "risk_events.subjects",
+      "definition": "jsonb|true|"
     },
     {
       "key": "roles.id",
@@ -809,6 +969,10 @@
       "definition": "text|true|"
     },
     {
+      "key": "users.referral_tier_id",
+      "definition": "text|false|"
+    },
+    {
       "key": "users.role",
       "definition": "text|true|'user'::text"
     },
@@ -899,6 +1063,10 @@
     {
       "key": "withdrawals.payout_amount",
       "definition": "numeric(20,6)|false|"
+    },
+    {
+      "key": "withdrawals.payout_fingerprint",
+      "definition": "text|false|"
     },
     {
       "key": "withdrawals.payout_reference",
@@ -1311,8 +1479,24 @@
       "definition": "NOT NULL secret"
     },
     {
+      "key": "inventory.inventory_batch_id_fkey",
+      "definition": "FOREIGN KEY (batch_id) REFERENCES inventory_batches(id)"
+    },
+    {
       "key": "inventory.inventory_code_not_null",
       "definition": "NOT NULL code"
+    },
+    {
+      "key": "inventory.inventory_created_at_not_null",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "key": "inventory.inventory_discount_country_check",
+      "definition": "CHECK (((discount_country IS NULL) OR (discount_country ~ '^[a-z]{2}$'::text)))"
+    },
+    {
+      "key": "inventory.inventory_enabled_not_null",
+      "definition": "NOT NULL enabled"
     },
     {
       "key": "inventory.inventory_fingerprint_key",
@@ -1345,6 +1529,114 @@
     {
       "key": "inventory.inventory_status_not_null",
       "definition": "NOT NULL status"
+    },
+    {
+      "key": "inventory_batches.inventory_batches_created_at_not_null",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "key": "inventory_batches.inventory_batches_discount_country_check",
+      "definition": "CHECK (((discount_country IS NULL) OR (discount_country ~ '^[a-z]{2}$'::text)))"
+    },
+    {
+      "key": "inventory_batches.inventory_batches_duplicates_check",
+      "definition": "CHECK ((duplicates >= 0))"
+    },
+    {
+      "key": "inventory_batches.inventory_batches_duplicates_not_null",
+      "definition": "NOT NULL duplicates"
+    },
+    {
+      "key": "inventory_batches.inventory_batches_enabled_not_null",
+      "definition": "NOT NULL enabled"
+    },
+    {
+      "key": "inventory_batches.inventory_batches_id_not_null",
+      "definition": "NOT NULL id"
+    },
+    {
+      "key": "inventory_batches.inventory_batches_imported_by_not_null",
+      "definition": "NOT NULL imported_by"
+    },
+    {
+      "key": "inventory_batches.inventory_batches_imported_check",
+      "definition": "CHECK ((imported >= 0))"
+    },
+    {
+      "key": "inventory_batches.inventory_batches_imported_not_null",
+      "definition": "NOT NULL imported"
+    },
+    {
+      "key": "inventory_batches.inventory_batches_name_not_null",
+      "definition": "NOT NULL name"
+    },
+    {
+      "key": "inventory_batches.inventory_batches_note_not_null",
+      "definition": "NOT NULL note"
+    },
+    {
+      "key": "inventory_batches.inventory_batches_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "inventory_batches.inventory_batches_product_id_fkey",
+      "definition": "FOREIGN KEY (product_id) REFERENCES products(id)"
+    },
+    {
+      "key": "inventory_batches.inventory_batches_product_id_not_null",
+      "definition": "NOT NULL product_id"
+    },
+    {
+      "key": "inventory_replacements.inventory_replacements_created_at_not_null",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "key": "inventory_replacements.inventory_replacements_id_not_null",
+      "definition": "NOT NULL id"
+    },
+    {
+      "key": "inventory_replacements.inventory_replacements_integration_id_fkey",
+      "definition": "FOREIGN KEY (integration_id) REFERENCES integrations(id)"
+    },
+    {
+      "key": "inventory_replacements.inventory_replacements_integration_id_not_null",
+      "definition": "NOT NULL integration_id"
+    },
+    {
+      "key": "inventory_replacements.inventory_replacements_inventory_id_fkey",
+      "definition": "FOREIGN KEY (inventory_id) REFERENCES inventory(id)"
+    },
+    {
+      "key": "inventory_replacements.inventory_replacements_inventory_id_key",
+      "definition": "UNIQUE (inventory_id)"
+    },
+    {
+      "key": "inventory_replacements.inventory_replacements_inventory_id_not_null",
+      "definition": "NOT NULL inventory_id"
+    },
+    {
+      "key": "inventory_replacements.inventory_replacements_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "inventory_replacements.inventory_replacements_preview_not_null",
+      "definition": "NOT NULL preview"
+    },
+    {
+      "key": "inventory_replacements.inventory_replacements_replacement_inventory_id_fkey",
+      "definition": "FOREIGN KEY (replacement_inventory_id) REFERENCES inventory(id)"
+    },
+    {
+      "key": "inventory_replacements.inventory_replacements_restore_enabled_not_null",
+      "definition": "NOT NULL restore_enabled"
+    },
+    {
+      "key": "inventory_replacements.inventory_replacements_state_check",
+      "definition": "CHECK ((state = ANY (ARRAY['pending'::text, 'review'::text, 'completed'::text])))"
+    },
+    {
+      "key": "inventory_replacements.inventory_replacements_state_not_null",
+      "definition": "NOT NULL state"
     },
     {
       "key": "jobs.jobs_attempts_not_null",
@@ -1479,12 +1771,32 @@
       "definition": "NOT NULL redemption_version"
     },
     {
-      "key": "orders.orders_request_hash_not_null",
-      "definition": "NOT NULL request_hash"
+      "key": "orders.orders_refund_automatic_not_null",
+      "definition": "NOT NULL refund_automatic"
     },
     {
-      "key": "orders.orders_service_terms_not_null",
-      "definition": "NOT NULL service_terms"
+      "key": "orders.orders_refund_destination_check",
+      "definition": "CHECK ((refund_destination = ANY (ARRAY['wallet'::text, 'original'::text])))"
+    },
+    {
+      "key": "orders.orders_refund_note_not_null",
+      "definition": "NOT NULL refund_note"
+    },
+    {
+      "key": "orders.orders_refund_record_check",
+      "definition": "CHECK ((((refund_status IS NULL) AND (refund_destination IS NULL) AND (NOT refund_automatic) AND (refund_requested_at IS NULL) AND (refund_completed_at IS NULL)) OR ((refund_status IS NOT NULL) AND (refund_destination IS NOT NULL) AND (refund_requested_at IS NOT NULL) AND (refund_actor IS NOT NULL) AND (kind = 'purchase'::text) AND ((NOT refund_automatic) OR ((refund_destination = 'original'::text) AND (provider = 'xorpay'::text) AND (external_amount > 0))) AND ((refund_destination <> 'original'::text) OR refund_automatic OR (length(TRIM(BOTH FROM refund_note)) > 0)) AND (((refund_status = ANY (ARRAY['processing'::text, 'review'::text])) AND (status = 'failed'::text) AND refund_automatic AND (refund_completed_at IS NULL)) OR ((refund_status = 'completed'::text) AND (status = 'refunded'::text) AND (refund_completed_at IS NOT NULL))))))"
+    },
+    {
+      "key": "orders.orders_refund_resolution_note_not_null",
+      "definition": "NOT NULL refund_resolution_note"
+    },
+    {
+      "key": "orders.orders_refund_status_check",
+      "definition": "CHECK ((refund_status = ANY (ARRAY['processing'::text, 'review'::text, 'completed'::text])))"
+    },
+    {
+      "key": "orders.orders_request_hash_not_null",
+      "definition": "NOT NULL request_hash"
     },
     {
       "key": "orders.orders_settlement_days_not_null",
@@ -1603,10 +1915,6 @@
       "definition": "NOT NULL rounding_step"
     },
     {
-      "key": "products.products_service_terms_not_null",
-      "definition": "NOT NULL service_terms"
-    },
-    {
       "key": "products.products_subtitle_not_null",
       "definition": "NOT NULL subtitle"
     },
@@ -1643,10 +1951,6 @@
       "definition": "NOT NULL expires_at"
     },
     {
-      "key": "quotes.quotes_flow_version_not_null",
-      "definition": "NOT NULL flow_version"
-    },
-    {
       "key": "quotes.quotes_id_not_null",
       "definition": "NOT NULL id"
     },
@@ -1667,10 +1971,6 @@
       "definition": "NOT NULL product_id"
     },
     {
-      "key": "quotes.quotes_service_terms_not_null",
-      "definition": "NOT NULL service_terms"
-    },
-    {
       "key": "quotes.quotes_status_not_null",
       "definition": "NOT NULL status"
     },
@@ -1689,6 +1989,62 @@
     {
       "key": "rate_limits.rate_limits_pkey",
       "definition": "PRIMARY KEY (key)"
+    },
+    {
+      "key": "risk_events.risk_events_action_check",
+      "definition": "CHECK ((action = ANY (ARRAY['allow'::text, 'deny'::text, 'challenge'::text, 'review'::text])))"
+    },
+    {
+      "key": "risk_events.risk_events_action_not_null",
+      "definition": "NOT NULL action"
+    },
+    {
+      "key": "risk_events.risk_events_created_at_not_null",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "key": "risk_events.risk_events_effective_action_check",
+      "definition": "CHECK ((effective_action = ANY (ARRAY['allow'::text, 'deny'::text, 'challenge'::text, 'review'::text])))"
+    },
+    {
+      "key": "risk_events.risk_events_effective_action_not_null",
+      "definition": "NOT NULL effective_action"
+    },
+    {
+      "key": "risk_events.risk_events_facts_not_null",
+      "definition": "NOT NULL facts"
+    },
+    {
+      "key": "risk_events.risk_events_id_not_null",
+      "definition": "NOT NULL id"
+    },
+    {
+      "key": "risk_events.risk_events_mode_check",
+      "definition": "CHECK ((mode = ANY (ARRAY['enforce'::text, 'observe'::text])))"
+    },
+    {
+      "key": "risk_events.risk_events_mode_not_null",
+      "definition": "NOT NULL mode"
+    },
+    {
+      "key": "risk_events.risk_events_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "risk_events.risk_events_reason_codes_not_null",
+      "definition": "NOT NULL reason_codes"
+    },
+    {
+      "key": "risk_events.risk_events_rule_version_not_null",
+      "definition": "NOT NULL rule_version"
+    },
+    {
+      "key": "risk_events.risk_events_scene_not_null",
+      "definition": "NOT NULL scene"
+    },
+    {
+      "key": "risk_events.risk_events_subjects_not_null",
+      "definition": "NOT NULL subjects"
     },
     {
       "key": "roles.roles_id_not_null",
@@ -2113,12 +2469,40 @@
       "definition": "CREATE UNIQUE INDEX integrations_pkey ON integrations USING btree (id)"
     },
     {
+      "key": "inventory.inventory_batch",
+      "definition": "CREATE INDEX inventory_batch ON inventory USING btree (batch_id)"
+    },
+    {
+      "key": "inventory.inventory_discount_availability",
+      "definition": "CREATE INDEX inventory_discount_availability ON inventory USING btree (product_id, discount_country, enabled, status)"
+    },
+    {
       "key": "inventory.inventory_fingerprint_key",
       "definition": "CREATE UNIQUE INDEX inventory_fingerprint_key ON inventory USING btree (fingerprint)"
     },
     {
       "key": "inventory.inventory_pkey",
       "definition": "CREATE UNIQUE INDEX inventory_pkey ON inventory USING btree (id)"
+    },
+    {
+      "key": "inventory.inventory_product_availability",
+      "definition": "CREATE INDEX inventory_product_availability ON inventory USING btree (product_id, enabled, status)"
+    },
+    {
+      "key": "inventory_batches.inventory_batches_created",
+      "definition": "CREATE INDEX inventory_batches_created ON inventory_batches USING btree (created_at, id)"
+    },
+    {
+      "key": "inventory_batches.inventory_batches_pkey",
+      "definition": "CREATE UNIQUE INDEX inventory_batches_pkey ON inventory_batches USING btree (id)"
+    },
+    {
+      "key": "inventory_replacements.inventory_replacements_inventory_id_key",
+      "definition": "CREATE UNIQUE INDEX inventory_replacements_inventory_id_key ON inventory_replacements USING btree (inventory_id)"
+    },
+    {
+      "key": "inventory_replacements.inventory_replacements_pkey",
+      "definition": "CREATE UNIQUE INDEX inventory_replacements_pkey ON inventory_replacements USING btree (id)"
     },
     {
       "key": "jobs.jobs_order_id_key",
@@ -2167,6 +2551,18 @@
     {
       "key": "rate_limits.rate_limits_pkey",
       "definition": "CREATE UNIQUE INDEX rate_limits_pkey ON rate_limits USING btree (key)"
+    },
+    {
+      "key": "risk_events.risk_events_created",
+      "definition": "CREATE INDEX risk_events_created ON risk_events USING btree (created_at DESC)"
+    },
+    {
+      "key": "risk_events.risk_events_pkey",
+      "definition": "CREATE UNIQUE INDEX risk_events_pkey ON risk_events USING btree (id)"
+    },
+    {
+      "key": "risk_events.risk_events_reference",
+      "definition": "CREATE INDEX risk_events_reference ON risk_events USING btree (reference_id)"
     },
     {
       "key": "roles.roles_pkey",
@@ -2219,6 +2615,10 @@
     {
       "key": "wallets.wallets_pkey",
       "definition": "CREATE UNIQUE INDEX wallets_pkey ON wallets USING btree (user_id)"
+    },
+    {
+      "key": "withdrawals.withdrawals_payout_identity",
+      "definition": "CREATE INDEX withdrawals_payout_identity ON withdrawals USING btree (payout_fingerprint, user_id)"
     },
     {
       "key": "withdrawals.withdrawals_payout_reference",

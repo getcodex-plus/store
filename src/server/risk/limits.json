@@ -63,11 +63,6 @@
             "field": "mode"
           },
           {
-            "id": "legacy",
-            "name": "legacy",
-            "field": "legacy"
-          },
-          {
             "id": "required",
             "name": "required",
             "field": "required"
@@ -84,7 +79,6 @@
             "seconds": "60",
             "reason": "\"EVENT_RATE\"",
             "mode": "\"enforce\"",
-            "legacy": "true",
             "required": "true"
           },
           {
@@ -97,7 +91,6 @@
             "seconds": "60",
             "reason": "\"QUOTE_BROWSER_RATE\"",
             "mode": "\"enforce\"",
-            "legacy": "true",
             "required": "true"
           },
           {
@@ -110,7 +103,6 @@
             "seconds": "60",
             "reason": "\"UPSTREAM_ACCOUNT_RATE\"",
             "mode": "\"enforce\"",
-            "legacy": "true",
             "required": "true"
           },
           {
@@ -123,7 +115,6 @@
             "seconds": "600",
             "reason": "\"ORDER_BROWSER_RATE\"",
             "mode": "\"enforce\"",
-            "legacy": "true",
             "required": "true"
           },
           {
@@ -136,7 +127,6 @@
             "seconds": "600",
             "reason": "\"ORDER_CONTACT_RATE\"",
             "mode": "\"enforce\"",
-            "legacy": "true",
             "required": "true"
           },
           {
@@ -149,7 +139,6 @@
             "seconds": "60",
             "reason": "\"UPSTREAM_PREFLIGHT_RATE\"",
             "mode": "\"enforce\"",
-            "legacy": "true",
             "required": "true"
           },
           {
@@ -162,7 +151,6 @@
             "seconds": "60",
             "reason": "\"SESSION_UPDATE_RATE\"",
             "mode": "\"enforce\"",
-            "legacy": "true",
             "required": "true"
           },
           {
@@ -175,7 +163,6 @@
             "seconds": "600",
             "reason": "\"EMAIL_RECIPIENT_RATE\"",
             "mode": "\"enforce\"",
-            "legacy": "true",
             "required": "true"
           },
           {
@@ -188,7 +175,6 @@
             "seconds": "600",
             "reason": "\"EMAIL_GLOBAL_RATE\"",
             "mode": "\"enforce\"",
-            "legacy": "true",
             "required": "true"
           },
           {
@@ -201,7 +187,6 @@
             "seconds": "60",
             "reason": "\"FX_REFRESH_RATE\"",
             "mode": "\"enforce\"",
-            "legacy": "true",
             "required": "true"
           },
           {
@@ -214,7 +199,6 @@
             "seconds": "60",
             "reason": "\"INVENTORY_IMPORT_RATE\"",
             "mode": "\"enforce\"",
-            "legacy": "true",
             "required": "true"
           },
           {
@@ -227,7 +211,6 @@
             "seconds": "60",
             "reason": "\"WITHDRAWAL_ESTIMATE_RATE\"",
             "mode": "\"enforce\"",
-            "legacy": "true",
             "required": "true"
           },
           {
@@ -240,7 +223,6 @@
             "seconds": "60",
             "reason": "\"WITHDRAWAL_FX_REFRESH_RATE\"",
             "mode": "\"enforce\"",
-            "legacy": "true",
             "required": "true"
           },
           {
@@ -253,7 +235,6 @@
             "seconds": "60",
             "reason": "\"QUOTE_IP_RATE\"",
             "mode": "\"enforce\"",
-            "legacy": "false",
             "required": "false"
           },
           {
@@ -266,7 +247,6 @@
             "seconds": "60",
             "reason": "\"QUOTE_USER_RATE\"",
             "mode": "\"enforce\"",
-            "legacy": "false",
             "required": "false"
           },
           {
@@ -279,7 +259,6 @@
             "seconds": "600",
             "reason": "\"ORDER_IP_RATE\"",
             "mode": "\"enforce\"",
-            "legacy": "false",
             "required": "false"
           },
           {
@@ -292,7 +271,6 @@
             "seconds": "600",
             "reason": "\"ORDER_USER_RATE\"",
             "mode": "\"enforce\"",
-            "legacy": "false",
             "required": "false"
           },
           {
@@ -305,7 +283,6 @@
             "seconds": "60",
             "reason": "\"SESSION_UPDATE_IP_RATE\"",
             "mode": "\"enforce\"",
-            "legacy": "false",
             "required": "false"
           },
           {
@@ -318,7 +295,6 @@
             "seconds": "60",
             "reason": "\"SESSION_UPDATE_USER_RATE\"",
             "mode": "\"enforce\"",
-            "legacy": "false",
             "required": "false"
           },
           {
@@ -331,7 +307,6 @@
             "seconds": "600",
             "reason": "\"WITHDRAWAL_REQUEST_USER_RATE\"",
             "mode": "\"enforce\"",
-            "legacy": "false",
             "required": "true"
           },
           {
@@ -344,7 +319,6 @@
             "seconds": "600",
             "reason": "\"WITHDRAWAL_REQUEST_IP_RATE\"",
             "mode": "\"enforce\"",
-            "legacy": "false",
             "required": "false"
           },
           {
@@ -357,7 +331,6 @@
             "seconds": "60",
             "reason": "\"QUOTE_TARGET_TARGET_RATE\"",
             "mode": "\"enforce\"",
-            "legacy": "false",
             "required": "true"
           },
           {
@@ -370,7 +343,6 @@
             "seconds": "60",
             "reason": "\"AUTH_RATE\"",
             "mode": "\"enforce\"",
-            "legacy": "true",
             "required": "true"
           },
           {
@@ -383,7 +355,6 @@
             "seconds": "60",
             "reason": "\"AUTH_RATE\"",
             "mode": "\"enforce\"",
-            "legacy": "true",
             "required": "true"
           },
           {
@@ -396,7 +367,6 @@
             "seconds": "60",
             "reason": "\"AUTH_RATE\"",
             "mode": "\"enforce\"",
-            "legacy": "true",
             "required": "true"
           },
           {
@@ -409,7 +379,6 @@
             "seconds": "10",
             "reason": "\"AUTH_RATE\"",
             "mode": "\"enforce\"",
-            "legacy": "true",
             "required": "true"
           },
           {
@@ -422,7 +391,6 @@
             "seconds": "60",
             "reason": "\"AUTH_RATE\"",
             "mode": "\"enforce\"",
-            "legacy": "true",
             "required": "true"
           }
         ]

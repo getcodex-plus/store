@@ -48,7 +48,6 @@ const limitSchema = z.object({
   seconds: z.number().int().positive(),
   mode: modeSchema,
   reason: z.string().min(1),
-  legacy: z.boolean(),
   required: z.boolean(),
 })
 export type RiskLimit = z.infer<typeof limitSchema>

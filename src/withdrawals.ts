@@ -47,14 +47,11 @@ export const defaultWithdrawalChannels: WithdrawalChannels = {
   rules: defaultRules(5000),
 }
 
-type WithdrawalSettings = Pick<Settings, 'withdrawalChannels'> &
-  Partial<Pick<Settings, 'minimumWithdrawal'>>
+type WithdrawalSettings = Pick<Settings, 'withdrawalChannels'>
 
 export function withdrawalChannels(settings: WithdrawalSettings): WithdrawalChannels {
   const value = settings.withdrawalChannels ?? defaultWithdrawalChannels
-  // Older installations inherit their previous minimum independently for each
-  // destination. Explicit rules always take precedence over that legacy field.
-  const fallback = defaultRules(settings.minimumWithdrawal ?? 5000)
+  const fallback = defaultWithdrawalChannels.rules
   return {
     alipay: value.alipay === true,
     wechat: value.wechat === true,

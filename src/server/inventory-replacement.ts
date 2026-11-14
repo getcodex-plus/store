@@ -31,8 +31,6 @@ export async function replaceInventory(inventoryId: string, actor: string) {
     if (source.replacement) return
     if (source.status !== 'available' || source.quotes.length)
       throw new ApiError(409, '已占用或已使用的兑换码不能更换')
-    if (await client.inventory.count({ where: { NOT: { code: { startsWith: 'v2:' } } } }))
-      throw new ApiError(503, '凭据存储需要升级，请联系管理员执行数据库迁移')
     const config = await integration('aicdk', undefined, client)
     let preview
     try {

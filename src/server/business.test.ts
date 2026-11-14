@@ -28,7 +28,12 @@ import {
   withdrawalPayoutEstimate,
 } from './services'
 import { defaultReferralTiers } from '../referral'
-import { withdrawalChannels, withdrawalDestinations, withdrawalFee } from '../withdrawals'
+import {
+  defaultWithdrawalChannels,
+  withdrawalChannels,
+  withdrawalDestinations,
+  withdrawalFee,
+} from '../withdrawals'
 import { id, hash } from './crypto'
 import { demoSession } from '../lib'
 import { analyticsVisitor, recordView } from './funnel'
@@ -96,7 +101,15 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
           rateBps: [300, 500, 700, 900][index],
         })),
         settlementDays: 0,
-        minimumWithdrawal: 100,
+        withdrawalChannels: {
+          ...defaultWithdrawalChannels,
+          rules: Object.fromEntries(
+            withdrawalDestinations.map(({ key }) => [
+              key,
+              { minimum: 100, feeRateBps: 0, fixedFee: 0 },
+            ]),
+          ),
+        },
         firstOrderOnly: true,
         supportEmail: '',
         alipay: true,

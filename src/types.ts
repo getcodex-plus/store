@@ -144,7 +144,6 @@ export interface Settings {
   referralTiers?: ReferralTier[]
   withdrawalChannels?: WithdrawalChannels
   settlementDays: number
-  minimumWithdrawal: number
   firstOrderOnly: boolean
   supportEmail: string
   sessionGuideUrl?: string

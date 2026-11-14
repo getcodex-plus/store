@@ -27,7 +27,7 @@ export const inventoryChangeSchema = z.discriminatedUnion('action', [
   }),
   z.object({ action: z.literal('replace'), id: itemId }).strict(),
 ])
-// Match reserveInventory's order exclusion even if a legacy row has the wrong status.
+// Match reserveInventory's order exclusion even if a row has an inconsistent status.
 const attachedOrder = { order: { is: { status: { not: 'cancelled' } } } } as const
 const emptyCounts = (): InventoryList['counts'] => ({
   available: 0,

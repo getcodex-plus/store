@@ -1,9 +1,5 @@
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
-import { resolve } from 'node:path'
 import { db, createDatabase, databaseSchema, Prisma } from './db'
-
-const run = promisify(execFile)
+import { initializeDatabase } from './database-init'
 
 function testTarget() {
   const url = new URL(process.env.DATABASE_URL!)
@@ -22,20 +18,7 @@ export async function prepareTestDatabase() {
   const admin = createDatabase(url.toString())
   try {
     await admin.$executeRaw(Prisma.sql`CREATE SCHEMA ${Prisma.raw(`"${schema}"`)}`)
-    await run(
-      process.execPath,
-      [
-        resolve('node_modules/prisma/build/index.js'),
-        'migrate',
-        'deploy',
-        '--config',
-        resolve('prisma7.config.ts'),
-      ],
-      {
-        env: { ...process.env, DATABASE_URL: target },
-        timeout: 30_000,
-      },
-    )
+    await initializeDatabase(target)
   } finally {
     await admin.$disconnect()
   }

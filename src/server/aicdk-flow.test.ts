@@ -13,11 +13,10 @@ vi.hoisted(() => {
 })
 import { db, Prisma, transaction } from './db'
 import { userView, paymentOrderView } from './data'
-import { id, encrypt, hash } from './crypto'
+import { id, hash } from './crypto'
 import {
   importInventory,
   inventoryFingerprint,
-  migrateCredentialStorage,
   openCredential,
   sealCredential,
 } from './credential-storage'
@@ -75,7 +74,6 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
       Prisma.sql`INSERT INTO settings(id,body) VALUES(1,${JSON.stringify({
         rateBps: 300,
         settlementDays: 7,
-        minimumWithdrawal: 100,
         firstOrderOnly: true,
         alipay: true,
         wechat: true,
@@ -619,21 +617,6 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
     }
     expect(await db.order.count({ where: { productId } })).toBe(1)
   })
-  it('rejects unconverted legacy quotes after their former card has been assigned to another buyer', async () => {
-    const {
-      productId,
-      requests: [a, b],
-    } = await competingBuyers(1)
-    const card = await db.inventory.findFirstOrThrow({ where: { productId } })
-    await db.quote.update({
-      where: { id: b.q.id },
-      data: { flowVersion: 1, inventoryId: card.id },
-    })
-    await newOrder(a.buyer, a.browser, a.input)
-    await expect(newOrder(b.buyer, b.browser, b.input)).rejects.toThrow('验证流程已升级')
-    expect(await db.order.count({ where: { productId } })).toBe(1)
-    expect(await db.walletEntry.count({ where: { userId: b.buyer.id } })).toBe(0)
-  })
   it('rolls back a failed preflight and lets the next buyer reserve the same card', async () => {
     const {
       productId,
@@ -678,15 +661,15 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
     expect(await db.inventory.count({ where: { productId, status: 'reserved' } })).toBe(1)
     expect((await internal(next.id)).status).toBe('processing')
   })
-  it('does not release another live order when cancelling a conflicting historical binding', async () => {
+  it('does not release another live order when cancelling a conflicting inventory binding', async () => {
     const {
       productId,
       requests: [a, b],
     } = await competingBuyers(1)
     const order = await newOrder(a.buyer, a.browser, a.input)
     const card = await db.inventory.findFirstOrThrow({ where: { productId } })
-    // Simulate a historical duplicate created before the legacy-flow guard.
-    await db.quote.update({ where: { id: b.q.id }, data: { inventoryId: card.id, flowVersion: 1 } })
+    // Simulate inconsistent data to verify that cancellation preserves the active order.
+    await db.quote.update({ where: { id: b.q.id }, data: { inventoryId: card.id } })
     const original = await db.order.findUniqueOrThrow({ where: { id: order.id } })
     const conflicting = await db.order.create({
       data: {
@@ -732,7 +715,6 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
     const stored = (await testQuery(Prisma.sql`SELECT * FROM quotes WHERE id=${result.id}`)).rows[0]
     expect(stored.inventory_id).toBeNull()
     expect(stored.preflight_token).toBeNull()
-    expect(stored.flow_version).toBe(2)
     expect(JSON.stringify(stored)).not.toContain('synthetic-session-secret')
     expect(JSON.stringify(result)).not.toContain('providerQuote')
   })
@@ -968,38 +950,20 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
     })
     expect((await internal(order.id)).status).toBe('processing')
   })
-  it('migrates legacy credentials atomically, binds each ciphertext to its row, and keeps imports idempotent', async () => {
-    const itemId = id('legacy_'),
-      code = 'synthetic-legacy-card',
-      quoteId = id('q_')
-    await testQuery(
-      Prisma.sql`INSERT INTO inventory(id,product_id,code,fingerprint) VALUES(${itemId},${'upgrade'},${encrypt(code, 'getgpt')},${hash(code)})`,
-    )
-    await testQuery(
-      Prisma.sql`INSERT INTO quotes(id,browser_digest,product_id,email,amount,preflight_token,expires_at,flow_version) VALUES(${quoteId},${browser},'upgrade',${email},8800,${encrypt('legacy-ticket', 'getgpt')},now()+interval '9 minutes',1)`,
-    )
-    await expect(importInventory('upgrade', [code], user.email)).rejects.toThrow('迁移')
-    await transaction(migrateCredentialStorage)
-    const row = (
-      await testQuery(Prisma.sql`SELECT code,fingerprint FROM inventory WHERE id=${itemId}`)
-    ).rows[0]
-    expect(row.fingerprint).toBe(inventoryFingerprint(code))
-    expect(openCredential(row.code, 'inventory', itemId)).toBe(code)
-    expect(() => openCredential(row.code, 'preflight', itemId)).toThrow()
+  it('binds credentials to their row and purpose and keeps imports idempotent', async () => {
+    const code = 'ABCDEF0123456789ABCD'
+    await importInventory('upgrade', [code], user.email)
+    const row = await db.inventory.findUniqueOrThrow({
+      where: { fingerprint: inventoryFingerprint(code) },
+    })
+    expect(openCredential(row.code, 'inventory', row.id)).toBe(code)
+    expect(() => openCredential(row.code, 'preflight', row.id)).toThrow()
     expect(() => openCredential(row.code, 'inventory', 'another-row')).toThrow()
-    const token = (
-      await testQuery(Prisma.sql`SELECT preflight_token FROM quotes WHERE id=${quoteId}`)
-    ).rows[0].preflight_token
-    expect(openCredential(token, 'preflight', quoteId)).toBe('legacy-ticket')
-    await transaction(migrateCredentialStorage)
+    expect(() => openCredential('invalid', 'inventory', row.id)).toThrow('凭据格式无效')
+    const token = sealCredential('synthetic-ticket', 'preflight', 'quote-id')
+    expect(openCredential(token, 'preflight', 'quote-id')).toBe('synthetic-ticket')
     await importInventory('upgrade', [code, code], user.email)
-    expect(
-      (
-        await testQuery(
-          Prisma.sql`SELECT count(*)::int AS n FROM inventory WHERE fingerprint=${inventoryFingerprint(code)}`,
-        )
-      ).rows[0].n,
-    ).toBe(1)
-    expect(sealCredential(code, 'inventory', itemId)).not.toBe(row.code)
+    expect(await db.inventory.count({ where: { fingerprint: row.fingerprint } })).toBe(1)
+    expect(sealCredential(code, 'inventory', row.id)).not.toBe(row.code)
   })
 })
