@@ -11,7 +11,8 @@ import { getCurrentAdapter } from '@better-auth/core/context'
 import { databaseNow } from './database-sql'
 import { appUrl, demo, validateRuntime } from './config'
 import { encrypt, hash, id } from './crypto'
-import { rateLimit } from './rate-limit'
+import { checkRiskRate } from './risk'
+import { riskLimits } from './risk-policy'
 import { clearLoginTurnstile, requireLoginTurnstile } from './login-turnstile'
 import { sendLoginEmail } from './integrations/email'
 import { opaqueAuth } from './opaque'
@@ -77,8 +78,7 @@ mfaHook.handler = createAuthMiddleware(async (ctx) => {
 })
 
 async function deliverAuthCode(email: string, otp: string, headers?: Headers) {
-  await rateLimit(`email:${hash(email)}`, demo ? 100 : 3, 600)
-  await rateLimit('email-global', demo ? 10000 : 1000, 600)
+  await checkRiskRate('email', { email: email.trim().toLowerCase() })
   if (demo) {
     const browser = headers?.get('cookie')?.match(/(?:^|;\s*)getgpt_browser=([^;]+)/)?.[1]
     if (!browser) throw new APIError('BAD_REQUEST', { message: '请刷新页面后重试' })
@@ -250,6 +250,18 @@ const policy: BetterAuthPlugin = {
   },
 }
 
+// Better Auth retains its protocol-aware atomic counters; their configurable
+// budgets now come from the same versioned ZEN policy as business limits.
+const authBudgets = Object.fromEntries(
+  await Promise.all(
+    (
+      ['auth-default', 'auth-opaque', 'auth-otp', 'auth-demo-mfa', 'auth-demo-primary'] as const
+    ).map(async (scene) => {
+      const [rule] = await riskLimits(scene, demo)
+      return [scene, { window: rule.seconds, max: rule.limit }] as const
+    }),
+  ),
+)
 export const auth = betterAuth({
   appName: 'GetCodex Plus',
   baseURL: appUrl,
@@ -294,16 +306,15 @@ export const auth = betterAuth({
     enabled: true,
     storage: 'database',
     modelName: 'authRateLimit',
-    window: 60,
-    max: demo ? 300 : 60,
+    ...authBudgets['auth-default'],
     customRules: {
-      '/sign-in/opaque/*': { window: 60, max: demo ? 100 : 10 },
-      '/opaque/*/*': { window: 60, max: demo ? 100 : 10 },
+      '/sign-in/opaque/*': authBudgets['auth-opaque'],
+      '/opaque/*/*': authBudgets['auth-opaque'],
       ...(demo
         ? {
-            '/two-factor/*': { window: 10, max: 30 },
-            '/sign-in/*': { window: 60, max: 100 },
-            '/passkey/*': { window: 60, max: 100 },
+            '/two-factor/*': authBudgets['auth-demo-mfa'],
+            '/sign-in/*': authBudgets['auth-demo-primary'],
+            '/passkey/*': authBudgets['auth-demo-primary'],
           }
         : {}),
     },
@@ -383,7 +394,7 @@ export const auth = betterAuth({
   plugins: [
     await opaqueAuth(),
     emailOTP({
-      rateLimit: demo ? { window: 60, max: 100 } : { window: 60, max: 3 },
+      rateLimit: authBudgets['auth-otp'],
       storeOTP: 'hashed',
       allowedAttempts: 5,
       expiresIn: 600,

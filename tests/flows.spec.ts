@@ -526,6 +526,10 @@ test('admin configuration keeps secrets write-only and uses separate RBAC roles'
   expect(
     adminData.users.find((user: { email: string }) => user.email === 'admin@example.com').role,
   ).toBe('admin')
+  await page.getByRole('menuitem', { name: '风控记录' }).click()
+  await expect(page.getByRole('heading', { name: '风控记录' })).toBeVisible()
+  await expect(page.getByText('风控决策记录', { exact: true })).toBeVisible()
+  expect(Array.isArray(adminData.riskEvents)).toBe(true)
   await page.setViewportSize({ width: 375, height: 812 })
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,

@@ -76,14 +76,14 @@ export async function qualifiedInvitesSql(client: DbClient, userId: string) {
   return result.n
 }
 
-export async function incrementRateLimit(key: string, seconds: number) {
-  const [result] = await db.$queryRaw<
+export async function incrementRateLimit(key: string, seconds: number, client: DbClient = db) {
+  const [result] = await client.$queryRaw<
     { count: number }[]
   >`INSERT INTO rate_limits(key,count,expires_at)
     VALUES(${key},1,now()+${seconds}::int*interval '1 second')
     ON CONFLICT(key) DO UPDATE SET
-      count=CASE WHEN rate_limits.expires_at<now() THEN 1 ELSE rate_limits.count+1 END,
-      expires_at=CASE WHEN rate_limits.expires_at<now() THEN excluded.expires_at ELSE rate_limits.expires_at END
+      count=CASE WHEN rate_limits.expires_at<=now() THEN 1 ELSE rate_limits.count+1 END,
+      expires_at=CASE WHEN rate_limits.expires_at<=now() THEN excluded.expires_at ELSE rate_limits.expires_at END
     RETURNING count`
   return result.count
 }

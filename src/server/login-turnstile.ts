@@ -1,7 +1,8 @@
 import type { GenericEndpointContext } from '@better-auth/core'
 import { expireCookie } from 'better-auth/cookies'
 import { hash, id } from './crypto'
-import { requireTurnstile, turnstilePublic } from './turnstile'
+import { turnstilePublic } from './turnstile'
+import { checkRiskChallenge } from './risk'
 
 const cookieName = 'login_verification'
 const maxAge = 300
@@ -19,7 +20,7 @@ export async function requireLoginTurnstile(ctx: GenericEndpointContext) {
     const receipt = await ctx.context.internalAdapter.findVerificationValue(identifier(token))
     if (receipt?.value === 'login' && receipt.expiresAt.getTime() > Date.now()) return
   }
-  await requireTurnstile('login', challenge)
+  await checkRiskChallenge('login', challenge)
   if (token) await ctx.context.internalAdapter.consumeVerificationValue(identifier(token))
   const nextToken = id()
   await ctx.context.internalAdapter.createVerificationValue({

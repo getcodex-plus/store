@@ -48,6 +48,7 @@ import { useSite } from './Providers'
 import { api, channels, dateTime, money, statuses } from '../lib'
 import { defaultPaymentLimits, planNames, roundingOptions } from '../pricing'
 import type { AdminData, Order, Product, Withdrawal, WithdrawalChannels } from '../types'
+import { riskReasonLabels, riskSceneLabels } from '../risk-labels'
 import type { IntegrationView, IntegrationKind } from '../server/integrations/config'
 import { funnelLabels, sourceLabels } from '../funnel'
 import { defaultReferralTiers, withdrawalStatuses } from '../referral'
@@ -72,6 +73,7 @@ const pages = [
   { key: 'settings', label: '网站设置', icon: <SettingOutlined /> },
   { key: 'roles', label: '角色与权限', icon: <SafetyCertificateOutlined /> },
   { key: 'audit', label: '操作日志', icon: <FileSearchOutlined /> },
+  { key: 'risk', label: '风控记录', icon: <SafetyCertificateOutlined /> },
 ]
 const providerNames: Record<IntegrationKind, string> = {
   xorpay: 'XorPay',
@@ -267,7 +269,7 @@ export function Admin() {
   }
   const can = (permission: string) => site?.user?.permissions.includes(permission) ?? false
   const allowedPages = pages.filter(
-    (p) => p.key === 'overview' || can(`${p.key === 'wallet' ? 'wallet' : p.key}:read`),
+    (p) => p.key === 'overview' || can(`${p.key === 'risk' ? 'audit' : p.key}:read`),
   )
   const nav = (
     <>
@@ -1449,6 +1451,63 @@ export function Admin() {
                       保存设置
                     </Button>
                   </Form>
+                </Card>
+              )}
+              {page === 'risk' && (
+                <Card title="风控决策记录">
+                  <p className="muted">
+                    展示最近 100 条记录。当前规则全部执行：超限请求会被拒绝，异常提现需人工审核。
+                    历史观察记录保留原模式。记录保留 30 天。
+                  </p>
+                  <Table
+                    rowKey="id"
+                    dataSource={data.riskEvents ?? []}
+                    scroll={{ x: 1100 }}
+                    columns={[
+                      {
+                        title: '场景',
+                        dataIndex: 'scene',
+                        render: (value: string) => riskSceneLabels[value] || value,
+                      },
+                      {
+                        title: '模式',
+                        dataIndex: 'mode',
+                        render: (value: string) => (value === 'observe' ? '观察' : '执行'),
+                      },
+                      {
+                        title: '建议',
+                        dataIndex: 'action',
+                        render: (value: string) =>
+                          ({
+                            allow: '放行',
+                            deny: '拒绝',
+                            review: '人工核对',
+                            challenge: '安全验证',
+                          })[value] || value,
+                      },
+                      {
+                        title: '实际处理',
+                        dataIndex: 'effectiveAction',
+                        render: (value: string) =>
+                          ({
+                            allow: '放行',
+                            deny: '拒绝',
+                            review: '人工核对',
+                            challenge: '安全验证',
+                          })[value] || value,
+                      },
+                      {
+                        title: '命中原因',
+                        dataIndex: 'reasonCodes',
+                        render: (codes: string[]) =>
+                          codes.map((code) => riskReasonLabels[code] || code).join('、') ||
+                          '未命中限制',
+                      },
+                      { title: '关联订单／提现', dataIndex: 'referenceId', ellipsis: true },
+                      { title: '规则版本', dataIndex: 'ruleVersion', ellipsis: true },
+                      { title: '时间', dataIndex: 'createdAt', render: dateTime },
+                    ]}
+                  />
                 </Card>
               )}
               {page === 'audit' && (

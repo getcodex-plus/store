@@ -67,6 +67,15 @@ import type { FunnelSource } from '../funnel'
 import { defaultReferralTiers, referralFunds, referralProgress } from '../referral'
 import { withdrawalReviewSchema, withdrawalSchema } from './referral-policy'
 import {
+  assessRisk,
+  checkRiskRate,
+  payoutFingerprint,
+  riskDigest,
+  RiskRejection,
+  recordRiskRejection,
+} from './risk'
+import type { RiskFacts } from './risk-policy'
+import {
   withdrawalChannelError,
   withdrawalChannels,
   withdrawalFee,
@@ -225,6 +234,8 @@ export async function quote(
   }
   if (rate && Date.parse(rate.expiresAt) <= Date.now())
     throw new ApiError(409, '汇率已过期，请重新验证账号')
+  // In live mode this email has now been matched against the upstream account.
+  await checkRiskRate('quote-target', { target: session.user.email.trim().toLowerCase() })
   const q = {
     id: id('q_'),
     productId,
@@ -327,7 +338,7 @@ export async function newOrder(
     if (!q?.aicdkIntegrationId) throw new ApiError(409, '请重新检查账号后创建订单')
     binding = await resolveAicdk(q.aicdkIntegrationId)
   }
-  return transaction(async (client) => {
+  const outcome = await transaction(async (client) => {
     if (user) await lockRow(client, 'users', user.id)
     else await advisoryLock(client, `guest:${browser}`)
     const orderId = `o_${hash(`${user?.id || browser}:${input.requestKey}`).slice(0, 32)}`
@@ -449,12 +460,22 @@ export async function newOrder(
               select: { id: true, email: true },
             })
           : null
-      if (
-        inviter &&
-        inviter.id !== user?.id &&
-        ![contactEmail, quoteRecord.email].includes(inviter.email)
-      )
-        inviterId = inviter.id
+      if (inviter) {
+        const decision = await assessRisk(
+          'referral-binding',
+          {
+            kind: 'referral',
+            self:
+              inviter.id === user?.id || [contactEmail, quoteRecord.email].includes(inviter.email),
+            firstOrderOnly: false,
+            previous: false,
+          },
+          { user: user?.id, email: contactEmail, target: quoteRecord.email },
+          orderId,
+          client,
+        )
+        if (decision.action === 'allow') inviterId = inviter.id
+      }
     }
     const referralRate = inviterId
       ? referralProgress(await qualifiedInvites(inviterId, client), conf).current.rateBps
@@ -489,6 +510,32 @@ export async function newOrder(
         },
       }),
     )
+    // Remote work and order foreign-key locks are finished. Serialize the final
+    // check and commit; the new row is still invisible to other transactions.
+    // Rejecting here rolls back the order, outbox, inventory and quote together.
+    const subjects = { user: user?.id, email: contactEmail, target: quoteRecord?.email }
+    for (const key of Object.entries(subjects)
+      .filter((entry): entry is [string, string] => Boolean(entry[1]))
+      .map(([dimension, value]) => `risk:unpaid:${riskDigest(dimension, value)}`)
+      .sort())
+      await advisoryLock(client, key)
+    const facts: RiskFacts = {
+      kind: 'order',
+      unpaidOrders: await client.order.count({
+        where: {
+          id: { not: orderId },
+          status: 'unpaid',
+          OR: [
+            { contactEmail },
+            ...(user ? [{ userId: user.id }] : []),
+            ...(quoteRecord ? [{ kind: 'purchase', email: quoteRecord.email }] : []),
+          ],
+        },
+      }),
+    }
+    const orderRisk = await assessRisk('order-assessment', facts, subjects, orderId, client)
+    if (orderRisk.mode === 'enforce' && orderRisk.action !== 'allow')
+      throw new RiskRejection('order-assessment', orderRisk, facts, subjects, orderId)
     if (balanceAmount > 0)
       await walletChange(client, user!.id, -balanceAmount, 'purchase', order.id)
     if (externalAmount === 0)
@@ -497,7 +544,8 @@ export async function newOrder(
         skipDuplicates: true,
       })
     return order
-  }, upstreamTransaction)
+  }, upstreamTransaction).catch(recordRiskRejection)
+  return outcome
 }
 export async function accessibleOrder(user: User | null, browser: string, orderId: string) {
   const order = await db.order.findFirst({
@@ -658,7 +706,7 @@ export async function completeOrder(orderId: string) {
     }
     const user = order.userId ? await client.user.findUnique({ where: { id: order.userId } }) : null
     const inviterId = initial.inviterId || (initial.buyerKey ? null : user?.invitedBy)
-    if (inviterId && inviterId !== order.userId && order.rateBps > 0) {
+    if (inviterId && order.rateBps > 0) {
       const previous = await client.order.findFirst({
         where: {
           id: { not: order.id },
@@ -672,7 +720,19 @@ export async function completeOrder(orderId: string) {
         },
         select: { id: true },
       })
-      if (!order.firstOrderOnly || !previous) {
+      const decision = await assessRisk(
+        'referral-settlement',
+        {
+          kind: 'referral',
+          self: inviterId === order.userId,
+          firstOrderOnly: order.firstOrderOnly,
+          previous: Boolean(previous),
+        },
+        { user: order.userId || undefined, email: order.contactEmail, target: order.email },
+        order.id,
+        client,
+      )
+      if (decision.action === 'allow') {
         const amount = Math.floor((order.amount * order.rateBps) / 10000)
         if (amount > 0)
           await client.commission.createMany({
@@ -780,7 +840,7 @@ async function lockedReferralFunds(client: DbClient, userId: string) {
 
 export async function withdraw(user: User, data: unknown) {
   const input = withdrawalSchema.parse(data)
-  return transaction(async (client) => {
+  const outcome = await transaction(async (client) => {
     await lockRow(client, 'users', user.id)
     const requestKey = hash(`${user.id}:${input.requestKey}`)
     const requestHash = hash(
@@ -818,14 +878,40 @@ export async function withdraw(user: User, data: unknown) {
     const funds = await lockedReferralFunds(client, user.id)
     if (input.amount > funds.available)
       throw new ApiError(409, '可提现邀请收益不足，请刷新额度；充值和退款余额不可提现')
+    const fingerprint = payoutFingerprint(input.method, input.network, input.account)
+    await advisoryLock(client, `risk:payout:${fingerprint}`)
+    const related = await client.withdrawal.findMany({
+      where: { payoutFingerprint: fingerprint },
+      distinct: ['userId'],
+      select: { userId: true },
+    })
+    const owner = await client.user.findUniqueOrThrow({ where: { id: user.id } })
+    const withdrawalId = id('w_')
+    const withdrawalRisk = await assessRisk(
+      'withdrawal-assessment',
+      {
+        kind: 'withdrawal',
+        sharedPayoutUsers: new Set([...related.map((row) => row.userId), user.id]).size,
+        accountAgeHours: Math.max(
+          0,
+          ((await databaseNow(client)).getTime() - owner.createdAt.getTime()) / 3600000,
+        ),
+      },
+      { user: user.id },
+      withdrawalId,
+      client,
+    )
+    if (withdrawalRisk.mode === 'enforce' && withdrawalRisk.action === 'deny')
+      return { riskBlocked: true as const }
     const withdrawal = storedWithdrawalView(
       await client.withdrawal.create({
         data: {
-          id: id('w_'),
+          id: withdrawalId,
           userId: user.id,
           amount: input.amount,
           method: input.method,
           account: encrypt(input.account, `withdrawal:${user.id}`),
+          payoutFingerprint: fingerprint,
           requestKey,
           requestHash,
           recipientName: encrypt(input.recipientName, `withdrawal-name:${user.id}`),
@@ -838,6 +924,8 @@ export async function withdraw(user: User, data: unknown) {
     )
     return withdrawalView(withdrawal)
   })
+  if ('riskBlocked' in outcome) throw new ApiError(403, '此提现申请需要人工核对，请联系支持')
+  return outcome
 }
 
 export async function withdrawalPayoutEstimate(
@@ -1009,6 +1097,21 @@ export async function adminData(
     withdrawals: can('withdrawals:read') ? withdrawals.map(withdrawalView) : [],
     settings: can('settings:read') ? conf : publicSettings,
     audit: can('audit:read') ? log : [],
+    riskEvents: can('audit:read')
+      ? (await db.riskEvent.findMany({ orderBy: { createdAt: 'desc' }, take: 100 })).map(
+          (event) => ({
+            id: event.id,
+            scene: event.scene,
+            action: event.action,
+            effectiveAction: event.effectiveAction,
+            mode: event.mode,
+            ruleVersion: event.ruleVersion,
+            reasonCodes: event.reasonCodes as string[],
+            referenceId: event.referenceId,
+            createdAt: event.createdAt.toISOString(),
+          }),
+        )
+      : [],
     inventory: can('products:read') ? inventory : [],
     integrations,
     roles: can('roles:read') ? await db.role.findMany({ orderBy: { id: 'asc' } }) : [],

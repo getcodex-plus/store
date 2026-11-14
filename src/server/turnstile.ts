@@ -1,7 +1,6 @@
 import { db } from './db'
 import { stringRecord } from './data'
-import { integration } from './integrations/config'
-import { ApiError, appUrl } from './config'
+import { ApiError } from './config'
 export type VerificationScene = 'login' | 'purchase'
 export async function turnstilePublic() {
   const record = await db.integration.findFirst({
@@ -40,10 +39,4 @@ export async function verifyTurnstileResult(
   } catch {
     throw new ApiError(403, '安全验证未通过或已过期，请重新验证')
   }
-}
-export async function requireTurnstile(scene: VerificationScene, token: unknown) {
-  const config = await turnstilePublic()
-  if (!config[scene]) return
-  const privateConfig = await integration('turnstile')
-  await verifyTurnstileResult(privateConfig.secret, token, scene, new URL(appUrl).hostname)
 }

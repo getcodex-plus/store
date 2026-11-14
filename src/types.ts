@@ -193,6 +193,17 @@ export interface AccountData {
   ledger: WalletEntry[]
 }
 export interface AdminData {
+  riskEvents?: {
+    id: string
+    scene: string
+    action: string
+    effectiveAction: string
+    mode: string
+    ruleVersion: string
+    reasonCodes: string[]
+    referenceId: string | null
+    createdAt: string
+  }[]
   funnel?: import('./funnel').FunnelRow[]
   exchangeRate?: {
     rate: number | null

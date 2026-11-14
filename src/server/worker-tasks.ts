@@ -12,6 +12,9 @@ export async function tick() {
   if (Date.now() - lastAnalyticsCleanup > 3600000) {
     const cutoff = new Date(now.getTime() - 90 * 86400_000)
     await db.funnelEvent.deleteMany({ where: { createdAt: { lt: cutoff } } })
+    await db.riskEvent.deleteMany({
+      where: { createdAt: { lt: new Date(now.getTime() - 30 * 86400_000) } },
+    })
     await db.quote.updateMany({
       where: { analyticsVisitor: { not: null }, expiresAt: { lt: cutoff } },
       data: { analyticsVisitor: null },

@@ -92,7 +92,7 @@ export async function databaseContract(client: DbClient = db): Promise<DatabaseC
   }
 }
 
-export async function verifyDatabase(client: DbClient = db) {
+export async function verifyDatabase(client: DbClient = db, baselineOnly = false) {
   const expected: DatabaseContract = JSON.parse(
     await readFile(new URL('../../prisma/database-contract.json', import.meta.url), 'utf8'),
   )
@@ -107,6 +107,16 @@ export async function verifyDatabase(client: DbClient = db) {
   if (problems.length)
     throw new Error(`Database is not at the required baseline:\n${problems.join('\n')}`)
   await verifyDataPrerequisites(client)
+  if (!baselineOnly) {
+    // The baseline contract remains usable for legacy adoption. Additive migrations
+    // are checked separately so db:baseline does not require migrations in advance.
+    await client.riskEvent.findFirst()
+    await client.withdrawal.findFirst({ select: { payoutFingerprint: true } })
+    const indexes = await client.$queryRaw<{ indexname: string }[]>`
+      SELECT indexname FROM pg_indexes WHERE schemaname=current_schema()
+      AND indexname IN ('risk_events_created','risk_events_reference','withdrawals_payout_identity')`
+    if (indexes.length !== 3) throw new Error('ZEN risk migration is incomplete')
+  }
   return actual
 }
 

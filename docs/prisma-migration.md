@@ -22,10 +22,10 @@ bun run dev
 
 先在数据库备份副本演练，再停止 Web 写入和 worker，等待在途请求结束。备份数据库以及原有 `ENCRYPTION_KEY`、`BETTER_AUTH_SECRET`、OPAQUE server setup，并保留上一应用版本。不要更换这些密钥。
 
-1. `bun run db:verify` 检查列、默认值、约束、索引、函数、触发器和认证/密文前置条件。
+1. `bun run db:verify --baseline` 检查基线的列、默认值、约束、索引、函数、触发器和认证/密文前置条件；此时不要求尚未应用的后续迁移。
 2. 如果数据库仅缺少已识别的 AICDK v2 / OPAQUE 结构增量，运行 `bun run db:upgrade-legacy`。它只接受白名单中的结构差异，先检查数据前置条件，再在事务中补齐字段、索引和约束，最后重新核验。
 3. `bun run db:baseline` 再次完整核验，然后把 `00000000000000_baseline` 标记为已应用。已记录基线时重复执行只验证状态。
-4. `bun run db:migrate` 应用后续迁移，接着运行 `bun run db:verify`。
+4. `bun run db:migrate` 应用后续迁移，执行 `bun run db:risk-backfill` 补齐历史提现的风控关联摘要，接着运行 `bun run db:verify`。
 5. 启动应用和 worker，核对登录、已有会话、订单、钱包、提现和任务状态。
 
 兼容桥保留全部既有表和记录。旧报价标记为流程版本 1，新报价默认版本 2；已有短期授权补齐过期时间，新增提交标记时将处理中及待补 Session 订单保守视为可能已提交。它不重置商品、业务配置或资金数据。
@@ -35,6 +35,8 @@ bun run dev
 `bun run db:credentials` 是当前完整 schema 上的独立凭据维护操作：事务内升级旧密文并校验 HMAC；已正确迁移的数据不会无意义重写。它不由 deploy、seed 或 baseline 自动触发。需要该操作时使用原有加密密钥、先停写并备份。
 
 接管不使用 `db push`、`migrate reset`，也不删除旧认证表。除新增 `_prisma_migrations` 外，Prisma 模型保持原物理表名、列名和 ID 规则。
+
+后续 ZEN 风控迁移增加 `risk_events`、提现关联摘要及索引；不修改基线对象。`db:baseline` 始终按原基线核验，普通 `db:verify` 还检查风控迁移是否完成。升级与规则说明见 [统一风控](risk-control.md)。
 
 ## 查询和事务约定
 

@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process'
 // No DDL is inferred here. The complete existing schema and data prerequisites
 // must match before Prisma is allowed to record the baseline as already applied.
 try {
-  await verifyDatabase()
+  await verifyDatabase(db, true)
   const [state] = await db.$queryRaw<{ migrations: string | null }[]>`
     SELECT to_regclass(format('%I._prisma_migrations', current_schema()))::text AS migrations`
   const baseline = '00000000000000_baseline'

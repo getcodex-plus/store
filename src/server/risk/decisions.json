@@ -1,0 +1,128 @@
+{
+  "nodes": [
+    {
+      "id": "input",
+      "name": "Input",
+      "type": "inputNode",
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": "rules",
+      "name": "Risk policy",
+      "type": "decisionTableNode",
+      "position": {
+        "x": 250,
+        "y": 0
+      },
+      "content": {
+        "hitPolicy": "first",
+        "inputs": [
+          {
+            "id": "condition",
+            "name": "condition",
+            "field": ""
+          }
+        ],
+        "outputs": [
+          {
+            "id": "action",
+            "name": "action",
+            "field": "action"
+          },
+          {
+            "id": "mode",
+            "name": "mode",
+            "field": "mode"
+          },
+          {
+            "id": "reason",
+            "name": "reason",
+            "field": "reason"
+          }
+        ],
+        "rules": [
+          {
+            "_id": "rate",
+            "condition": "kind == \"rate\" and count > limit",
+            "action": "\"deny\"",
+            "mode": "mode",
+            "reason": "reason"
+          },
+          {
+            "_id": "challenge",
+            "condition": "kind == \"challenge\" and required and not verified",
+            "action": "\"challenge\"",
+            "mode": "\"enforce\"",
+            "reason": "\"BOT_VERIFICATION_REQUIRED\""
+          },
+          {
+            "_id": "self-referral",
+            "condition": "kind == \"referral\" and self",
+            "action": "\"deny\"",
+            "mode": "\"enforce\"",
+            "reason": "\"SELF_REFERRAL\""
+          },
+          {
+            "_id": "repeat-referral",
+            "condition": "kind == \"referral\" and firstOrderOnly and previous",
+            "action": "\"deny\"",
+            "mode": "\"enforce\"",
+            "reason": "\"REFERRAL_FIRST_ORDER_ONLY\""
+          },
+          {
+            "_id": "unpaid-orders",
+            "condition": "kind == \"order\" and unpaidOrders >= 5",
+            "action": "\"review\"",
+            "mode": "\"enforce\"",
+            "reason": "\"UNPAID_ORDER_ACCUMULATION\""
+          },
+          {
+            "_id": "shared-payout",
+            "condition": "kind == \"withdrawal\" and sharedPayoutUsers >= 3",
+            "action": "\"review\"",
+            "mode": "\"enforce\"",
+            "reason": "\"SHARED_PAYOUT_ACCOUNT\""
+          },
+          {
+            "_id": "new-account",
+            "condition": "kind == \"withdrawal\" and accountAgeHours < 24",
+            "action": "\"review\"",
+            "mode": "\"enforce\"",
+            "reason": "\"NEW_ACCOUNT_WITHDRAWAL\""
+          },
+          {
+            "_id": "allow",
+            "condition": "",
+            "action": "\"allow\"",
+            "mode": "\"enforce\"",
+            "reason": "\"\""
+          }
+        ]
+      }
+    },
+    {
+      "id": "output",
+      "name": "Decision",
+      "type": "outputNode",
+      "position": {
+        "x": 500,
+        "y": 0
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "in",
+      "sourceId": "input",
+      "targetId": "rules"
+    },
+    {
+      "id": "out",
+      "sourceId": "rules",
+      "targetId": "output"
+    }
+  ]
+}

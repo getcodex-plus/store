@@ -1,5 +1,5 @@
 import { prepareTestDatabase, cleanupTestDatabase, testQuery } from './database-test-support'
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.hoisted(() => {
   process.env.APP_MODE = 'live'
@@ -111,6 +111,9 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
     user.permissions = [...permissions]
     await testQuery(Prisma.sql`INSERT INTO wallets(user_id,balance) VALUES(${user.id},1000000)`)
   }, 30_000)
+  // Each scenario starts a fresh frequency window; policy enforcement has its own
+  // cross-request tests. Inventory fixtures must not inherit prior test traffic.
+  beforeEach(() => db.rateLimit.deleteMany())
   afterEach(() => vi.unstubAllGlobals())
   afterAll(async () => {
     await cleanupTestDatabase()
@@ -180,6 +183,13 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
       Array.from({ length: cards }, () => `synthetic-card-${id()}`),
       user.email,
     )
+    // Reuse a verified fixture snapshot to exercise inventory contention, without
+    // generating twelve live account checks for the same target in one minute.
+    const template = buyers
+      ? await db.quote.findUniqueOrThrow({
+          where: { id: (await quote(productId, session, id())).id },
+        })
+      : null
     const requests = await Promise.all(
       Array.from({ length: buyers }, async () => {
         const buyer = userView(
@@ -189,7 +199,14 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
         )
         await db.wallet.create({ data: { userId: buyer.id, balance: 100000 } })
         const browser = id('browser_')
-        const q = await quote(productId, session, browser)
+        const q = await db.quote.create({
+          data: {
+            ...template!,
+            id: id('q_'),
+            browserDigest: browser,
+            pricingSnapshot: template!.pricingSnapshot as Prisma.InputJsonValue,
+          },
+        })
         const input = { quoteId: q.id, channel: 'balance' as const, requestKey: id(), session }
         return { buyer, browser, q, input }
       }),
@@ -249,6 +266,53 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
     expect(allocated).toHaveLength(3)
     expect(new Set(allocated.map((q) => q.inventoryId)).size).toBe(3)
     expect(await db.order.count({ where: { productId } })).toBe(3)
+  })
+  it('rolls back preflight inventory on risk rejection and retains denial evidence', async () => {
+    const {
+      productId,
+      requests: [request],
+    } = await competingBuyers(1, 1)
+    const fixtures = Array.from({ length: 5 }, () => id('o_'))
+    await db.order.createMany({
+      data: fixtures.map((key) => ({
+        id: key,
+        userId: request.buyer.id,
+        email: request.buyer.email,
+        contactEmail: request.buyer.email,
+        amount: 1000,
+        externalAmount: 1000,
+        status: 'unpaid',
+        channel: 'alipay',
+        provider: 'xorpay',
+        kind: 'topup',
+        productName: 'Risk fixture',
+        rateBps: 0,
+        settlementDays: 0,
+        firstOrderOnly: true,
+      })),
+    })
+    const orderId = `o_${hash(`${request.buyer.id}:${request.input.requestKey}`).slice(0, 32)}`
+    try {
+      await expect(newOrder(request.buyer, request.browser, request.input)).rejects.toMatchObject({
+        status: 403,
+      })
+      expect(await db.order.findUnique({ where: { id: orderId } })).toBeNull()
+      expect(await db.inventory.count({ where: { productId, status: 'available' } })).toBe(1)
+      expect(await db.quote.findUniqueOrThrow({ where: { id: request.q.id } })).toMatchObject({
+        inventoryId: null,
+        preflightToken: null,
+      })
+      expect(await db.walletEntry.count({ where: { userId: request.buyer.id } })).toBe(0)
+      expect(
+        await db.riskEvent.findFirstOrThrow({ where: { referenceId: orderId } }),
+      ).toMatchObject({
+        mode: 'enforce',
+        effectiveAction: 'review',
+        reasonCodes: ['UNPAID_ORDER_ACCUMULATION'],
+      })
+    } finally {
+      await db.order.updateMany({ where: { id: { in: fixtures } }, data: { status: 'cancelled' } })
+    }
   })
   it('skips locked expired cards and does not wait on expiry cleanup for another product', async () => {
     const { productId } = await competingBuyers(2, 0)

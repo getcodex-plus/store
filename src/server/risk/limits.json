@@ -1,0 +1,453 @@
+{
+  "nodes": [
+    {
+      "id": "input",
+      "name": "Input",
+      "type": "inputNode",
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": "rules",
+      "name": "Risk policy",
+      "type": "decisionTableNode",
+      "position": {
+        "x": 250,
+        "y": 0
+      },
+      "content": {
+        "hitPolicy": "collect",
+        "inputs": [
+          {
+            "id": "scene",
+            "name": "scene",
+            "field": "scene"
+          },
+          {
+            "id": "demo",
+            "name": "demo",
+            "field": "demo"
+          }
+        ],
+        "outputs": [
+          {
+            "id": "dimension",
+            "name": "dimension",
+            "field": "dimension"
+          },
+          {
+            "id": "prefix",
+            "name": "prefix",
+            "field": "prefix"
+          },
+          {
+            "id": "limit",
+            "name": "limit",
+            "field": "limit"
+          },
+          {
+            "id": "seconds",
+            "name": "seconds",
+            "field": "seconds"
+          },
+          {
+            "id": "reason",
+            "name": "reason",
+            "field": "reason"
+          },
+          {
+            "id": "mode",
+            "name": "mode",
+            "field": "mode"
+          },
+          {
+            "id": "legacy",
+            "name": "legacy",
+            "field": "legacy"
+          },
+          {
+            "id": "required",
+            "name": "required",
+            "field": "required"
+          }
+        ],
+        "rules": [
+          {
+            "_id": "events-browser",
+            "scene": "\"events\"",
+            "demo": "",
+            "dimension": "\"browser\"",
+            "prefix": "\"events\"",
+            "limit": "120",
+            "seconds": "60",
+            "reason": "\"EVENT_RATE\"",
+            "mode": "\"enforce\"",
+            "legacy": "true",
+            "required": "true"
+          },
+          {
+            "_id": "quote-browser",
+            "scene": "\"quote\"",
+            "demo": "",
+            "dimension": "\"browser\"",
+            "prefix": "\"quote\"",
+            "limit": "12",
+            "seconds": "60",
+            "reason": "\"QUOTE_BROWSER_RATE\"",
+            "mode": "\"enforce\"",
+            "legacy": "true",
+            "required": "true"
+          },
+          {
+            "_id": "quote-global",
+            "scene": "\"quote\"",
+            "demo": "false",
+            "dimension": "\"global\"",
+            "prefix": "\"aicdk:account-check\"",
+            "limit": "12",
+            "seconds": "60",
+            "reason": "\"UPSTREAM_ACCOUNT_RATE\"",
+            "mode": "\"enforce\"",
+            "legacy": "true",
+            "required": "true"
+          },
+          {
+            "_id": "order-browser",
+            "scene": "\"order\"",
+            "demo": "",
+            "dimension": "\"browser\"",
+            "prefix": "\"order\"",
+            "limit": "24",
+            "seconds": "600",
+            "reason": "\"ORDER_BROWSER_RATE\"",
+            "mode": "\"enforce\"",
+            "legacy": "true",
+            "required": "true"
+          },
+          {
+            "_id": "order-contact-email",
+            "scene": "\"order-contact\"",
+            "demo": "",
+            "dimension": "\"email\"",
+            "prefix": "\"guest-contact\"",
+            "limit": "10",
+            "seconds": "600",
+            "reason": "\"ORDER_CONTACT_RATE\"",
+            "mode": "\"enforce\"",
+            "legacy": "true",
+            "required": "true"
+          },
+          {
+            "_id": "preflight-global",
+            "scene": "\"preflight\"",
+            "demo": "",
+            "dimension": "\"global\"",
+            "prefix": "\"aicdk:preflight\"",
+            "limit": "12",
+            "seconds": "60",
+            "reason": "\"UPSTREAM_PREFLIGHT_RATE\"",
+            "mode": "\"enforce\"",
+            "legacy": "true",
+            "required": "true"
+          },
+          {
+            "_id": "session-update-browser",
+            "scene": "\"session-update\"",
+            "demo": "",
+            "dimension": "\"browser\"",
+            "prefix": "\"session-update\"",
+            "limit": "12",
+            "seconds": "60",
+            "reason": "\"SESSION_UPDATE_RATE\"",
+            "mode": "\"enforce\"",
+            "legacy": "true",
+            "required": "true"
+          },
+          {
+            "_id": "email-email",
+            "scene": "\"email\"",
+            "demo": "",
+            "dimension": "\"email\"",
+            "prefix": "\"email\"",
+            "limit": "demo ? 100 : 3",
+            "seconds": "600",
+            "reason": "\"EMAIL_RECIPIENT_RATE\"",
+            "mode": "\"enforce\"",
+            "legacy": "true",
+            "required": "true"
+          },
+          {
+            "_id": "email-global",
+            "scene": "\"email\"",
+            "demo": "",
+            "dimension": "\"global\"",
+            "prefix": "\"email-global\"",
+            "limit": "demo ? 10000 : 1000",
+            "seconds": "600",
+            "reason": "\"EMAIL_GLOBAL_RATE\"",
+            "mode": "\"enforce\"",
+            "legacy": "true",
+            "required": "true"
+          },
+          {
+            "_id": "fx-refresh-user",
+            "scene": "\"fx-refresh\"",
+            "demo": "",
+            "dimension": "\"user\"",
+            "prefix": "\"fx-refresh\"",
+            "limit": "12",
+            "seconds": "60",
+            "reason": "\"FX_REFRESH_RATE\"",
+            "mode": "\"enforce\"",
+            "legacy": "true",
+            "required": "true"
+          },
+          {
+            "_id": "inventory-import-user",
+            "scene": "\"inventory-import\"",
+            "demo": "",
+            "dimension": "\"user\"",
+            "prefix": "\"inventory-import\"",
+            "limit": "20",
+            "seconds": "60",
+            "reason": "\"INVENTORY_IMPORT_RATE\"",
+            "mode": "\"enforce\"",
+            "legacy": "true",
+            "required": "true"
+          },
+          {
+            "_id": "withdrawal-estimate-user",
+            "scene": "\"withdrawal-estimate\"",
+            "demo": "",
+            "dimension": "\"user\"",
+            "prefix": "\"withdrawal-estimate\"",
+            "limit": "60",
+            "seconds": "60",
+            "reason": "\"WITHDRAWAL_ESTIMATE_RATE\"",
+            "mode": "\"enforce\"",
+            "legacy": "true",
+            "required": "true"
+          },
+          {
+            "_id": "withdrawal-fx-refresh-user",
+            "scene": "\"withdrawal-fx-refresh\"",
+            "demo": "",
+            "dimension": "\"user\"",
+            "prefix": "\"withdrawal-fx-refresh\"",
+            "limit": "12",
+            "seconds": "60",
+            "reason": "\"WITHDRAWAL_FX_REFRESH_RATE\"",
+            "mode": "\"enforce\"",
+            "legacy": "true",
+            "required": "true"
+          },
+          {
+            "_id": "quote-ip",
+            "scene": "\"quote\"",
+            "demo": "",
+            "dimension": "\"ip\"",
+            "prefix": "\"quote\"",
+            "limit": "60",
+            "seconds": "60",
+            "reason": "\"QUOTE_IP_RATE\"",
+            "mode": "\"enforce\"",
+            "legacy": "false",
+            "required": "false"
+          },
+          {
+            "_id": "quote-user",
+            "scene": "\"quote\"",
+            "demo": "",
+            "dimension": "\"user\"",
+            "prefix": "\"quote\"",
+            "limit": "60",
+            "seconds": "60",
+            "reason": "\"QUOTE_USER_RATE\"",
+            "mode": "\"enforce\"",
+            "legacy": "false",
+            "required": "false"
+          },
+          {
+            "_id": "order-ip",
+            "scene": "\"order\"",
+            "demo": "",
+            "dimension": "\"ip\"",
+            "prefix": "\"order\"",
+            "limit": "40",
+            "seconds": "600",
+            "reason": "\"ORDER_IP_RATE\"",
+            "mode": "\"enforce\"",
+            "legacy": "false",
+            "required": "false"
+          },
+          {
+            "_id": "order-user",
+            "scene": "\"order\"",
+            "demo": "",
+            "dimension": "\"user\"",
+            "prefix": "\"order\"",
+            "limit": "40",
+            "seconds": "600",
+            "reason": "\"ORDER_USER_RATE\"",
+            "mode": "\"enforce\"",
+            "legacy": "false",
+            "required": "false"
+          },
+          {
+            "_id": "session-update-ip",
+            "scene": "\"session-update\"",
+            "demo": "",
+            "dimension": "\"ip\"",
+            "prefix": "\"session-update\"",
+            "limit": "40",
+            "seconds": "60",
+            "reason": "\"SESSION_UPDATE_IP_RATE\"",
+            "mode": "\"enforce\"",
+            "legacy": "false",
+            "required": "false"
+          },
+          {
+            "_id": "session-update-user",
+            "scene": "\"session-update\"",
+            "demo": "",
+            "dimension": "\"user\"",
+            "prefix": "\"session-update\"",
+            "limit": "40",
+            "seconds": "60",
+            "reason": "\"SESSION_UPDATE_USER_RATE\"",
+            "mode": "\"enforce\"",
+            "legacy": "false",
+            "required": "false"
+          },
+          {
+            "_id": "withdrawal-request-user",
+            "scene": "\"withdrawal-request\"",
+            "demo": "",
+            "dimension": "\"user\"",
+            "prefix": "\"withdrawal-request\"",
+            "limit": "10",
+            "seconds": "600",
+            "reason": "\"WITHDRAWAL_REQUEST_USER_RATE\"",
+            "mode": "\"enforce\"",
+            "legacy": "false",
+            "required": "true"
+          },
+          {
+            "_id": "withdrawal-request-ip",
+            "scene": "\"withdrawal-request\"",
+            "demo": "",
+            "dimension": "\"ip\"",
+            "prefix": "\"withdrawal-request\"",
+            "limit": "10",
+            "seconds": "600",
+            "reason": "\"WITHDRAWAL_REQUEST_IP_RATE\"",
+            "mode": "\"enforce\"",
+            "legacy": "false",
+            "required": "false"
+          },
+          {
+            "_id": "quote-target-target",
+            "scene": "\"quote-target\"",
+            "demo": "",
+            "dimension": "\"target\"",
+            "prefix": "\"quote-target\"",
+            "limit": "12",
+            "seconds": "60",
+            "reason": "\"QUOTE_TARGET_TARGET_RATE\"",
+            "mode": "\"enforce\"",
+            "legacy": "false",
+            "required": "true"
+          },
+          {
+            "_id": "auth-default-global",
+            "scene": "\"auth-default\"",
+            "demo": "",
+            "dimension": "\"global\"",
+            "prefix": "\"auth-default\"",
+            "limit": "demo ? 300 : 60",
+            "seconds": "60",
+            "reason": "\"AUTH_RATE\"",
+            "mode": "\"enforce\"",
+            "legacy": "true",
+            "required": "true"
+          },
+          {
+            "_id": "auth-opaque-global",
+            "scene": "\"auth-opaque\"",
+            "demo": "",
+            "dimension": "\"global\"",
+            "prefix": "\"auth-opaque\"",
+            "limit": "demo ? 100 : 10",
+            "seconds": "60",
+            "reason": "\"AUTH_RATE\"",
+            "mode": "\"enforce\"",
+            "legacy": "true",
+            "required": "true"
+          },
+          {
+            "_id": "auth-otp-global",
+            "scene": "\"auth-otp\"",
+            "demo": "",
+            "dimension": "\"global\"",
+            "prefix": "\"auth-otp\"",
+            "limit": "demo ? 100 : 3",
+            "seconds": "60",
+            "reason": "\"AUTH_RATE\"",
+            "mode": "\"enforce\"",
+            "legacy": "true",
+            "required": "true"
+          },
+          {
+            "_id": "auth-demo-mfa-global",
+            "scene": "\"auth-demo-mfa\"",
+            "demo": "",
+            "dimension": "\"global\"",
+            "prefix": "\"auth-demo-mfa\"",
+            "limit": "30",
+            "seconds": "10",
+            "reason": "\"AUTH_RATE\"",
+            "mode": "\"enforce\"",
+            "legacy": "true",
+            "required": "true"
+          },
+          {
+            "_id": "auth-demo-primary-global",
+            "scene": "\"auth-demo-primary\"",
+            "demo": "",
+            "dimension": "\"global\"",
+            "prefix": "\"auth-demo-primary\"",
+            "limit": "100",
+            "seconds": "60",
+            "reason": "\"AUTH_RATE\"",
+            "mode": "\"enforce\"",
+            "legacy": "true",
+            "required": "true"
+          }
+        ]
+      }
+    },
+    {
+      "id": "output",
+      "name": "Decision",
+      "type": "outputNode",
+      "position": {
+        "x": 500,
+        "y": 0
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "in",
+      "sourceId": "input",
+      "targetId": "rules"
+    },
+    {
+      "id": "out",
+      "sourceId": "rules",
+      "targetId": "output"
+    }
+  ]
+}

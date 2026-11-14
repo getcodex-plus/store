@@ -2,13 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { bodyText, failure, guard } from '../../../server/http'
 import { ApiError, demo } from '../../../server/config'
-import {
-  browserDigest,
-  currentUser,
-  rateLimit,
-  requireUser,
-  requireRecent,
-} from '../../../server/auth'
+import { browserDigest, currentUser, requireUser, requireRecent } from '../../../server/auth'
 import {
   accessibleOrder,
   cancelOrder,
@@ -33,12 +27,13 @@ import { orderView, settingsData, jsonInput } from '../../../server/data'
 import { databaseNow, lockRow, lockSettings } from '../../../server/database-sql'
 import { normalizeDemoSession } from '../../../lib'
 import { requestExchangeRefresh } from '../../../server/exchange-rates'
-import { decrypt, hash } from '../../../server/crypto'
+import { decrypt } from '../../../server/crypto'
 import { importInventory } from '../../../server/credential-storage'
 import { integrationSchema, saveIntegration } from '../../../server/integrations/config'
 import type { Product } from '../../../types'
 import { authorize, mayGrant, permissions, type Permission } from '../../../server/rbac'
-import { requireTurnstile, turnstilePublic } from '../../../server/turnstile'
+import { turnstilePublic } from '../../../server/turnstile'
+import { checkRiskChallenge, checkRiskRate, trustedRiskIP } from '../../../server/risk'
 import { securityStatus } from '../../../server/security'
 import { funnelSchema, sourceSchema } from '../../../funnel'
 import { recordView } from '../../../server/funnel'
@@ -110,7 +105,7 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
       const input = funnelSchema.parse(data)
       if (request.headers.get('dnt') !== '1' && request.headers.get('sec-gpc') !== '1') {
         const browser = await browserDigest()
-        await rateLimit(`events:${browser}`, 60, 60)
+        await checkRiskRate('events', { browser })
         await recordView(browser, input.event, input.productId, input.source)
       }
       result = { recorded: true }
@@ -128,7 +123,7 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
     } else if (path === 'security' && method === 'GET')
       result = await securityStatus(await requireUser())
     else if (path === 'quotes' && method === 'POST') {
-      await requireTurnstile('purchase', data.turnstileToken)
+      await checkRiskChallenge('purchase', data.turnstileToken)
       const input = z
         .object({
           productId: z.string().max(64),
@@ -138,8 +133,11 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
         })
         .parse(data)
       const browser = await browserDigest()
-      await rateLimit(`quote:${browser}`, 6, 60)
-      if (!demo) await rateLimit('aicdk:account-check', 6, 60)
+      await checkRiskRate('quote', {
+        browser,
+        user: (await currentUser())?.id,
+        ip: trustedRiskIP(request.headers),
+      })
       let text = input.session
       if (demo) {
         try {
@@ -156,7 +154,7 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
           request.headers.get('sec-gpc') !== '1',
       })
     } else if (path === 'orders' && method === 'POST') {
-      await requireTurnstile('purchase', data.turnstileToken)
+      await checkRiskChallenge('purchase', data.turnstileToken)
       const input = z
         .object({
           quoteId: z.string().optional(),
@@ -175,10 +173,12 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
           message: '请选择商品订单或钱包充值',
         })
         .parse(data)
-      await rateLimit(`order:${await browserDigest()}`, 12, 600)
-      if (!demo && input.quoteId) await rateLimit('aicdk:preflight', 6, 60)
-      if (input.contactEmail) await rateLimit(`guest-contact:${hash(input.contactEmail)}`, 5, 600)
-      result = await newOrder(await currentUser(), await browserDigest(), {
+      const user = await currentUser()
+      const browser = await browserDigest()
+      await checkRiskRate('order', { browser, user: user?.id, ip: trustedRiskIP(request.headers) })
+      if (!demo && input.quoteId) await checkRiskRate('preflight', {})
+      if (input.contactEmail) await checkRiskRate('order-contact', { email: input.contactEmail })
+      result = await newOrder(user, browser, {
         ...input,
         session: demo && input.session ? normalizeDemoSession(input.session) : input.session,
       })
@@ -210,7 +210,11 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
       result = { ok: true }
     } else if (/^orders\/[^/]+\/session$/.test(path) && method === 'POST') {
       const input = z.object({ session: z.string().max(100000) }).parse(data)
-      await rateLimit(`session-update:${await browserDigest()}`, 6, 60)
+      await checkRiskRate('session-update', {
+        browser: await browserDigest(),
+        user: (await currentUser())?.id,
+        ip: trustedRiskIP(request.headers),
+      })
       result = await confirmSession(
         await currentUser(),
         path.split('/')[1],
@@ -221,6 +225,10 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
     else if (path === 'wallet/withdraw' && method === 'POST') {
       const user = await requireUser()
       await requireRecent(user)
+      await checkRiskRate('withdrawal-request', {
+        user: user.id,
+        ip: trustedRiskIP(request.headers),
+      })
       result = { submitted: true, withdrawal: await withdraw(user, data) }
     } else if (path.startsWith('admin')) {
       const admin = await requireUser(true)
@@ -305,7 +313,7 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
         await requireRecent(admin)
         result = await refundFailedOrder(z.object({ id: z.string() }).parse(data).id, admin.email)
       } else if (path === 'admin/exchange-rates/refresh' && method === 'POST') {
-        await rateLimit(`fx-refresh:${admin.id}`, 6, 60)
+        await checkRiskRate('fx-refresh', { user: admin.id })
         await requestExchangeRefresh()
         await transaction((client) => audit(admin.email, '请求刷新汇率', 'USD_CNY', client))
         result = { queued: true }
@@ -400,7 +408,7 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
         result = { saved: true }
       } else if (path === 'admin/inventory' && method === 'POST') {
         await requireRecent(admin)
-        await rateLimit(`inventory-import:${admin.id}`, 10, 60)
+        await checkRiskRate('inventory-import', { user: admin.id })
         const input = z
           .object({
             productId: z.string().regex(/^[a-z\d_-]{1,64}$/),
@@ -424,8 +432,8 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
         const input = z
           .object({ id: z.string().min(1), refresh: z.boolean().default(false) })
           .parse(data)
-        await rateLimit(`withdrawal-estimate:${admin.id}`, 30, 60)
-        if (input.refresh) await rateLimit(`withdrawal-fx-refresh:${admin.id}`, 6, 60)
+        await checkRiskRate('withdrawal-estimate', { user: admin.id })
+        if (input.refresh) await checkRiskRate('withdrawal-fx-refresh', { user: admin.id })
         result = await withdrawalPayoutEstimate(input.id, input.refresh)
       } else if (path === 'admin/withdrawals' && method === 'POST') {
         result = await reviewWithdrawal(admin, data)

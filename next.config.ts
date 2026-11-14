@@ -3,6 +3,7 @@ import type { NextConfig } from 'next'
 const config: NextConfig = {
   poweredByHeader: false,
   devIndicators: false,
+  serverExternalPackages: ['@gorules/zen-engine'],
   async headers() {
     return [
       {

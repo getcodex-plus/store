@@ -65,4 +65,3 @@ export async function browserDigest(): Promise<string> {
   }
   return hash(token)
 }
-export { rateLimit } from './rate-limit'

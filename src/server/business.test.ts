@@ -28,7 +28,7 @@ import {
 } from './services'
 import { defaultReferralTiers } from '../referral'
 import { withdrawalChannels, withdrawalDestinations, withdrawalFee } from '../withdrawals'
-import { id } from './crypto'
+import { id, hash } from './crypto'
 import { demoSession } from '../lib'
 import { analyticsVisitor, recordView } from './funnel'
 import { authorize, permissionsFor } from './rbac'
@@ -434,7 +434,11 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
       expect(catalog.price).toBe(14300)
       expect(catalog.priceCurrency).toBe('CNY')
       expect((await products(true)).find((p) => p.id === productId)?.price).toBe(2000)
-      await Promise.all(Array.from({ length: 5 }, () => createQuote(productId, session, browser)))
+      await Promise.all(
+        Array.from({ length: 5 }, () =>
+          createQuote(productId, demoSession(`${id()}@example.com`), browser),
+        ),
+      )
       expect(fetcher).toHaveBeenCalledTimes(1)
       expect(await exchangeRate(true)).toEqual(before)
       fetcher.mockRejectedValue(new Error('private transport failure'))
@@ -455,7 +459,8 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
       await refreshExchangeRate()
       expect(fetcher.mock.calls.map((args) => (args as unknown[])[0])).toEqual([...exchangeSources])
       expect((await createQuote(productId, session, browser)).amount).toBe(16000)
-      const order = await newOrder(user, browser, {
+      const buyer = await fixtureUser(`${id()}@example.com`)
+      const order = await newOrder(buyer, browser, {
         quoteId: locked.id,
         channel: 'alipay',
         requestKey: id(),
@@ -848,6 +853,11 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
     await expect(withdraw(owner, { ...input, amount: 181 })).rejects.toThrow('邀请收益不足')
     const requests = await Promise.all(Array.from({ length: 8 }, () => withdraw(owner, input)))
     expect(new Set(requests.map((w) => w.id)).size).toBe(1)
+    expect(
+      await db.riskEvent.count({
+        where: { scene: 'withdrawal-assessment', referenceId: requests[0].id },
+      }),
+    ).toBe(1)
     await expect(withdraw(owner, { ...input, amount: 120 })).rejects.toThrow('不同的提现参数')
     await expect(withdraw(owner, { ...input, account: 'different@example.com' })).rejects.toThrow(
       '不同的提现参数',
@@ -869,6 +879,91 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
     ).rows[0]
     expect(stored.recipient_name).not.toContain(input.recipientName)
     expect(stored.account).not.toContain(input.account)
+  })
+
+  it('routes shared payout accounts and new users to enforced manual review', async () => {
+    const owners = await Promise.all(
+      Array.from({ length: 3 }, () => fixtureUser(`${id()}@example.com`)),
+    )
+    for (const owner of owners) {
+      await referralOrder(owner)
+      await db.commission.updateMany({ where: { userId: owner.id }, data: { status: 'available' } })
+    }
+    const payoutAccount = `${id()}@payout.example.com`
+    const requests = await Promise.all(
+      owners.map((owner) =>
+        withdraw(owner, {
+          amount: 100,
+          method: '支付宝',
+          account: payoutAccount,
+          recipientName: '测试收款人',
+          confirmed: true,
+          requestKey: id(),
+        }),
+      ),
+    )
+    expect(requests.every((request) => request.status === 'pending')).toBe(true)
+    const events = await db.riskEvent.findMany({
+      where: { referenceId: { in: requests.map((request) => request.id) } },
+    })
+    expect(events).toHaveLength(3)
+    expect(
+      events.filter((event) => (event.reasonCodes as string[]).includes('SHARED_PAYOUT_ACCOUNT')),
+    ).toHaveLength(1)
+    expect(
+      events.every((event) => event.mode === 'enforce' && event.effectiveAction === 'review'),
+    ).toBe(true)
+    expect(JSON.stringify(events)).not.toContain(payoutAccount)
+    const fingerprints = await db.withdrawal.findMany({
+      where: { id: { in: requests.map((request) => request.id) } },
+      select: { payoutFingerprint: true },
+    })
+    expect(new Set(fingerprints.map((row) => row.payoutFingerprint)).size).toBe(1)
+  })
+
+  it('blocks unpaid order accumulation, preserves retries and releases capacity on cancellation', async () => {
+    const owner = await fixtureUser(`${id()}@example.com`)
+    const input = { amount: 1000, channel: 'alipay' as const, requestKey: id() }
+    const accepted = await newOrder(owner, id(), input)
+    for (let i = 0; i < 4; i++) await newOrder(owner, id(), { ...input, requestKey: id() })
+    expect((await newOrder(owner, id(), input)).id).toBe(accepted.id)
+    const blocked = { ...input, requestKey: id() }
+    await expect(newOrder(owner, id(), blocked)).rejects.toMatchObject({ status: 403 })
+    const blockedId = `o_${hash(`${owner.id}:${blocked.requestKey}`).slice(0, 32)}`
+    expect(await db.order.findUnique({ where: { id: blockedId } })).toBeNull()
+    const events = await db.riskEvent.findMany({ where: { referenceId: blockedId } })
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({
+      scene: 'order-assessment',
+      action: 'review',
+      mode: 'enforce',
+      effectiveAction: 'review',
+      reasonCodes: ['UNPAID_ORDER_ACCUMULATION'],
+    })
+    await cancelOrder(owner, id(), accepted.id)
+    await expect(newOrder(owner, id(), blocked)).resolves.toHaveProperty('id', blockedId)
+  })
+
+  it('caps concurrent unpaid orders for a shared target across different users', async () => {
+    const target = `${id()}@recharge.example.com`
+    const requests = await Promise.all(
+      Array.from({ length: 8 }, async () => ({
+        owner: await fixtureUser(`${id()}@example.com`),
+        quoteId: await quote(target),
+      })),
+    )
+    const outcomes = await Promise.allSettled(
+      requests.map(({ owner, quoteId }) =>
+        newOrder(owner, browser, { quoteId, channel: 'alipay', requestKey: id() }),
+      ),
+    )
+    expect(outcomes.filter((result) => result.status === 'fulfilled')).toHaveLength(5)
+    expect(
+      outcomes
+        .filter((result) => result.status === 'rejected')
+        .every((result) => result.reason.status === 403),
+    ).toBe(true)
+    expect(await db.order.count({ where: { email: target, status: 'unpaid' } })).toBe(5)
   })
 
   it('serializes reviewers, releases rejection holds and records payout proof only after acceptance', async () => {

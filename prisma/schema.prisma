@@ -19,6 +19,24 @@ model Audit {
   @@map("audit")
 }
 
+model RiskEvent {
+  id              String   @id
+  scene           String
+  action          String
+  effectiveAction String   @map("effective_action")
+  mode            String
+  ruleVersion     String   @map("rule_version")
+  reasonCodes     Json     @map("reason_codes")
+  subjects        Json
+  facts           Json
+  referenceId     String?  @map("reference_id")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([createdAt(sort: Desc)], map: "risk_events_created")
+  @@index([referenceId], map: "risk_events_reference")
+  @@map("risk_events")
+}
+
 model AuthAccount {
   id                    String    @id
   accountId             String
@@ -435,28 +453,30 @@ model Wallet {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model Withdrawal {
-  id              String    @id
-  userId          String    @map("user_id")
-  amount          Int
-  method          String
-  account         String
-  status          String    @default("pending")
-  note            String    @default("")
-  requestKey      String    @unique @map("request_key")
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  recipientName   String    @default("") @map("recipient_name")
-  network         String?
-  requestHash     String    @default("") @map("request_hash")
-  feeAmount       Int       @default(0) @map("fee_amount")
-  feeRateBps      Int       @default(0) @map("fee_rate_bps")
-  fixedFee        Int       @default(0) @map("fixed_fee")
-  payoutReference String    @default("") @map("payout_reference")
-  payoutAmount    Decimal?  @map("payout_amount") @db.Decimal(20, 6)
-  reviewerId      String?   @map("reviewer_id")
-  reviewedAt      DateTime? @map("reviewed_at") @db.Timestamptz(6)
-  reviewer        User?     @relation("withdrawals_reviewer_idTousers", fields: [reviewerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  user            User      @relation("withdrawals_user_idTousers", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  id                String    @id
+  userId            String    @map("user_id")
+  amount            Int
+  method            String
+  account           String
+  payoutFingerprint String?   @map("payout_fingerprint")
+  status            String    @default("pending")
+  note              String    @default("")
+  requestKey        String    @unique @map("request_key")
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  recipientName     String    @default("") @map("recipient_name")
+  network           String?
+  requestHash       String    @default("") @map("request_hash")
+  feeAmount         Int       @default(0) @map("fee_amount")
+  feeRateBps        Int       @default(0) @map("fee_rate_bps")
+  fixedFee          Int       @default(0) @map("fixed_fee")
+  payoutReference   String    @default("") @map("payout_reference")
+  payoutAmount      Decimal?  @map("payout_amount") @db.Decimal(20, 6)
+  reviewerId        String?   @map("reviewer_id")
+  reviewedAt        DateTime? @map("reviewed_at") @db.Timestamptz(6)
+  reviewer          User?     @relation("withdrawals_reviewer_idTousers", fields: [reviewerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user              User      @relation("withdrawals_user_idTousers", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([userId, createdAt(sort: Desc)], map: "withdrawals_user")
+  @@index([payoutFingerprint, userId], map: "withdrawals_payout_identity")
   @@map("withdrawals")
 }

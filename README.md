@@ -74,6 +74,8 @@ USD 自动汇率由独立 worker 循环每小时获取 `https://cdn.jsdelivr.net
 
 ## 账户与安全
 
+业务风控统一使用内嵌 GoRules ZEN 引擎，全部规则默认执行。频率超限和未支付订单累积会阻止新请求，共用提现账户与新账号提现进入人工审核。IP 关联依赖可信代理配置，Turnstile 依赖真实站点密钥及后台开关。后台“风控记录”展示命中原因和规则版本，需 `audit:read` 权限。已有环境升级需执行 `db:migrate` 和 `db:risk-backfill`，具体规则、保留期限及迁移步骤见 [统一风控说明](docs/risk-control.md)。
+
 认证使用 Better Auth、`better-auth-opaque`、`@serenity-kit/opaque`、`@better-auth/passkey` 和官方 emailOTP/twoFactor 插件。Resend 使用官方 SDK，SMTP 使用 Nodemailer，Turnstile 组件使用 `@marsidev/react-turnstile`。
 
 密码通过 OPAQUE 协议验证。浏览器本地完成密码计算，接口只接收协议消息；数据库在 `auth_account.registrationRecord` 保存 OPAQUE 注册记录（`providerId=opaque`），不保存密码明文或 scrypt 哈希。用户先通过邮箱验证码注册，再在账号安全页面设置密码；改密在浏览器验证当前密码并生成新记录，完成后注销其他会话。密码长度 12–128 字符由客户端检查，服务端校验协议消息和登录权限。普通明文密码注册、登录、验证和重置接口已关闭。
