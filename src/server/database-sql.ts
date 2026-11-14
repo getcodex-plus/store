@@ -52,20 +52,36 @@ export async function lockIntegration(client: DbClient, provider: string) {
 
 // Must run inside the order transaction. Keep the row lock through preflight,
 // quote binding and order creation; any failure rolls the reservation back.
-export async function reserveInventory(client: DbClient, productId: string) {
+function availableInventory(productId: string) {
+  return Prisma.sql`i.product_id=${productId}
+    AND i.enabled=true
+    AND NOT EXISTS(SELECT 1 FROM inventory_replacements r WHERE r.inventory_id=i.id)
+    AND (i.batch_id IS NULL OR EXISTS(SELECT 1 FROM inventory_batches b WHERE b.id=i.batch_id AND b.enabled=true))
+    AND (i.status='available' OR (i.status='reserved' AND i.reserved_until<now()))
+    AND NOT EXISTS(SELECT 1 FROM quotes q JOIN orders o ON o.quote_id=q.id
+      WHERE q.inventory_id=i.id AND o.status<>'cancelled')`
+}
+
+export async function discountInventoryCountries(client: DbClient, productId: string) {
+  const rows = await client.$queryRaw<{ country: string }[]>`
+    SELECT DISTINCT i.discount_country AS country FROM inventory i
+    WHERE ${availableInventory(productId)} AND i.discount_country IS NOT NULL`
+  return rows.map((row) => row.country)
+}
+
+export async function reserveInventory(
+  client: DbClient,
+  productId: string,
+  discountCountry: string | null = null,
+) {
   // Batch toggles wait for allocations already in flight. New allocations then
   // use all enabled batches (and enabled legacy inventory without a batch).
   const [product] = await client.$queryRaw<{ id: string }[]>`
     SELECT id FROM products WHERE id=${productId} FOR SHARE`
   if (!product) return null
   const [stock] = await client.$queryRaw<{ id: string }[]>`SELECT i.id FROM inventory i
-    WHERE i.product_id=${productId}
-      AND i.enabled=true
-      AND NOT EXISTS(SELECT 1 FROM inventory_replacements r WHERE r.inventory_id=i.id)
-      AND (i.batch_id IS NULL OR EXISTS(SELECT 1 FROM inventory_batches b WHERE b.id=i.batch_id AND b.enabled=true))
-      AND (i.status='available' OR (i.status='reserved' AND i.reserved_until<now()))
-      AND NOT EXISTS(SELECT 1 FROM quotes q JOIN orders o ON o.quote_id=q.id
-        WHERE q.inventory_id=i.id AND o.status<>'cancelled')
+    WHERE ${availableInventory(productId)}
+      AND i.discount_country IS NOT DISTINCT FROM ${discountCountry}::text
     ORDER BY i.id FOR UPDATE OF i SKIP LOCKED LIMIT 1`
   if (!stock) return null
   // Recover only the chosen expired reservation. A bulk expiry UPDATE would

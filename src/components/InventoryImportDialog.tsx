@@ -23,6 +23,10 @@ export function InventoryImportDialog({
 }) {
   const { message } = App.useApp()
   const [form] = Form.useForm()
+  const productId = Form.useWatch('productId', form)
+  const channel = Form.useWatch('channel', form)
+  const selectedProduct = products.find((product) => product.id === productId)
+  const supportsDiscount = selectedProduct?.plan === 'plus' && !selectedProduct.upgrade
   const [mode, setMode] = useState<'text' | 'csv'>('text')
   const [file, setFile] = useState<{ name: string; size: number; codes: string[] } | null>(null)
   const [error, setError] = useState('')
@@ -85,7 +89,7 @@ export function InventoryImportDialog({
         layout="vertical"
         disabled={busy}
         clearOnDestroy
-        initialValues={{ enabled: true }}
+        initialValues={{ enabled: true, channel: 'standard' }}
         onFinish={async (values) => {
           setError('')
           let codes: string[]
@@ -106,6 +110,8 @@ export function InventoryImportDialog({
               batchName: values.batchName,
               note: values.note ?? '',
               enabled: values.enabled,
+              discountCountry:
+                supportsDiscount && values.channel === 'discount' ? values.discountCountry : null,
               codes,
             })
             form.resetFields()
@@ -131,6 +137,29 @@ export function InventoryImportDialog({
         >
           <Select options={products.map((p) => ({ value: p.id, label: p.name }))} />
         </Form.Item>
+        {supportsDiscount && (
+          <>
+            <Form.Item name="channel" label="兑换渠道">
+              <Select
+                options={[
+                  { value: 'standard', label: '普通充值' },
+                  { value: 'discount', label: 'Plus 50% Discount' },
+                ]}
+              />
+            </Form.Item>
+            {channel === 'discount' && (
+              <Form.Item
+                name="discountCountry"
+                label="兑换码地区"
+                rules={[
+                  { required: true, pattern: /^[a-zA-Z]{2}$/, message: '请填写两位国家代码' },
+                ]}
+              >
+                <Input maxLength={2} placeholder="例如 us、tr、jp" />
+              </Form.Item>
+            )}
+          </>
+        )}
         <Form.Item
           name="batchName"
           label="批次名称"

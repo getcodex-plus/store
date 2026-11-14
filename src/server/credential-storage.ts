@@ -34,6 +34,7 @@ export async function importInventory(
     batchName?: string
     note?: string
     enabled?: boolean
+    discountCountry?: string | null
   } = {},
 ) {
   try {
@@ -42,8 +43,14 @@ export async function importInventory(
     throw new ApiError(400, (error as Error).message)
   }
   return transaction(async (client) => {
-    if (!(await client.product.findUnique({ where: { id: productId }, select: { id: true } })))
-      throw new ApiError(404, '商品不存在，请刷新后重试')
+    const product = await client.product.findUnique({ where: { id: productId } })
+    if (!product) throw new ApiError(404, '商品不存在，请刷新后重试')
+    const discountCountry = options.discountCountry?.trim().toLowerCase() || null
+    if (
+      discountCountry &&
+      (!/^[a-z]{2}$/.test(discountCountry) || product.plan !== 'plus' || product.upgrade)
+    )
+      throw new ApiError(400, '半价库存仅支持普通 Plus 商品，地区须为两位国家代码')
     // Do not mix old SHA-256 indexes with keyed indexes: the same card could
     // otherwise be imported twice before the migration is run.
     if (await client.inventory.count({ where: { NOT: { code: { startsWith: version } } } }))
@@ -58,6 +65,7 @@ export async function importInventory(
         imported: 0,
         note: options.note ?? '',
         enabled: options.enabled !== false,
+        discountCountry,
       },
     })
     const { count: imported } = await client.inventory.createMany({
@@ -69,6 +77,7 @@ export async function importInventory(
           code: sealCredential(code, 'inventory', itemId),
           fingerprint: inventoryFingerprint(code),
           batchId,
+          discountCountry,
         }
       }),
       skipDuplicates: true,

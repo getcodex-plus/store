@@ -61,6 +61,9 @@ export function transaction<T>(
 // AICDK can perform three consecutive calls, each bounded to 30 seconds.
 // Keep this budget local instead of extending all database transactions.
 export const upstreamTransaction = { maxWait: 10_000, timeout: 100_000 } as const
+// A Plus checkout can preview/preflight a discount card, then do the same for
+// a normal card after a definitive rejection: four calls of at most 30 seconds.
+export const checkoutTransaction = { maxWait: 10_000, timeout: 130_000 } as const
 
 export function uniqueConflict(error: unknown) {
   return (

@@ -36,7 +36,7 @@ const result = (newCode = id('new_code_')) => ({
   new_code_id: id('new_'),
   new_code: newCode,
 })
-async function stock(enabled = true) {
+async function stock(enabled = true, discountCountry: string | null = null) {
   const p = await db.product.create({
     data: {
       id: id('p_'),
@@ -49,7 +49,7 @@ async function stock(enabled = true) {
     },
   })
   const original = id('original_')
-  const batch = await importInventory(p.id, [original], actor)
+  const batch = await importInventory(p.id, [original], actor, { discountCountry })
   const item = await db.inventory.findFirstOrThrow({ where: { batchId: batch.batchId } })
   if (!enabled) await changeInventory({ action: 'disable', ids: [item.id] }, actor)
   return { p, item, original }
@@ -71,6 +71,20 @@ suite('upstream inventory replacement in PostgreSQL', () => {
   }, 30_000)
   afterEach(() => vi.unstubAllGlobals())
   afterAll(cleanupTestDatabase)
+
+  it('preserves the discount country when replacing a card', async () => {
+    const { p, item } = await stock(true, 'jp')
+    const upstream = result()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce(ok(preview)).mockResolvedValueOnce(ok(upstream)),
+    )
+    await changeInventory({ action: 'replace', id: item.id }, actor)
+    expect(await transaction((client) => reserveInventory(client, p.id))).toBeNull()
+    const replacement = await transaction((client) => reserveInventory(client, p.id, 'jp'))
+    expect(replacement).toMatchObject({ discountCountry: 'jp', batchId: item.batchId })
+    expect(replacement!.id).not.toBe(item.id)
+  })
 
   it('replaces through the API once for concurrent clicks, encrypts the new code and never re-enables the original', async () => {
     const { p, item, original } = await stock()

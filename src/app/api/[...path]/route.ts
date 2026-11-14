@@ -441,6 +441,13 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
             productId: z.string().regex(/^[a-z\d_-]{1,64}$/),
             codes: z.array(z.string().trim().min(8).max(200)).min(1).max(500),
             batchName: z.string().trim().max(80).default(''),
+            discountCountry: z
+              .string()
+              .trim()
+              .toLowerCase()
+              .regex(/^[a-z]{2}$/)
+              .nullable()
+              .optional(),
             note: z.string().trim().max(300).default(''),
             enabled: z.boolean().default(true),
           })

@@ -50,12 +50,14 @@ bun run dev
 
 - `src/server/db.ts` 提供客户端和事务工厂。每个进程最多 10 个连接，建连超时 5 秒，空闲超时 30 秒；开发热更新复用单例，脚本和 worker 退出时调用 `$disconnect()`。
 - PostgreSQL 连接固定为 UTC；URL 的 `schema` 同时配置 adapter 和 `search_path`，防止模型查询、原生 SQL 和函数访问不同 schema。
-- 普通事务等待连接上限 10 秒、运行上限 10 秒。含 AICDK 调用的下单及 Session 恢复路径显式使用 100 秒预算，覆盖最多三次各 30 秒的请求。
+- 普通事务等待连接上限 10 秒、运行上限 10 秒。下单路径显式使用 130 秒预算，覆盖半价预检回退时最多四次各 30 秒的请求；Session 恢复路径仍使用 100 秒预算。
 - 常规 CRUD 使用模型 API。`database-sql.ts` 保留行锁、advisory lock、数据库时钟、库存分配、原子限流、统计聚合、任务租约等必要 PostgreSQL 操作，统一经 Prisma 参数绑定执行。
 - Better Auth 使用 Prisma adapter 并显式开启事务；依赖事务的用户/会话 hooks 通过当前认证 adapter 查询。认证数据的物理映射由 Prisma schema 维护。
 - `data.ts` 负责公开 DTO：日期转 ISO，金额保持整数分，Decimal 保留六位小数字符串，JSON 经相应边界解析。内部凭据和 ORM 类型不直接作为接口响应。
 
 ## 创建后续迁移
+
+`20261114080000_plus_discount_inventory` 为库存及导入批次增加可空的 `discount_country`，历史记录保持普通渠道；新增地区格式约束和分配索引。发布此版本的 Web/worker 前先执行 `bun run db:migrate`，再生成客户端并重启服务。半价资格与最终渠道保存在原有报价的服务端 JSON 快照中，对客 DTO 不返回这些字段。
 
 在独立开发数据库或 schema 中运行 `bun run db:dev --name <name>`。先审查生成的 SQL，再提交 `schema.prisma`、迁移目录和经核对的 `database-contract.json`。当前本地库保留额外历史认证表，不应用它直接生成带删除操作的迁移。
 

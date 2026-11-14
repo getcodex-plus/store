@@ -34,6 +34,58 @@ const ready = {
   },
 }
 describe('new AICDK monetary and fulfillment contract', () => {
+  it('pins a discounted Plus order to its business, country and authorized cost', () => {
+    const quote = {
+      email: original.email,
+      targetPlan: 'plus',
+      amount: 12900,
+      pricingSnapshot: {
+        mode: 'fixed' as const,
+        fulfillment: {
+          business: 'plus_50_percent_discount' as const,
+          country: 'jp',
+          quote: { currency: 'JPY', amount_minor: 1300, currency_decimals: 0 },
+        },
+      },
+    }
+    const result = {
+      ...ready,
+      quote: {
+        ...quote.pricingSnapshot.fulfillment.quote,
+        target_plan: 'plus',
+        business: 'plus_50_percent_discount',
+        billing_country: 'JP',
+      },
+    }
+    expect(() => validateFulfillment(result, quote)).not.toThrow()
+    for (const change of [
+      { business: 'recharge' },
+      { billing_country: 'us' },
+      { amount_minor: 1400 },
+      { currency: 'USD' },
+      { target_plan: 'pro_100' },
+    ]) {
+      expect(() =>
+        validateFulfillment({ ...result, quote: { ...result.quote, ...change } }, quote),
+      ).toThrow()
+    }
+    expect(() =>
+      validateFulfillment(
+        {
+          ...result,
+          quote: { ...result.quote, billing_country: undefined },
+        },
+        quote,
+      ),
+    ).not.toThrow()
+    expect(() => validateFulfillment(result, { ...quote, targetPlan: 'pro20' })).toThrow()
+    expect(() =>
+      validateFulfillment(result, {
+        ...quote,
+        pricingSnapshot: { mode: 'fixed' },
+      }),
+    ).toThrow('业务')
+  })
   it('uses currency precision, including JPY zero digits and KWD three digits', () => {
     expect(moneyDecimals({ currency: 'JPY', amount_minor: 1000 })).toBe(0)
     expect(moneyDecimals({ currency: 'KWD', amount_minor: 1000 })).toBe(3)

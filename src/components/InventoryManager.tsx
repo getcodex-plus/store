@@ -257,6 +257,11 @@ export function InventoryManager({
                     <div>
                       {productName(item.productId)}
                       <div className="tiny muted">{item.batchName}</div>
+                      {item.discountCountry && (
+                        <div className="tiny muted">
+                          50% Discount · {item.discountCountry.toUpperCase()}
+                        </div>
+                      )}
                     </div>
                   ),
                 },
@@ -371,6 +376,11 @@ export function InventoryManager({
                   <div>
                     <strong>{batch.name}</strong>{' '}
                     <div className="tiny muted">{productName(batch.productId)}</div>
+                    {batch.discountCountry && (
+                      <div className="tiny muted">
+                        50% Discount · {batch.discountCountry.toUpperCase()}
+                      </div>
+                    )}
                     <div className="tiny muted mono">{batch.id}</div>
                   </div>
                 ),

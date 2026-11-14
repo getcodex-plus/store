@@ -107,13 +107,29 @@ const accountCheckSchema = z.object({
   account_email: email,
   current_plan: z.string().max(64),
   account_status: z.enum(['active', 'deactivated']),
-  subscription: z.object({ purchase: group, upgrade: group }),
+  subscription: z.object({
+    purchase: group,
+    upgrade: group,
+    offers: z
+      .object({
+        plus_50_percent_discount: z
+          .object({
+            eligible: z.boolean().nullable(),
+            percent_off: z.literal(50),
+            quotes: z.record(z.string().regex(/^[a-z]{2}$/), providerMoneySchema).optional(),
+          })
+          .optional(),
+      })
+      .optional()
+      .catch(undefined),
+  }),
 })
 export type AccountCheck = z.infer<typeof accountCheckSchema>
 const redemptionQuote = providerMoneySchema.extend({
   current_plan: z.string().max(64).optional(),
   target_plan: z.string().min(1).max(64),
   business: z.string().min(1).max(64),
+  billing_country: z.string().max(64).optional(),
 })
 const preflightSchema = z.discriminatedUnion('status', [
   z.object({
@@ -210,18 +226,27 @@ export async function preflight(
   code: string,
   session: unknown,
   binding: AicdkBinding,
-  expectedBusiness: 'upgrade' | 'recharge',
+  expectedBusiness: 'upgrade' | 'recharge' | 'plus_50_percent_discount',
+  expectedCountry?: string,
 ): Promise<Preflight> {
   const preview = validated(
     z.object({
       redemption_token: token,
       credential_type: z.literal('chatgpt_session'),
       business: z.string(),
+      payment_country: z.string().max(64).optional(),
     }),
     await aicdk('/redemptions/previews', { code }, undefined, binding),
   )
   if (preview.business !== expectedBusiness)
     throw new ApiError(409, '兑换库存与业务类型不匹配，请联系支持')
+  // AICDK exposes the card's region on preview; its public redemption quote
+  // currently omits billing_country. Bind the actual card before authorization.
+  if (
+    expectedBusiness === 'plus_50_percent_discount' &&
+    (!expectedCountry || preview.payment_country?.toLowerCase() !== expectedCountry)
+  )
+    throw new ApiError(409, '兑换地区与原订单不匹配，请联系支持核对')
   return validated(
     preflightSchema,
     await aicdk(

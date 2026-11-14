@@ -160,6 +160,250 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
   async function internal(orderId: string) {
     return paymentOrderView(await db.order.findUniqueOrThrow({ where: { id: orderId } }))
   }
+  async function discountScenario(
+    options: {
+      eligible?: boolean | null
+      standardEligible?: boolean
+      countries?: string[]
+      rejectDiscount?: boolean
+    } = {},
+  ) {
+    const productId = id('p_')
+    await db.product.create({
+      data: {
+        id: productId,
+        name: 'Plus',
+        subtitle: '',
+        description: '',
+        price: 12900,
+        features: [],
+        plan: 'plus',
+      },
+    })
+    const quotes = {
+      tr: { amount_minor: 100, currency: 'USD' }, // Cheapest, but no card by default.
+      us: { amount_minor: 1000, currency: 'USD' },
+      jp: { amount_minor: 900, currency: 'USD' },
+    }
+    const cards = new Map<string, string>()
+    for (const country of options.countries ?? ['us', 'jp']) {
+      const code = id('discount_card_')
+      cards.set(code, country)
+      await importInventory(productId, [code], user.email, { discountCountry: country })
+    }
+    const normalCode = id('normal_card_')
+    cards.set(normalCode, '')
+    await importInventory(productId, [normalCode], user.email)
+    const standardEligible = options.standardEligible ?? true
+    const check = {
+      ...accountResult,
+      subscription: {
+        ...accountResult.subscription,
+        purchase: {
+          eligible: standardEligible,
+          plans: [{ id: 'plus', eligible: standardEligible }],
+        },
+        offers: {
+          plus_50_percent_discount: {
+            eligible: options.eligible === undefined ? true : options.eligible,
+            percent_off: 50,
+            quotes,
+          },
+        },
+      },
+    }
+    const preflights: string[] = []
+    const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : {}
+      if (url.endsWith('/account-checks')) return ok(check)
+      if (url.endsWith('/redemptions/previews')) {
+        if (!cards.has(body.code)) throw new Error('Unexpected card')
+        const country = cards.get(body.code)!
+        return ok({
+          redemption_token: country || 'normal',
+          credential_type: 'chatgpt_session',
+          business: country ? 'plus_50_percent_discount' : 'recharge',
+          payment_country: country,
+        })
+      }
+      if (url.endsWith('/redemptions/preflights')) {
+        const country = body.redemption_token === 'normal' ? '' : body.redemption_token
+        preflights.push(country)
+        if (country && options.rejectDiscount)
+          return new Response(
+            JSON.stringify({
+              ok: false,
+              error: { code: 'OPERATION_NOT_READY', uncertain: false },
+            }),
+            { status: 422 },
+          )
+        return ok({
+          ...ready,
+          preflight_token: `approved-${country || 'normal'}`,
+          quote: country
+            ? {
+                ...quotes[country as keyof typeof quotes],
+                business: 'plus_50_percent_discount',
+                target_plan: 'plus',
+              }
+            : { amount_minor: 2000, currency: 'USD', business: 'recharge', target_plan: 'plus' },
+        })
+      }
+      if (url.includes('/redemptions?')) return ok([])
+      if (url.endsWith('/redemptions')) {
+        const country = body.preflight_token.slice('approved-'.length)
+        return ok({
+          id: `remote_${body.client_request_id}`,
+          client_request_id: body.client_request_id,
+          account_email: email,
+          version: 1,
+          status: 'completed',
+          quote: {
+            ...quotes[country as keyof typeof quotes],
+            business: 'plus_50_percent_discount',
+            target_plan: 'plus',
+          },
+        })
+      }
+      throw new Error('Unexpected test request')
+    })
+    vi.stubGlobal('fetch', fetcher)
+    const q = await quote(productId, session, browser)
+    const buy = () =>
+      newOrder(user, browser, {
+        quoteId: q.id,
+        channel: 'balance',
+        requestKey: id(),
+        session,
+      })
+    return { q, buy, preflights, fetcher, productId }
+  }
+
+  it('uses the cheapest stocked discount country at the original public price and fulfills it', async () => {
+    const { q, buy, preflights, fetcher } = await discountScenario()
+    expect(q.amount).toBe(12900)
+    expect(Object.keys(q).sort()).toEqual(
+      ['id', 'productId', 'email', 'amount', 'currentPlan', 'targetPlan', 'expiresAt'].sort(),
+    )
+    const order = await buy()
+    expect(order.amount).toBe(q.amount)
+    expect(preflights).toEqual(['jp'])
+    expect(JSON.stringify(order)).not.toMatch(/discount|billing_country|approved-/i)
+    const stored = await db.quote.findUniqueOrThrow({
+      where: { id: q.id },
+      include: { inventory: true },
+    })
+    expect(stored.inventory?.discountCountry).toBe('jp')
+    expect(stored.pricingSnapshot).toMatchObject({
+      fulfillment: { business: 'plus_50_percent_discount', country: 'jp' },
+    })
+    expect(await fulfillOrder(order.id)).toBe(true)
+    expect((await internal(order.id)).status).toBe('completed')
+    expect(fetcher.mock.calls.filter(([url]) => url.endsWith('/redemptions'))).toHaveLength(1)
+    expect(
+      (await db.inventory.findUniqueOrThrow({ where: { id: stored.inventoryId! } })).status,
+    ).toBe('consumed')
+  })
+
+  it.each([false, null])(
+    'uses only normal inventory when discount eligibility is %s',
+    async (eligible) => {
+      const { q, buy, preflights } = await discountScenario({ eligible })
+      await buy()
+      expect(preflights).toEqual([''])
+      expect(
+        (await db.quote.findUniqueOrThrow({ where: { id: q.id }, include: { inventory: true } }))
+          .inventory?.discountCountry,
+      ).toBeNull()
+    },
+  )
+
+  it('falls back when discount stock disappears after the account check', async () => {
+    const { q, buy, productId, preflights } = await discountScenario()
+    await db.inventoryBatch.updateMany({
+      where: { productId, discountCountry: { not: null } },
+      data: { enabled: false },
+    })
+    await buy()
+    expect(preflights).toEqual([''])
+    expect(
+      (await db.quote.findUniqueOrThrow({ where: { id: q.id } })).pricingSnapshot,
+    ).not.toHaveProperty('fulfillment')
+  })
+
+  it('releases the optional card and keeps the public price after a definitive discount rejection', async () => {
+    const { q, buy, productId, preflights } = await discountScenario({ rejectDiscount: true })
+    const order = await buy()
+    expect(order.amount).toBe(q.amount)
+    expect(preflights).toEqual(['jp', ''])
+    expect(
+      await db.inventory.count({
+        where: { productId, discountCountry: { not: null }, status: 'available' },
+      }),
+    ).toBe(2)
+    expect(
+      (await db.quote.findUniqueOrThrow({ where: { id: q.id } })).pricingSnapshot,
+    ).not.toHaveProperty('fulfillment')
+  })
+
+  it('supports discount-only eligibility without authorizing the normal channel', async () => {
+    const valid = await discountScenario({ standardEligible: false })
+    await valid.buy()
+    expect(valid.preflights).toEqual(['jp'])
+    const expired = await discountScenario({ standardEligible: false, rejectDiscount: true })
+    await expect(expired.buy()).rejects.toThrow('暂不可用')
+    expect(expired.preflights).toEqual(['jp'])
+    expect(await db.order.count({ where: { quoteId: expired.q.id } })).toBe(0)
+    expect(
+      await db.inventory.count({ where: { productId: expired.productId, status: 'reserved' } }),
+    ).toBe(0)
+  })
+
+  it('reuses the selected country and card when refreshing an expired preflight', async () => {
+    const { q, buy, preflights } = await discountScenario()
+    const order = await buy()
+    const stored = await db.quote.findUniqueOrThrow({ where: { id: q.id } })
+    await db.quote.update({ where: { id: q.id }, data: { preflightExpiresAt: new Date(0) } })
+    expect(await fulfillOrder(order.id)).toBe(true)
+    expect((await internal(order.id)).status).toBe('needs_session')
+    await confirmSession(user, order.id, session, browser)
+    expect(preflights).toEqual(['jp', 'jp'])
+    expect((await db.quote.findUniqueOrThrow({ where: { id: q.id } })).inventoryId).toBe(
+      stored.inventoryId,
+    )
+    expect((await internal(order.id)).amount).toBe(12900)
+    expect(await fulfillOrder(order.id)).toBe(true)
+  })
+
+  it('skips a locked cheapest card and uses the next stocked discount country', async () => {
+    const { q, buy, productId, preflights } = await discountScenario()
+    let unlock!: () => void
+    let locked!: () => void
+    const acquired = new Promise<void>((resolve) => {
+      locked = resolve
+    })
+    const gate = new Promise<void>((resolve) => {
+      unlock = resolve
+    })
+    const holding = transaction(async (client) => {
+      expect(await reserveInventory(client, productId, 'jp')).not.toBeNull()
+      locked()
+      await gate
+    })
+    await acquired
+    try {
+      await buy()
+      expect(preflights).toEqual(['us'])
+      expect(
+        (await db.quote.findUniqueOrThrow({ where: { id: q.id }, include: { inventory: true } }))
+          .inventory?.discountCountry,
+      ).toBe('us')
+    } finally {
+      unlock()
+      await holding
+    }
+  })
+
   // Each contention scenario has its own product, stock and buyers, so unrelated
   // fixtures and the per-user lock cannot hide a double-allocation bug.
   async function competingBuyers(cards: number, buyers = 2) {

@@ -95,6 +95,7 @@ export async function inventoryList(
           batchName: item.batch?.name ?? '历史库存',
           batchId: item.batchId,
           batchEnabled: item.batch?.enabled ?? true,
+          discountCountry: item.discountCountry,
           maskedCode: `•••• ${openCredential(item.code, 'inventory', item.id).slice(-4)}`,
           status: statusOf(item),
           createdAt: item.createdAt.toISOString(),

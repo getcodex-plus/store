@@ -49,6 +49,31 @@ suite('inventory batches and allocation in PostgreSQL', () => {
   }, 30_000)
   afterAll(cleanupTestDatabase)
 
+  it('separates discounted countries from normal stock and enforces Plus-only imports', async () => {
+    const p = await product()
+    const imported = await importInventory(p.id, [id('discount_')], actor, {
+      discountCountry: 'JP',
+    })
+    expect(await transaction((client) => reserveInventory(client, p.id))).toBeNull()
+    expect(await transaction((client) => reserveInventory(client, p.id, 'us'))).toBeNull()
+    const stock = await transaction((client) => reserveInventory(client, p.id, 'jp'))
+    expect(stock).toMatchObject({ discountCountry: 'jp', batchId: imported.batchId })
+    const batch = (await inventoryBatches(inventoryQuerySchema.parse({ productId: p.id }))).items[0]
+    expect(batch.discountCountry).toBe('jp')
+    expect(
+      (await inventoryList(inventoryQuerySchema.parse({ productId: p.id }))).items[0]
+        .discountCountry,
+    ).toBe('jp')
+    await expect(
+      importInventory((await product(true)).id, [id('discount_')], actor, {
+        discountCountry: 'us',
+      }),
+    ).rejects.toThrow('普通 Plus')
+    await expect(
+      importInventory(p.id, [id('discount_')], actor, { discountCountry: 'invalid' }),
+    ).rejects.toThrow('国家代码')
+  })
+
   it('records import batches, canonical duplicates, notes and masked paginated inventory', async () => {
     const p = await product()
     const code = '0123456789ABCDEF0123'

@@ -127,6 +127,51 @@ describe('AICDK transport and config binding', () => {
     expect(fetcher.mock.calls[0][1].headers).not.toHaveProperty('Idempotency-Key')
     expect(result).not.toHaveProperty('secret')
   })
+  it('checks the discount card country at preview because public quotes omit it', async () => {
+    const fetcher = vi.fn()
+    vi.stubGlobal('fetch', fetcher)
+    for (const country of [undefined, 'us']) {
+      fetcher.mockReset().mockResolvedValueOnce(
+        ok({
+          redemption_token: 'test-preview',
+          credential_type: 'chatgpt_session',
+          business: 'plus_50_percent_discount',
+          payment_country: country,
+        }),
+      )
+      await expect(
+        preflight('test-code', session, 'pinned', 'plus_50_percent_discount', 'jp'),
+      ).rejects.toThrow('地区')
+      expect(fetcher).toHaveBeenCalledTimes(1)
+    }
+    fetcher
+      .mockReset()
+      .mockResolvedValueOnce(
+        ok({
+          redemption_token: 'test-preview',
+          credential_type: 'chatgpt_session',
+          business: 'plus_50_percent_discount',
+          payment_country: 'JP',
+        }),
+      )
+      .mockResolvedValueOnce(
+        ok({
+          status: 'ready',
+          preflight_token: 'test-ready',
+          account_email: session.user.email,
+          quote: {
+            amount_minor: 1300,
+            currency: 'JPY',
+            target_plan: 'plus',
+            business: 'plus_50_percent_discount',
+          },
+        }),
+      )
+    expect(
+      (await preflight('test-code', session, 'pinned', 'plus_50_percent_discount', 'jp')).status,
+    ).toBe('ready')
+    expect(fetcher).toHaveBeenCalledTimes(2)
+  })
   it('refreshes the same redemption using PUT and preserves its idempotency key', async () => {
     const fetcher = vi.fn().mockResolvedValue(ok(redemption))
     vi.stubGlobal('fetch', fetcher)

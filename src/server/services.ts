@@ -9,7 +9,15 @@ import type {
   Withdrawal,
   WithdrawalEstimate,
 } from '../types'
-import { db, Prisma, transaction, upstreamTransaction, uniqueConflict, type DbClient } from './db'
+import {
+  db,
+  Prisma,
+  transaction,
+  upstreamTransaction,
+  checkoutTransaction,
+  uniqueConflict,
+  type DbClient,
+} from './db'
 import {
   productView,
   orderView,
@@ -27,6 +35,7 @@ import {
 import {
   advisoryLock,
   reserveInventory,
+  discountInventoryCountries,
   databaseNow,
   lockRow,
   lockSettings,
@@ -51,7 +60,13 @@ import {
   UpstreamError,
   type AicdkBinding,
 } from './integrations/aicdk'
-import { priceReference, validateFulfillment, type PricingSnapshot } from './fulfillment-policy'
+import {
+  fulfillmentBusiness,
+  priceReference,
+  validateFulfillment,
+  type PricingSnapshot,
+} from './fulfillment-policy'
+import { reservePlusDiscount } from './plus-discount'
 import { createPayment, refundXorpay, type Receipt } from './integrations/payments'
 import { refundInputSchema, refundReviewDelayMs } from '../refunds'
 import type { Order as OrderRecord } from '../generated/prisma/client'
@@ -223,12 +238,29 @@ export async function quote(
       throw new ApiError(409, '此账号当前无法充值，请检查账号状态')
     const group = check.subscription[product.upgrade ? 'upgrade' : 'purchase']
     const matches = group.plans.filter((p) => p.id === aicdkPlan(product.plan))
-    if (matches.length !== 1) throw new ApiError(409, '该目标套餐暂不可用，请选择其他套餐')
     const target = matches[0]
-    if (group.eligible === null || target.eligible === null)
-      throw new ApiError(503, '账号适用性暂未确定，请稍后重新检查')
-    if (!group.eligible || !target.eligible)
-      throw new ApiError(409, '该账号不符合所选套餐的购买条件')
+    const standardEligible =
+      group.eligible === true && matches.length === 1 && target.eligible === true
+    const offer =
+      !product.upgrade && product.plan === 'plus'
+        ? check.subscription.offers?.plus_50_percent_discount
+        : undefined
+    const discountQuotes = offer?.eligible === true ? offer.quotes : undefined
+    const discountAvailable =
+      discountQuotes &&
+      (await discountInventoryCountries(db, productId)).some((country) => discountQuotes[country])
+    if (!discountAvailable) {
+      if (matches.length !== 1) throw new ApiError(409, '该目标套餐暂不可用，请选择其他套餐')
+      if (group.eligible === null || target.eligible === null)
+        throw new ApiError(503, '账号适用性暂未确定，请稍后重新检查')
+      if (!standardEligible) throw new ApiError(409, '该账号不符合所选套餐的购买条件')
+    }
+    if (discountQuotes) {
+      pricingSnapshot = {
+        ...(pricingSnapshot as PricingSnapshot),
+        plusDiscount: { quotes: discountQuotes, standardEligible },
+      }
+    }
     currentPlan = publicPlan(check.current_plan)
     if (product.upgrade) {
       if (!target.quote) throw new ApiError(503, '暂未取得有效升级报价，请稍后重试')
@@ -427,14 +459,26 @@ export async function newOrder(
         if (!wallet || wallet.balance < balanceAmount)
           throw new ApiError(409, '钱包余额不足，请先充值或选择其他支付方式')
       }
-      const stock = await reserveInventory(client, quoteRecord.productId)
-      if (!stock) throw new ApiError(409, '此套餐暂时缺货，请稍后再试')
-      const checked = await preflight(
-        openCredential(stock.code, 'inventory', stock.id),
+      const discounted = await reservePlusDiscount(
+        client,
+        quoteRecord.productId,
+        quoteRecord,
         session,
         binding!,
-        quoteRecord.pricingSnapshot?.mode === 'markup' ? 'upgrade' : 'recharge',
       )
+      if (!discounted && quoteRecord.pricingSnapshot?.plusDiscount?.standardEligible === false)
+        throw new ApiError(409, '此套餐暂不可用，请重新检查账号后重试')
+      const stock = discounted?.stock ?? (await reserveInventory(client, quoteRecord.productId))
+      if (!stock) throw new ApiError(409, '此套餐暂时缺货，请稍后再试')
+      if (discounted) quoteRecord.pricingSnapshot = discounted.snapshot
+      const checked =
+        discounted?.checked ??
+        (await preflight(
+          openCredential(stock.code, 'inventory', stock.id),
+          session,
+          binding!,
+          fulfillmentBusiness(quoteRecord),
+        ))
       if (checked.status !== 'ready')
         throw new UpstreamError('PRICE_REFRESH_PENDING', checked.retry_after ?? 2, false)
       validateFulfillment(checked, quoteRecord)
@@ -444,6 +488,7 @@ export async function newOrder(
         where: { id: quoteRecord.id },
         data: {
           inventoryId: stock.id,
+          ...(discounted ? { pricingSnapshot: jsonInput(discounted.snapshot) } : {}),
           preflightToken: sealCredential(checked.preflight_token, 'preflight', quoteRecord.id),
           preflightExpiresAt: new Date((await databaseNow(client)).getTime() + 9 * 60_000),
         },
@@ -551,7 +596,7 @@ export async function newOrder(
         skipDuplicates: true,
       })
     return order
-  }, upstreamTransaction).catch(recordRiskRejection)
+  }, checkoutTransaction).catch(recordRiskRejection)
   return outcome
 }
 export async function accessibleOrder(user: User | null, browser: string, orderId: string) {
@@ -1361,7 +1406,8 @@ export async function confirmSession(
           openCredential(stock.code, 'inventory', stock.id),
           session,
           binding,
-          quote.pricingSnapshot?.mode === 'markup' ? 'upgrade' : 'recharge',
+          fulfillmentBusiness(quote),
+          quote.pricingSnapshot?.fulfillment?.country,
         )
         if (checked.status !== 'ready')
           throw new UpstreamError('PRICE_REFRESH_PENDING', checked.retry_after ?? 2, false)

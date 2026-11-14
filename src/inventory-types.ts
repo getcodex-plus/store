@@ -13,6 +13,7 @@ export type InventoryItem = {
   batchName: string
   batchId: string | null
   batchEnabled: boolean
+  discountCountry: string | null
   status: InventoryStatus
   createdAt: string
   manageable: boolean
@@ -39,6 +40,7 @@ export type InventoryBatchItem = {
   duplicates: number
   note: string
   enabled: boolean
+  discountCountry: string | null
   createdAt: string
   counts: Record<InventoryStatus, number>
 }

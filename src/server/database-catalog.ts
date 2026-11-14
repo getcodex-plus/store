@@ -125,8 +125,21 @@ export async function verifyDatabase(client: DbClient = db, baselineOnly = false
     // Additive migrations are checked separately so db:baseline does not require
     // them in advance.
     await client.riskEvent.findFirst()
-    await client.inventory.findFirst({ select: { enabled: true, batchId: true, createdAt: true } })
+    await client.inventory.findFirst({
+      select: { enabled: true, batchId: true, createdAt: true, discountCountry: true },
+    })
     await client.inventoryBatch.findFirst()
+    const discountConstraints = await client.$queryRaw<{ conname: string }[]>`
+      SELECT k.conname FROM pg_constraint k
+      JOIN pg_class c ON c.oid=k.conrelid
+      JOIN pg_namespace n ON n.oid=c.relnamespace
+      WHERE n.nspname=current_schema()
+      AND (c.relname,k.conname) IN (
+        ('inventory','inventory_discount_country_check'),
+        ('inventory_batches','inventory_batches_discount_country_check')
+      )`
+    if (discountConstraints.length !== 2)
+      throw new Error('Plus discount inventory migration is incomplete')
     await client.withdrawal.findFirst({ select: { payoutFingerprint: true } })
     const indexes = await client.$queryRaw<{ indexname: string }[]>`
       SELECT indexname FROM pg_indexes WHERE schemaname=current_schema()

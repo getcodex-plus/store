@@ -114,6 +114,7 @@ export async function replaceInventory(inventoryId: string, actor: string) {
         id: replacementId,
         productId: source.productId,
         batchId: source.batchId,
+        discountCountry: source.discountCountry,
         enabled: request.restoreEnabled,
         code: sealCredential(result.new_code!, 'inventory', replacementId),
         fingerprint: fingerprint!,
