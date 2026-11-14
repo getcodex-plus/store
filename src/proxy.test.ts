@@ -41,3 +41,32 @@ it('allows analytics connections only when a valid measurement ID is configured'
   expect(policy).not.toContain("'unsafe-eval'")
   expect(policy).not.toContain('doubleclick.net')
 })
+
+it('allows Tawk resources and secure sockets without relaxing script execution', () => {
+  vi.stubEnv('NODE_ENV', 'production')
+  const response = proxy(new NextRequest('https://shop.example/checkout'))
+  const policy = response.headers.get('Content-Security-Policy')!
+  const directives = Object.fromEntries(
+    policy.split('; ').map((entry) => {
+      const [name, ...sources] = entry.split(' ')
+      return [name, sources]
+    }),
+  )
+  expect(directives['script-src']).toContain("'strict-dynamic'")
+  expect(directives['script-src']).not.toContain("'unsafe-inline'")
+  expect(directives['script-src']).not.toContain("'unsafe-eval'")
+  expect(directives['connect-src']).toContain('wss://*.tawk.to')
+  expect(directives['connect-src']).not.toContain('wss:')
+  expect(directives['connect-src']).not.toContain('*')
+  for (const directive of [
+    'connect-src',
+    'img-src',
+    'font-src',
+    'style-src',
+    'frame-src',
+    'media-src',
+  ])
+    expect(directives[directive]).toContain('https://*.tawk.to')
+  expect(directives['img-src']).toContain('https://*.tawk.link')
+  expect(directives['script-src-attr']).toEqual(["'none'"])
+})

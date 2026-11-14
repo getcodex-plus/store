@@ -1697,6 +1697,54 @@ export function Admin() {
                       <Input type="email" placeholder="support@example.com" />
                     </Form.Item>
                     <Form.Item
+                      name={['tawk', 'enabled']}
+                      label="Tawk.to 在线客服"
+                      valuePropName="checked"
+                      extra="开启后，全站右下角显示聊天组件。保存后刷新网页生效。"
+                    >
+                      <Switch />
+                    </Form.Item>
+                    <Form.Item
+                      name={['tawk', 'propertyId']}
+                      label="Tawk.to Property ID"
+                      dependencies={[['tawk', 'enabled']]}
+                      rules={[
+                        ({ getFieldValue }) => ({
+                          required: !!getFieldValue(['tawk', 'enabled']),
+                          whitespace: true,
+                          message: '启用在线客服前请填写 Property ID',
+                        }),
+                        {
+                          pattern: /^[a-f\d]{24}$/,
+                          message: '请输入 24 位小写十六进制 Property ID',
+                          transform: (value: string) => value?.trim(),
+                        },
+                      ]}
+                      extra="在 Tawk.to 后台 Administration → Channels → Chat Widget 的嵌入地址中，复制第一段 ID。"
+                    >
+                      <Input autoComplete="off" maxLength={24} placeholder="Property ID" />
+                    </Form.Item>
+                    <Form.Item
+                      name={['tawk', 'widgetId']}
+                      label="Tawk.to Widget ID"
+                      dependencies={[['tawk', 'enabled']]}
+                      rules={[
+                        ({ getFieldValue }) => ({
+                          required: !!getFieldValue(['tawk', 'enabled']),
+                          whitespace: true,
+                          message: '启用在线客服前请填写 Widget ID',
+                        }),
+                        {
+                          pattern: /^[a-zA-Z\d]{1,64}$/,
+                          message: 'Widget ID 只能包含字母和数字，最长 64 位',
+                          transform: (value: string) => value?.trim(),
+                        },
+                      ]}
+                      extra="复制嵌入地址的第二段 ID（有些组件为 default）；无需填写 API 密钥或粘贴整段脚本。"
+                    >
+                      <Input autoComplete="off" maxLength={64} placeholder="Widget ID" />
+                    </Form.Item>
+                    <Form.Item
                       name="sessionGuideUrl"
                       label="账号信息操作指引"
                       extra="支持 HTTP 和 HTTPS 地址，将展示在新手指南与结算页。请勿填写包含账号信息或访问凭据的地址。"

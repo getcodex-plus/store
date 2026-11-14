@@ -38,7 +38,11 @@ bun run worker
 
 保留本站的购买阶段统计，并可通过 `NEXT_PUBLIC_GA_ID=G-XXXXXXXXXX` 启用 GA4；构建与运行时配置一致，修改后重新构建。未填写或格式无效时不加载。启用前在 GA 网页数据流关闭「增强型衡量」，由应用显式上报页面浏览，包含结算页；查询参数、订单号、表单内容不作为事件参数发送。尊重 DNT/GPC，不启用 Google Signals 或广告个性化信号。`NEXT_PUBLIC_GTM_ID` 不再使用。配置限制与验证步骤见[增长与 SEO 说明](docs/growth-and-seo.md#google-analytics-4)。Cloudflare Turnstile 仍按后台开关使用。
 
-页面通过 Next.js Proxy 生成每次请求独立的 CSP nonce，采用动态渲染；运行时脚本、结构化数据、GA4 和 Turnstile 使用对应 nonce。限制内联脚本、外部连接和嵌入；仅配置有效 GA ID 时增加 Google Analytics 必要来源，不放行广告来源。Ant Design 所需的内联样式保留。页面与 API 不缓存，使用 `no-referrer`；正式站点启用 HSTS。反向代理须保留这些响应头。
+允许按业务配置加载第三方统计和客服组件，包括结算与后台页面。Tawk.to 在后台「网站设置 → 服务联系」配置：从 Tawk.to 的 Administration → Channels → Chat Widget 获取嵌入地址 `https://embed.tawk.to/<propertyId>/<widgetId>`，分别填写 Property ID 和 Widget ID，开启「Tawk.to 在线客服」并保存。无需 API 密钥、环境变量或数据库迁移；已有设置默认关闭。配置修改在完整刷新网页后生效，已打开的聊天会话不会被后台保存操作中断。
+
+Tawk.to 在桌面端和移动端均显示于右下角，页面交互就绪后加载一次，客户端页面切换保留聊天会话。未启用或未配置时不请求组件；网络加载失败不影响购买流程，支持邮箱继续可用。语言、欢迎语、客服在线时间和离线表单在 Tawk.to 后台设置。应用不调用访客身份 API，不主动传递邮箱、Session、卡密或订单内容；Tawk.to 自身会处理访问页面、设备和聊天会话信息，详见站内隐私说明。
+
+页面通过 Next.js Proxy 生成每次请求独立的 CSP nonce，采用动态渲染；运行时脚本、结构化数据、GA4、Tawk.to 和 Turnstile 使用对应 nonce。限制内联脚本、外部连接和嵌入；仅配置有效 GA ID 时增加 Google Analytics 必要来源，不放行广告来源。CSP 预留 Tawk.to 的 HTTPS、WebSocket、图片、字体、样式、媒体和框架来源，以及 `*.tawk.link` 的附件来源；是否加载客服脚本由后台开关控制。Ant Design 所需的内联样式保留。页面与 API 不缓存，使用 `no-referrer`；正式站点启用 HSTS。反向代理须保留这些响应头。
 
 ## 用户流程
 

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
+import { tawkSettingsSchema } from '../tawk'
 import type {
   Product as ProductRecord,
   Order as OrderRecord,
@@ -53,6 +54,7 @@ export function settingsData(value: Prisma.JsonValue): Settings {
       minimumWithdrawal: z.number(),
       firstOrderOnly: z.boolean(),
       supportEmail: z.string().default(''),
+      tawk: tawkSettingsSchema.default({ enabled: false, propertyId: '', widgetId: '' }),
       alipay: z.boolean(),
       wechat: z.boolean(),
       crypto: z.boolean(),

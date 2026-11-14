@@ -8,6 +8,7 @@ import { siteOrigin } from '../seo'
 import { publicSupport } from '../server/public-support'
 import { GoogleAnalytics } from '../components/GoogleAnalytics'
 import { googleAnalyticsId } from '../google-analytics'
+import { TawkChat } from '../components/TawkChat'
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteOrigin()),
@@ -35,7 +36,7 @@ export const metadata: Metadata = {
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   // Dynamic rendering is required: a cached document must not reuse a CSP nonce.
   const nonce = (await headers()).get('x-nonce') || undefined
-  const { supportEmail } = await publicSupport()
+  const { supportEmail, tawkSrc } = await publicSupport()
   const gaId = googleAnalyticsId(process.env.NEXT_PUBLIC_GA_ID)
 
   return (
@@ -49,6 +50,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           </Providers>
         </AntdRegistry>
         {gaId && <GoogleAnalytics gaId={gaId} nonce={nonce} />}
+        <TawkChat src={tawkSrc} nonce={nonce} />
       </body>
     </html>
   )

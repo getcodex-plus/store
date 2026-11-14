@@ -1,3 +1,5 @@
+import type { TawkSettings } from './tawk'
+
 export type OrderStatus =
   'unpaid' | 'processing' | 'completed' | 'needs_session' | 'failed' | 'refunded' | 'cancelled'
 export type Channel = 'alipay' | 'wechat' | 'crypto' | 'balance'
@@ -146,6 +148,7 @@ export interface Settings {
   firstOrderOnly: boolean
   supportEmail: string
   sessionGuideUrl?: string
+  tawk?: TawkSettings
   alipay: boolean
   wechat: boolean
   crypto: boolean

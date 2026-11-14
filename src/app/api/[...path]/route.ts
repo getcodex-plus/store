@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import { tawkSettingsSchema } from '../../../tawk'
 import { bodyText, failure, guard } from '../../../server/http'
 import { ApiError, demo } from '../../../server/config'
 import { browserDigest, currentUser, requireUser, requireRecent } from '../../../server/auth'
@@ -359,6 +360,7 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
             minimumWithdrawal: z.number().int().min(100).max(100000000).optional(),
             firstOrderOnly: z.boolean(),
             supportEmail: z.union([z.email(), z.literal('')]),
+            tawk: tawkSettingsSchema.optional(),
             sessionGuideUrl: z
               .union([
                 z.literal(''),
@@ -420,6 +422,7 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
             data: {
               body: jsonInput({
                 ...conf,
+                tawk: conf.tawk ?? current.tawk,
                 referralTiers,
                 withdrawalChannels: conf.withdrawalChannels ?? withdrawalChannels(current),
                 minimumWithdrawal: conf.minimumWithdrawal ?? current.minimumWithdrawal,

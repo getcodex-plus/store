@@ -12,14 +12,15 @@ export function proxy(request: NextRequest) {
   const policy = [
     "default-src 'self'",
     // OPAQUE requires WebAssembly compilation; JavaScript eval remains blocked in production.
-    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'wasm-unsafe-eval' https://challenges.cloudflare.com${analytics ? ' https://www.googletagmanager.com' : ''}${development ? " 'unsafe-eval'" : ''}`,
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'wasm-unsafe-eval' https://challenges.cloudflare.com https://*.tawk.to${analytics ? ' https://www.googletagmanager.com' : ''}${development ? " 'unsafe-eval'" : ''}`,
     "script-src-attr 'none'",
     // Ant Design uses inline styles. Scripts still require a per-response nonce.
-    "style-src 'self' 'unsafe-inline'",
-    `connect-src 'self' https://challenges.cloudflare.com${analyticsConnections}${development ? ' ws: wss:' : ''}`,
-    `img-src 'self' data: blob: https://www.gravatar.com${analytics ? ' https://*.google-analytics.com https://www.googletagmanager.com' : ''}`,
-    "font-src 'self'",
-    'frame-src https://challenges.cloudflare.com',
+    "style-src 'self' 'unsafe-inline' https://*.tawk.to",
+    `connect-src 'self' https://challenges.cloudflare.com https://*.tawk.to wss://*.tawk.to https://*.tawk.link${analyticsConnections}${development ? ' ws: wss:' : ''}`,
+    `img-src 'self' data: blob: https://www.gravatar.com https://*.tawk.to https://*.tawk.link${analytics ? ' https://*.google-analytics.com https://www.googletagmanager.com' : ''}`,
+    "font-src 'self' https://*.tawk.to",
+    "frame-src 'self' https://challenges.cloudflare.com https://*.tawk.to",
+    "media-src 'self' https://*.tawk.to https://*.tawk.link",
     "object-src 'none'",
     "base-uri 'none'",
     "form-action 'self'",
