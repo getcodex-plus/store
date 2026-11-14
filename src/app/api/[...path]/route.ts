@@ -310,7 +310,11 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
         result = { saved: true }
       } else if (path === 'admin/orders/refund' && method === 'POST') {
         await requireRecent(admin)
-        result = await refundFailedOrder(z.object({ id: z.string() }).parse(data).id, admin.email)
+        result = await refundFailedOrder(
+          z.object({ id: z.string() }).parse(data).id,
+          admin.email,
+          data,
+        )
       } else if (path === 'admin/exchange-rates/refresh' && method === 'POST') {
         await checkRiskRate('fx-refresh', { user: admin.id })
         await requestExchangeRefresh()

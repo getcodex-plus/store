@@ -1,6 +1,23 @@
 export type OrderStatus =
   'unpaid' | 'processing' | 'completed' | 'needs_session' | 'failed' | 'refunded' | 'cancelled'
 export type Channel = 'alipay' | 'wechat' | 'crypto' | 'balance'
+export type PaymentProvider = 'xorpay' | 'gmpay' | 'epay_v1' | 'epay_v2' | 'balance'
+export interface OrderRefund {
+  destination: 'wallet' | 'original'
+  status: 'processing' | 'review' | 'completed'
+  automatic: boolean
+  requestedAt: string
+  completedAt: string | null
+}
+export interface AdminOrder extends Order {
+  provider: PaymentProvider
+  refundRecord: {
+    note: string
+    actor: string | null
+    resolutionNote: string
+    resolvedBy: string | null
+  } | null
+}
 export interface PricingRules {
   fxRateBps: number
   markupBps: number
@@ -56,6 +73,7 @@ export interface Order {
   settlementDays: number
   firstOrderOnly: boolean
   fulfillmentStatus?: string | null
+  refund?: OrderRefund | null
 }
 export interface Commission {
   id: string
@@ -215,7 +233,7 @@ export interface AdminData {
   }
   users: User[]
   products: Product[]
-  orders: Order[]
+  orders: AdminOrder[]
   commissions: Commission[]
   withdrawals: Withdrawal[]
   settings: Settings

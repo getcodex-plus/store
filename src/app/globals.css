@@ -1465,6 +1465,93 @@ svg {
   min-height: 100vh;
   background: var(--surface-subtle);
 }
+.refund-summary {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  margin-block: 20px 24px;
+  background: var(--surface-subtle);
+  border-radius: 10px;
+  overflow-wrap: anywhere;
+}
+.refund-summary > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.refund-destinations.ant-radio-group {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  width: 100%;
+}
+.refund-destinations .ant-radio-wrapper {
+  width: 100%;
+  min-width: 0;
+  align-items: start;
+  padding: 12px;
+  margin-inline-end: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.refund-destinations .ant-radio-wrapper-checked {
+  border-color: var(--ink);
+  background: var(--surface-subtle);
+}
+.refund-choice-help {
+  display: block;
+  margin-block-start: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.refund-breakdown,
+.refund-record {
+  margin-block-end: 24px;
+}
+.refund-breakdown > div,
+.refund-footer,
+.refund-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.refund-breakdown > div {
+  justify-content: space-between;
+  margin-block-end: 8px;
+}
+.refund-breakdown strong,
+.refund-footer {
+  font-variant-numeric: tabular-nums;
+}
+.refund-breakdown p {
+  margin-block-start: 12px;
+}
+.refund-footer {
+  flex-wrap: wrap;
+  justify-content: space-between;
+  padding-block-start: 12px;
+}
+.refund-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.refund-record p {
+  margin-block-end: 8px;
+  overflow-wrap: anywhere;
+}
+.refund-note {
+  white-space: pre-wrap;
+}
+@media (max-width: 520px) {
+  .refund-destinations.ant-radio-group {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .refund-actions {
+    width: 100%;
+  }
+}
 .admin-sidebar {
   width: 232px;
   flex-shrink: 0;

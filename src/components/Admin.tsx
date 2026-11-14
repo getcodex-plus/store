@@ -44,10 +44,19 @@ import {
 import { Brand } from './Site'
 import { UserAvatar } from './UserAvatar'
 import { WithdrawalEstimate } from './WithdrawalEstimate'
+import { RefundDialog } from './RefundDialog'
 import { useSite } from './Providers'
-import { api, channels, dateTime, money, statuses } from '../lib'
+import { api, channels, dateTime, money, orderStatusLabel } from '../lib'
+import { refundNeedsReview } from '../refunds'
 import { defaultPaymentLimits, planNames, roundingOptions } from '../pricing'
-import type { AdminData, Order, Product, Withdrawal, WithdrawalChannels } from '../types'
+import type {
+  AdminData,
+  AdminOrder,
+  Order,
+  Product,
+  Withdrawal,
+  WithdrawalChannels,
+} from '../types'
 import { riskReasonLabels, riskSceneLabels } from '../risk-labels'
 import type { IntegrationView, IntegrationKind } from '../server/integrations/config'
 import { funnelLabels, sourceLabels } from '../funnel'
@@ -137,6 +146,7 @@ export function Admin() {
   const [stockOpen, setStockOpen] = useState(false)
   const [editIntegration, setEditIntegration] = useState<IntegrationKind | null>(null)
   const [withdrawal, setWithdrawal] = useState<Withdrawal | null>(null)
+  const [refundOrderId, setRefundOrderId] = useState<string | null>(null)
   const [roleOpen, setRoleOpen] = useState(false)
   const [roleForm] = Form.useForm()
   const [productForm] = Form.useForm(),
@@ -171,6 +181,12 @@ export function Admin() {
   useEffect(() => {
     if (site?.user?.permissions.includes('admin:access')) void load()
   }, [site?.user, load])
+  const pendingRefund = data?.orders.some((order) => order.refund?.status === 'processing')
+  useEffect(() => {
+    if (!pendingRefund) return
+    const timer = setInterval(() => void load(), 8000)
+    return () => clearInterval(timer)
+  }, [pendingRefund, load])
   useEffect(() => {
     if (data && page === 'settings')
       settingsForm.setFieldsValue({
@@ -358,28 +374,31 @@ export function Admin() {
       title: '状态',
       width: 120,
       dataIndex: 'status',
-      render: (v: Order['status']) => <Tag color={statuses[v].color}>{statuses[v].text}</Tag>,
+      render: (_: Order['status'], order: Order) => {
+        const status = orderStatusLabel(order)
+        return <Tag color={status.color}>{status.text}</Tag>
+      },
     },
     { title: '创建时间', dataIndex: 'createdAt', width: 130, render: dateTime },
     {
       title: '操作',
       width: 160,
       key: 'action',
-      render: (_: unknown, o: Order) =>
-        !can('orders:write') ? (
+      render: (_: unknown, o: AdminOrder) =>
+        o.status === 'refunded' ? (
+          <Button type="link" onClick={() => setRefundOrderId(o.id)}>
+            退款记录
+          </Button>
+        ) : !can('orders:write') ? (
           <span className="muted">只读</span>
         ) : o.status === 'processing' ? (
           <Button type="link" onClick={() => mutate('orders/retry', { id: o.id })}>
             重新同步
           </Button>
-        ) : o.status === 'failed' ? (
-          <Popconfirm
-            title="将此失败订单的款项退回用户钱包？"
-            description="退款会生成独立流水，同一订单只能处理一次。"
-            onConfirm={() => mutate('orders/refund', { id: o.id })}
-          >
-            <Button type="link">退回钱包</Button>
-          </Popconfirm>
+        ) : o.status === 'failed' && o.kind === 'purchase' ? (
+          <Button type="link" onClick={() => setRefundOrderId(o.id)}>
+            {o.refund ? (refundNeedsReview(o.refund) ? '核实退款' : '查看退款进度') : '处理退款'}
+          </Button>
         ) : (
           <span className="muted">—</span>
         ),
@@ -387,6 +406,17 @@ export function Admin() {
   ]
   return (
     <div className="admin-shell">
+      {refundOrderId && data?.orders.find((order) => order.id === refundOrderId) && (
+        <RefundDialog
+          key={refundOrderId}
+          order={data.orders.find((order) => order.id === refundOrderId)!}
+          onClose={() => setRefundOrderId(null)}
+          onRefresh={async () => {
+            await load()
+            await refresh()
+          }}
+        />
+      )}
       <aside className="admin-sidebar">{nav}</aside>
       <Drawer
         open={mobile}

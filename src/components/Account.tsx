@@ -30,7 +30,7 @@ import {
 import { useCallback, useEffect, useState } from 'react'
 import { useBotCheck } from './BotCheck'
 import { useSite } from './Providers'
-import { api, channels, dateTime, money, statuses } from '../lib'
+import { api, channels, dateTime, money, orderStatusLabel } from '../lib'
 import type {
   AccountData,
   Channel,
@@ -313,9 +313,10 @@ export function Account({ section }: { section: 'orders' | 'wallet' | 'referral'
                   {
                     title: '状态',
                     dataIndex: 'status',
-                    render: (v: Order['status']) => (
-                      <Tag color={statuses[v].color}>{statuses[v].text}</Tag>
-                    ),
+                    render: (_: Order['status'], order: Order) => {
+                      const status = orderStatusLabel(order)
+                      return <Tag color={status.color}>{status.text}</Tag>
+                    },
                   },
                   { title: '时间', dataIndex: 'createdAt', render: dateTime },
                   {

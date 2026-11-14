@@ -2,8 +2,8 @@ import { pageMetadata } from '../../seo'
 import { refundSummary } from '../../product-copy'
 import { Support } from '../../components/Support'
 export const metadata = pageMetadata(
-  '服务说明｜交付、取消与钱包退款',
-  '了解 GetCodex Plus 独立充值服务的购买条件、交付确认、订单取消、钱包退款及邀请返现规则。',
+  '服务说明｜交付、取消与退款',
+  '了解 GetCodex Plus 独立充值服务的购买条件、交付确认、订单取消、原路退款、钱包退款及邀请返现规则。',
   '/terms',
 )
 export default function Terms() {
@@ -26,10 +26,7 @@ export default function Terms() {
       <p>
         尚未发起渠道支付的待付款订单可申请取消，已抵扣余额会退回钱包。支付已发起或结果不确定时，需先核对付款状态。取消请求不等于退款完成。
       </p>
-      <p>
-        本站按订单一次性收费，不自动续扣；请另行核对
-        ChatGPT 账号自身的订阅续费设置。
-      </p>
+      <p>本站按订单一次性收费，不自动续扣；请另行核对 ChatGPT 账号自身的订阅续费设置。</p>
       <h2>钱包与邀请返现</h2>
       <p>
         充值和退款余额仅用于本站消费，不可提现。邀请收益单独记账；符合规则的直接邀请订单完成后进入结算期。

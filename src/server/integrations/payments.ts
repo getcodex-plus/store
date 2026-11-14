@@ -129,6 +129,20 @@ export async function createPayment(order: PaymentOrder, clientIP: string) {
     throw new ApiError(502, '易支付返回的信息不完整')
   return { paymentId: String(response.trade_no), paymentUrl: url }
 }
+// XorPay does not expose a refund idempotency key. The caller must durably claim
+// the refund before invoking this function and must never retry an unknown result.
+export async function refundXorpay(paymentId: string, amount: number, secret: string) {
+  if (!paymentId || !secret || !Number.isSafeInteger(amount) || amount <= 0)
+    throw new ApiError(400, '退款信息不完整，请核对原支付记录')
+  const price = (amount / 100).toFixed(2)
+  const response = await post(`https://xorpay.com/api/refund/${encodeURIComponent(paymentId)}`, {
+    price,
+    sign: xorpaySignature([price], secret),
+  })
+  if (response?.status !== 'ok')
+    throw new ApiError(502, 'XorPay 未确认退款成功，请在渠道后台核实后登记')
+}
+
 export function verifyReceipt(
   provider: Provider,
   fields: Record<string, string>,

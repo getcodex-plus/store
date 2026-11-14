@@ -1,4 +1,5 @@
-import type { OrderStatus } from './types'
+import type { Order, OrderStatus } from './types'
+import { refundNeedsReview } from './refunds'
 
 export const money = (minor: number) =>
   new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'CNY' }).format(minor / 100)
@@ -17,7 +18,19 @@ export const statuses: Record<OrderStatus, { text: string; color: string }> = {
   completed: { text: '充值完成', color: 'success' },
   needs_session: { text: '需更新账号信息', color: 'warning' },
   failed: { text: '充值异常', color: 'error' },
-  refunded: { text: '已退回钱包', color: 'default' },
+  refunded: { text: '退款已完成', color: 'default' },
+}
+export function orderStatusLabel(order: Order) {
+  if (order.refund && order.refund.status !== 'completed')
+    return refundNeedsReview(order.refund)
+      ? { text: '退款待核实', color: 'warning' }
+      : { text: '退款处理中', color: 'processing' }
+  if (order.status === 'refunded')
+    return {
+      text: order.refund?.destination === 'original' ? '已原路退款' : '已退回钱包',
+      color: 'default',
+    }
+  return statuses[order.status]
 }
 export const channels = {
   alipay: '支付宝',

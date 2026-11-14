@@ -13,6 +13,7 @@ import { db, Prisma, transaction, upstreamTransaction, uniqueConflict, type DbCl
 import {
   productView,
   orderView,
+  adminOrderView,
   paymentOrderView,
   quoteView,
   userView,
@@ -51,7 +52,9 @@ import {
   type AicdkBinding,
 } from './integrations/aicdk'
 import { priceReference, validateFulfillment, type PricingSnapshot } from './fulfillment-policy'
-import { createPayment, type Receipt } from './integrations/payments'
+import { createPayment, refundXorpay, type Receipt } from './integrations/payments'
+import { refundInputSchema, refundReviewDelayMs } from '../refunds'
+import type { Order as OrderRecord } from '../generated/prisma/client'
 import { money, parseSession } from '../lib'
 import { paymentLimitError, costBasedPrice, convertedSubscriptionPrice } from '../pricing'
 import {
@@ -1050,7 +1053,7 @@ export async function adminData(
       products(true),
       db.order
         .findMany({ orderBy: { createdAt: 'desc' }, take: 500 })
-        .then((records) => records.map(orderView)),
+        .then((records) => records.map(adminOrderView)),
       db.commission
         .findMany({ orderBy: { createdAt: 'desc' }, take: 500 })
         .then((records) => records.map(commissionView)),
@@ -1113,30 +1116,155 @@ export async function adminData(
     roles: can('roles:read') ? await db.role.findMany({ orderBy: { id: 'asc' } }) : [],
   }
 }
-export async function refundFailedOrder(orderId: string, actor: string) {
-  await transaction(async (client) => {
+async function completeRefund(client: DbClient, order: OrderRecord, actor: string) {
+  const walletAmount = order.refundDestination === 'wallet' ? order.amount : order.balanceAmount
+  if (walletAmount > 0) {
+    if (!order.userId) throw new ApiError(409, '请联系用户先用联系邮箱登录，以接收钱包退款')
+    await walletChange(client, order.userId, walletAmount, 'refund', order.id)
+  }
+  await client.order.update({
+    where: { id: order.id },
+    data: {
+      status: 'refunded',
+      refundStatus: 'completed',
+      refundCompletedAt: await databaseNow(client),
+    },
+  })
+  if (order.quoteId)
+    await client.quote.updateMany({
+      where: { id: order.quoteId },
+      data: { preflightToken: null },
+    })
+  await client.job.updateMany({ where: { orderId: order.id }, data: { done: true } })
+  await client.commission.updateMany({ where: { orderId: order.id }, data: { status: 'reversed' } })
+  await audit(
+    actor,
+    order.refundDestination === 'wallet' ? '失败订单退回钱包' : '确认订单原路退款完成',
+    order.id,
+    client,
+  )
+}
+
+export async function refundFailedOrder(
+  orderId: string,
+  actor: string,
+  data: unknown = { destination: 'wallet', automatic: false },
+) {
+  const parsed = refundInputSchema.safeParse(data)
+  if (!parsed.success) throw new ApiError(400, parsed.error.issues[0]?.message ?? '请检查退款信息')
+  const input = parsed.data
+  const attempt = await transaction(async (client) => {
     await lockRow(client, 'orders', orderId)
     const order = await client.order.findUnique({ where: { id: orderId } })
     if (!order) throw new ApiError(404, '订单不存在')
-    if (order.status === 'refunded') return
+    if (order.status === 'refunded') {
+      if ((order.refundDestination ?? 'wallet') !== input.destination)
+        throw new ApiError(409, '订单已按另一方式退款，请刷新查看退款记录')
+      return null
+    }
     if (order.status !== 'failed' || order.kind !== 'purchase')
-      throw new ApiError(409, '仅已确认失败的套餐订单可退回钱包')
-    if (!order.userId) throw new ApiError(409, '请联系用户先用联系邮箱登录，以接收钱包退款')
-    await walletChange(client, order.userId, order.amount, 'refund', order.id)
-    await client.order.update({ where: { id: order.id }, data: { status: 'refunded' } })
-    if (order.quoteId)
-      await client.quote.updateMany({
-        where: { id: order.quoteId },
-        data: { preflightToken: null },
+      throw new ApiError(409, '仅已确认失败的套餐订单可退款')
+    if (order.refundStatus) {
+      if (input.destination !== order.refundDestination)
+        throw new ApiError(409, '退款已发起，不能切换退款去向，请先核实原退款')
+      if (!input.reconcile) return null
+      const now = await databaseNow(client)
+      if (
+        order.refundStatus === 'processing' &&
+        now.getTime() - order.refundRequestedAt!.getTime() < refundReviewDelayMs
+      )
+        throw new ApiError(409, '渠道退款仍在处理中，请稍后刷新核实')
+      await client.order.update({
+        where: { id: order.id },
+        data: { refundResolutionNote: input.note, refundResolvedBy: actor },
       })
-    await client.job.updateMany({ where: { orderId: order.id }, data: { done: true } })
-    await client.commission.updateMany({
-      where: { orderId: order.id },
-      data: { status: 'reversed' },
+      await completeRefund(client, order, actor)
+      return null
+    }
+    if (input.reconcile) throw new ApiError(409, '尚无待核实的退款，请刷新订单')
+    if (input.destination === 'original' && order.externalAmount <= 0)
+      throw new ApiError(409, '纯余额订单只能退回站内余额')
+    if (input.automatic && order.provider !== 'xorpay')
+      throw new ApiError(400, '此渠道不支持自动退款，请手动处理并填写备注')
+    const walletAmount = input.destination === 'wallet' ? order.amount : order.balanceAmount
+    if (walletAmount > 0 && !order.userId)
+      throw new ApiError(409, '请联系用户先用联系邮箱登录，以接收钱包退款')
+    if (order.externalAmount > 0) {
+      const paid = order.paymentId
+        ? await client.paymentEvent.findUnique({
+            where: {
+              provider_transactionId: {
+                provider: order.provider,
+                transactionId: order.paymentId,
+              },
+            },
+          })
+        : null
+      if (paid?.orderId !== order.id)
+        throw new ApiError(409, '缺少已确认的渠道付款记录，请先核对收款')
+    }
+    let secret = ''
+    if (input.automatic && !demo) {
+      if (!order.integrationId) throw new ApiError(409, '缺少原支付配置，请核实后手动退款')
+      const config = await integration('xorpay', order.integrationId, client)
+      if (!config.secret) throw new ApiError(409, '原支付配置缺少密钥，请核实后手动退款')
+      secret = config.secret
+    }
+    const requestedAt = await databaseNow(client)
+    if (!input.automatic) {
+      // Record and complete manual/wallet refunds in one transaction.
+      await client.order.update({
+        where: { id: order.id },
+        data: {
+          status: 'refunded',
+          refundDestination: input.destination,
+          refundStatus: 'completed',
+          refundNote: input.note,
+          refundActor: actor,
+          refundRequestedAt: requestedAt,
+          refundCompletedAt: requestedAt,
+        },
+      })
+      await completeRefund(client, { ...order, refundDestination: input.destination }, actor)
+      return null
+    }
+    await client.order.update({
+      where: { id: order.id },
+      data: {
+        refundDestination: 'original',
+        refundStatus: 'processing',
+        refundAutomatic: true,
+        refundNote: input.note,
+        refundActor: actor,
+        refundRequestedAt: requestedAt,
+      },
     })
-    await audit(actor, '失败订单退回钱包', order.id, client)
+    await audit(actor, '发起 XorPay 原路退款', order.id, client)
+    return { paymentId: order.paymentId!, amount: order.externalAmount, secret, requestedAt }
   })
-  return { refunded: true }
+  if (attempt) {
+    let confirmed = false
+    try {
+      if (Date.now() - attempt.requestedAt.getTime() >= refundReviewDelayMs)
+        throw new Error('Refund submission expired')
+      if (!demo) await refundXorpay(attempt.paymentId, attempt.amount, attempt.secret)
+      confirmed = true
+    } catch {
+      // A timeout may conceal success. Never release the claim or resend.
+    }
+    await transaction(async (client) => {
+      await lockRow(client, 'orders', orderId)
+      const order = await client.order.findUniqueOrThrow({ where: { id: orderId } })
+      if (order.refundStatus === 'completed') return
+      if (confirmed) await completeRefund(client, order, actor)
+      else {
+        await client.order.update({ where: { id: orderId }, data: { refundStatus: 'review' } })
+        await audit(actor, '原路退款结果待核实，禁止重复发起', orderId, client)
+      }
+    })
+  }
+  const order = adminOrderView(await db.order.findUniqueOrThrow({ where: { id: orderId } }))
+  return { refunded: order.status === 'refunded', order }
 }
 export async function confirmSession(
   user: User | null,

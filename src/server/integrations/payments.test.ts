@@ -16,7 +16,8 @@ vi.mock('./config', () => ({
     privateKey: keys.privateKey,
   }),
 }))
-import { createPayment, type PaymentOrder } from './payments'
+import { createPayment, refundXorpay, type PaymentOrder } from './payments'
+import { xorpaySignature } from './signatures'
 afterEach(() => vi.unstubAllGlobals())
 it('sends only the external payment amount through every supported gateway', async () => {
   for (const provider of ['xorpay', 'gmpay', 'epay_v1', 'epay_v2'] as const) {
@@ -57,4 +58,37 @@ it('sends only the external payment amount through every supported gateway', asy
     ).toBe('99.00')
     expect(options.redirect).toBe('error')
   }
+})
+it('refunds the exact external amount with the XorPay refund signature and no redirects', async () => {
+  const fetcher = vi.fn(async () => new Response(JSON.stringify({ status: 'ok' })))
+  vi.stubGlobal('fetch', fetcher)
+  await refundXorpay('aoid/fixture', 2001, 'refund-fixture-key')
+  const [url, options] = (fetcher.mock.calls as unknown as [string, RequestInit][])[0]
+  expect(url).toBe('https://xorpay.com/api/refund/aoid%2Ffixture')
+  const fields = new URLSearchParams(String(options.body))
+  expect(Object.fromEntries(fields)).toEqual({
+    price: '20.01',
+    sign: xorpaySignature(['20.01'], 'refund-fixture-key'),
+  })
+  expect(options.method).toBe('POST')
+  expect(options.redirect).toBe('error')
+  expect(fetcher).toHaveBeenCalledTimes(1)
+})
+it.each(['order_error', 'price_error', 'sign_error', 'alipay_api_error', 'unknown'])(
+  'does not treat XorPay %s as success or retry',
+  async (status) => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ status, info: 'private' })))
+    vi.stubGlobal('fetch', fetcher)
+    await expect(refundXorpay('tx', 2000, 'refund-fixture-key')).rejects.toThrow('核实后登记')
+    expect(fetcher).toHaveBeenCalledTimes(1)
+  },
+)
+it('does not retry timeouts or accept invalid refund amounts', async () => {
+  const fetcher = vi.fn().mockRejectedValue(new Error('timeout'))
+  vi.stubGlobal('fetch', fetcher)
+  await expect(refundXorpay('tx', 2000, 'fixture')).rejects.toThrow('timeout')
+  expect(fetcher).toHaveBeenCalledTimes(1)
+  await expect(refundXorpay('tx', 0, 'fixture')).rejects.toThrow('退款信息不完整')
+  await expect(refundXorpay('tx', 1.5, 'fixture')).rejects.toThrow('退款信息不完整')
+  expect(fetcher).toHaveBeenCalledTimes(1)
 })

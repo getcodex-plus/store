@@ -130,6 +130,27 @@ export async function verifyDatabase(client: DbClient = db, baselineOnly = false
       SELECT indexname FROM pg_indexes WHERE schemaname=current_schema()
       AND indexname IN ('risk_events_created','risk_events_reference','withdrawals_payout_identity')`
     if (indexes.length !== 3) throw new Error('ZEN risk migration is incomplete')
+    await client.order.findFirst({
+      select: {
+        refundDestination: true,
+        refundStatus: true,
+        refundAutomatic: true,
+        refundNote: true,
+        refundActor: true,
+        refundRequestedAt: true,
+        refundCompletedAt: true,
+        refundResolutionNote: true,
+        refundResolvedBy: true,
+      },
+    })
+    const refundConstraints = actual.constraints.filter((entry) =>
+      [
+        'orders.orders_refund_destination_check',
+        'orders.orders_refund_status_check',
+        'orders.orders_refund_record_check',
+      ].includes(entry.key),
+    )
+    if (refundConstraints.length !== 3) throw new Error('Order refund migration is incomplete')
   }
   return actual
 }

@@ -9,7 +9,7 @@ const labels: Record<string, string> = {
   completed: '充值已完成',
   needs_session: '需要更新充值账号信息',
   failed: '需要人工协助处理',
-  refunded: '已退回账户钱包',
+  refunded: '退款已完成，请查看订单确认退款去向',
 }
 export async function deliverOrderEmail() {
   // The row lease survives restarts. Resend also deduplicates retries by this stable event id.

@@ -86,7 +86,7 @@ test('demo checkout shares the real session form, consent and validation without
   await expect(page.getByText(email, { exact: true })).toBeVisible()
   await expect(sessionInput).toHaveCount(0)
   await expect(page.getByRole('heading', { name: '核对订单，选择支付方式' })).toBeVisible()
-  await expect(page.locator('.checkout-conditions')).toContainText('不会自动原路退回支付账户')
+  await expect(page.locator('.checkout-conditions')).toContainText('可原路退款或退回本站钱包')
   await page.screenshot({ path: 'test-results/checkout-confirm-mobile.png', fullPage: true })
 })
 test('SSR storefront, responsive layout, wallet topup and balance purchase', async ({
@@ -94,10 +94,10 @@ test('SSR storefront, responsive layout, wallet topup and balance purchase', asy
   request,
 }) => {
   const html = await (await request.get('/')).text()
-  expect(html).toContain('为你的 ChatGPT')
+  expect(html).toContain('更实惠的 ChatGPT')
   expect(html).toContain('ChatGPT Plus')
   await page.goto('/')
-  await expect(page.getByRole('heading', { name: /为你的 ChatGPT.*充值与升级。/ })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /更实惠的 ChatGPT.*充值与升级。/ })).toBeVisible()
   await expect(page.getByRole('link', { name: '开始充值', exact: true })).toHaveAttribute(
     'href',
     '/checkout?product=plus',

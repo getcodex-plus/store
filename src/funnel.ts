@@ -20,7 +20,7 @@ export const funnelLabels: Record<string, string> = {
   order_created: '创建订单',
   payment_succeeded: '确认付款',
   delivery_completed: '完成交付',
-  order_refunded: '退回钱包',
+  order_refunded: '退款完成',
 }
 export const sourceLabels: Record<FunnelSource, string> = {
   direct: '直接访问',

@@ -16,7 +16,7 @@ import {
 } from 'antd'
 import { useCallback, useEffect, useState } from 'react'
 import { useSite } from './Providers'
-import { api, channels, dateTime, money, statuses } from '../lib'
+import { api, channels, dateTime, money, orderStatusLabel } from '../lib'
 import type { Order } from '../types'
 export function OrderPage({ id }: { id: string }) {
   const { data, openLogin } = useSite()
@@ -104,7 +104,9 @@ export function OrderPage({ id }: { id: string }) {
         <Skeleton active />
       </main>
     )
-  const st = statuses[order.status]
+  const st = orderStatusLabel(order)
+  const originalRefund = order.refund?.destination === 'original'
+  const refundPending = order.refund && order.refund.status !== 'completed'
   const titles = {
     cancelled: '订单已取消，抵扣余额已退回。',
     unpaid: '订单已准备好，完成付款即可继续。',
@@ -112,7 +114,7 @@ export function OrderPage({ id }: { id: string }) {
     completed: order.kind === 'topup' ? '充值余额已到账。' : '充值完成，开始使用吧。',
     needs_session: '需要更新账号信息，继续原订单。',
     failed: '这笔订单需要进一步处理。',
-    refunded: '订单金额已退回本站钱包。',
+    refunded: originalRefund ? '原路退款已完成。' : '订单金额已退回本站钱包。',
   }
   const safeUrl =
     payment?.paymentUrl && /^(https?:|alipays:|weixin:)/i.test(payment.paymentUrl)
@@ -122,8 +124,12 @@ export function OrderPage({ id }: { id: string }) {
     <main className="container order-page">
       {order.status === 'refunded' && (
         <p className="support-note">
-          退款已计入本站钱包，可用于本站消费；不会自动原路退回支付账户。
-          <Link href="/wallet">查看钱包余额 →</Link>
+          {originalRefund
+            ? `渠道款 ${money(order.externalAmount)} 已按原支付方式退款，请核对原支付账户。${order.balanceAmount > 0 ? `原余额抵扣 ${money(order.balanceAmount)} 已退回站内钱包。` : ''}`
+            : '退款已计入本站钱包，可用于本站消费。'}
+          {(!originalRefund || order.balanceAmount > 0) && (
+            <Link href="/wallet">查看钱包余额 →</Link>
+          )}
         </p>
       )}
       <Link href="/account" className="text-link">
@@ -131,9 +137,18 @@ export function OrderPage({ id }: { id: string }) {
       </Link>
       <div className="page-title">
         <Tag color={st.color}>{st.text}</Tag>
-        <h1>{titles[order.status]}</h1>
+        <h1>{refundPending ? st.text : titles[order.status]}</h1>
         <p>订单 {order.id}</p>
       </div>
+      {refundPending && (
+        <Alert
+          className="mb-24"
+          showIcon
+          type="info"
+          title="原路退款正在处理"
+          description="渠道退款结果仍在确认中，请保留原订单；确认完成后会更新退款状态。"
+        />
+      )}
       {!data?.user && (
         <Alert
           className="mb-24"
@@ -282,9 +297,15 @@ export function OrderPage({ id }: { id: string }) {
             )}
           {['failed', 'refunded', 'cancelled'].includes(order.status) && (
             <Result
-              status="warning"
+              status={order.status === 'refunded' ? 'success' : refundPending ? 'info' : 'warning'}
               title={st.text}
-              subTitle="请保留原订单号，联系支持核对处理结果。"
+              subTitle={
+                order.status === 'refunded'
+                  ? originalRefund
+                    ? '请核对原支付账户及站内钱包的退款记录。'
+                    : '退款已入账，可在本站钱包查看。'
+                  : '请保留原订单号，联系支持核对处理结果。'
+              }
             />
           )}
         </Card>

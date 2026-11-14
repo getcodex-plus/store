@@ -46,6 +46,8 @@ bun run dev
 
 ## 查询和事务约定
 
+`20261114040000_order_refunds` 在订单上增加退款去向、处理状态、自动处理标记、备注、操作人和核实记录，并校验退款记录与订单状态的一致性。已有退款订单仍按历史钱包退款展示，不伪造历史操作时间。部署新版 Web/worker 前先执行 `bun run db:migrate` 与 `bun run db:generate`；`db:verify` 同时检查新增字段和约束。XorPay 请求结果不明或处理中超过一分钟时仅允许人工核实登记，不自动重试。
+
 - `src/server/db.ts` 提供客户端和事务工厂。每个进程最多 10 个连接，建连超时 5 秒，空闲超时 30 秒；开发热更新复用单例，脚本和 worker 退出时调用 `$disconnect()`。
 - PostgreSQL 连接固定为 UTC；URL 的 `schema` 同时配置 adapter 和 `search_path`，防止模型查询、原生 SQL 和函数访问不同 schema。
 - 普通事务等待连接上限 10 秒、运行上限 10 秒。含 AICDK 调用的下单及 Session 恢复路径显式使用 100 秒预算，覆盖最多三次各 30 秒的请求。

@@ -20,6 +20,7 @@ import type {
   WalletEntry,
   Settings,
   Audit,
+  AdminOrder,
 } from '../types'
 import type { PaymentOrder } from './integrations/payments'
 import type { StoredQuote } from './services'
@@ -102,6 +103,30 @@ export function orderView(record: OrderRecord): Order {
     settlementDays: record.settlementDays,
     firstOrderOnly: record.firstOrderOnly,
     fulfillmentStatus: record.fulfillmentStatus,
+    refund: record.refundStatus
+      ? {
+          destination: z.enum(['wallet', 'original']).parse(record.refundDestination),
+          status: z.enum(['processing', 'review', 'completed']).parse(record.refundStatus),
+          automatic: record.refundAutomatic,
+          requestedAt: record.refundRequestedAt!.toISOString(),
+          completedAt: record.refundCompletedAt?.toISOString() ?? null,
+        }
+      : null,
+  }
+}
+
+export function adminOrderView(record: OrderRecord): AdminOrder {
+  return {
+    ...orderView(record),
+    provider: z.enum(['xorpay', 'gmpay', 'epay_v1', 'epay_v2', 'balance']).parse(record.provider),
+    refundRecord: record.refundStatus
+      ? {
+          note: record.refundNote,
+          actor: record.refundActor,
+          resolutionNote: record.refundResolutionNote,
+          resolvedBy: record.refundResolvedBy,
+        }
+      : null,
   }
 }
 
