@@ -183,55 +183,73 @@ model FunnelEvent {
 }
 
 model Integration {
-  id            String   @id
-  provider      String
-  public        Json
-  secret        String
-  enabled       Boolean  @default(false)
-  active        Boolean  @default(true)
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  aicdkOrders   Order[]  @relation("orders_aicdk_integration_idTointegrations")
-  paymentOrders Order[]  @relation("orders_integration_idTointegrations")
-  quotes        Quote[]
+  id                    String                 @id
+  provider              String
+  public                Json
+  secret                String
+  enabled               Boolean                @default(false)
+  active                Boolean                @default(true)
+  createdAt             DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  aicdkOrders           Order[]                @relation("orders_aicdk_integration_idTointegrations")
+  paymentOrders         Order[]                @relation("orders_integration_idTointegrations")
+  quotes                Quote[]
+  inventoryReplacements InventoryReplacement[]
 
   @@map("integrations")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model Inventory {
-  id            String          @id
-  productId     String          @map("product_id")
-  code          String
-  fingerprint   String          @unique
-  status        String          @default("available")
-  enabled       Boolean         @default(true)
-  batchId       String?         @map("batch_id")
-  createdAt     DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
-  reservedUntil DateTime?       @map("reserved_until") @db.Timestamptz(6)
-  product       Product         @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  quotes        Quote[]
-  batch         InventoryBatch? @relation(fields: [batchId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  id                 String                 @id
+  productId          String                 @map("product_id")
+  code               String
+  fingerprint        String                 @unique
+  status             String                 @default("available")
+  enabled            Boolean                @default(true)
+  batchId            String?                @map("batch_id")
+  createdAt          DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  reservedUntil      DateTime?              @map("reserved_until") @db.Timestamptz(6)
+  product            Product                @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  quotes             Quote[]
+  batch              InventoryBatch?        @relation(fields: [batchId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  replacement        InventoryReplacement?  @relation("ReplacementSource")
+  replacementResults InventoryReplacement[] @relation("ReplacementResult")
 
   @@index([productId, enabled, status], map: "inventory_product_availability")
   @@index([batchId], map: "inventory_batch")
   @@map("inventory")
 }
 
+model InventoryReplacement {
+  id                     String      @id
+  inventoryId            String      @unique @map("inventory_id")
+  integrationId          String      @map("integration_id")
+  state                  String      @default("pending")
+  preview                Json
+  restoreEnabled         Boolean     @map("restore_enabled")
+  replacementInventoryId String?     @map("replacement_inventory_id")
+  upstreamReplacementId  String?     @map("upstream_replacement_id")
+  upstreamCodeId         String?     @map("upstream_code_id")
+  createdAt              DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  inventory              Inventory   @relation("ReplacementSource", fields: [inventoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  integration            Integration @relation(fields: [integrationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  replacementInventory   Inventory?  @relation("ReplacementResult", fields: [replacementInventoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("inventory_replacements")
+}
+
 model InventoryBatch {
-  id              String      @id
-  name            String
-  productId       String      @map("product_id")
-  importedBy      String      @map("imported_by")
-  imported        Int
-  duplicates      Int         @default(0)
-  upstreamProduct String      @default("") @map("upstream_product")
-  country         String      @default("")
-  note            String      @default("")
-  enabled         Boolean     @default(true)
-  createdAt       DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
-  inventory       Inventory[]
-  product         Product     @relation("InventoryBatches", fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  selectedFor     Product[]   @relation("ActiveInventoryBatch")
+  id         String      @id
+  name       String
+  productId  String      @map("product_id")
+  importedBy String      @map("imported_by")
+  imported   Int
+  duplicates Int         @default(0)
+  note       String      @default("")
+  enabled    Boolean     @default(true)
+  createdAt  DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  inventory  Inventory[]
+  product    Product     @relation("InventoryBatches", fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([createdAt, id], map: "inventory_batches_created")
   @@map("inventory_batches")
@@ -325,26 +343,24 @@ model PaymentEvent {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model Product {
-  activeInventoryBatchId String?          @map("active_inventory_batch_id")
-  activeInventoryBatch   InventoryBatch?  @relation("ActiveInventoryBatch", fields: [activeInventoryBatchId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  inventoryBatches       InventoryBatch[] @relation("InventoryBatches")
-  id                     String           @id
-  name                   String
-  subtitle               String
-  description            String
-  price                  Int
-  features               Json
-  plan                   String
-  enabled                Boolean          @default(true)
-  featured               Boolean          @default(false)
-  upgrade                Boolean          @default(false)
-  pricingMode            String           @default("fixed") @map("pricing_mode")
-  pricing                Json?
-  priceCurrency          String           @default("CNY") @map("price_currency")
-  roundingStep           Int              @default(100) @map("rounding_step")
-  inventory              Inventory[]
-  order                  Order[]
-  quotes                 Quote[]
+  inventoryBatches InventoryBatch[] @relation("InventoryBatches")
+  id               String           @id
+  name             String
+  subtitle         String
+  description      String
+  price            Int
+  features         Json
+  plan             String
+  enabled          Boolean          @default(true)
+  featured         Boolean          @default(false)
+  upgrade          Boolean          @default(false)
+  pricingMode      String           @default("fixed") @map("pricing_mode")
+  pricing          Json?
+  priceCurrency    String           @default("CNY") @map("price_currency")
+  roundingStep     Int              @default(100) @map("rounding_step")
+  inventory        Inventory[]
+  order            Order[]
+  quotes           Quote[]
 
   @@map("products")
 }

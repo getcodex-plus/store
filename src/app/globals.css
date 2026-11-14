@@ -1649,19 +1649,92 @@ svg {
   color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
-.inventory-file-input {
-  display: grid;
-  gap: 12px;
-  padding: 16px;
-  border: 1px dashed var(--line);
-  border-radius: 8px;
+.inventory-file-import {
   margin-block-end: 24px;
 }
-.inventory-file-input input {
-  width: 100%;
+.inventory-file-import .ant-upload-drag {
+  border-color: var(--line);
+  background: var(--surface-subtle);
+  transition:
+    border-color 150ms cubic-bezier(0.2, 0, 0, 1),
+    background-color 150ms cubic-bezier(0.2, 0, 0, 1);
+}
+.inventory-file-import .ant-upload-drag:not(.ant-upload-disabled):hover {
+  border-color: var(--focus);
+  background: var(--surface-hover);
+}
+.inventory-file-dropzone .ant-upload-drag-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+}
+.inventory-file-dropzone .ant-upload-btn:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 4px;
+  border-radius: 8px;
+}
+.inventory-upload-icon {
+  font-size: 24px;
+  margin-block-end: 4px;
+  color: var(--muted);
+}
+.inventory-file-card {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px;
+  background: var(--surface-subtle);
+}
+.inventory-file-icon {
+  font-size: 26px;
+  color: var(--muted);
+}
+.inventory-file-details {
+  display: flex;
+  flex: 1 1 180px;
+  flex-direction: column;
+  gap: 6px;
   min-width: 0;
 }
-.inventory-file-input p,
+.inventory-file-details strong {
+  overflow-wrap: anywhere;
+}
+.inventory-file-size {
+  margin-inline-start: 12px;
+  white-space: nowrap;
+}
+.inventory-file-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-inline-start: auto;
+}
+.inventory-file-action {
+  transition: scale 150ms cubic-bezier(0.2, 0, 0, 1);
+}
+.inventory-file-action:not(:disabled):active {
+  scale: 0.96;
+}
+.inventory-file-hint {
+  margin-block: 8px 0;
+}
+.inventory-file-import .ant-alert {
+  margin-block-start: 12px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .inventory-file-import .ant-upload-drag,
+  .inventory-file-action {
+    transition: none;
+  }
+  .inventory-file-action:not(:disabled):active {
+    scale: 1;
+  }
+}
 .inventory-note {
   overflow-wrap: anywhere;
   white-space: pre-wrap;

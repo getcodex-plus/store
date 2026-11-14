@@ -115,26 +115,12 @@ export async function products(all = false): Promise<Product[]> {
   const catalog = (
     await db.product.findMany({
       where: all ? {} : { enabled: true },
-      include: {
-        activeInventoryBatch: {
-          select: { id: true, name: true, country: true, upstreamProduct: true, enabled: true },
-        },
-      },
+      include: { _count: { select: { inventoryBatches: { where: { enabled: true } } } } },
     })
   )
     .map((record) => ({
       ...productView(record),
-      ...(all && record.activeInventoryBatch
-        ? {
-            supply: {
-              batchId: record.activeInventoryBatch.id,
-              name: record.activeInventoryBatch.name,
-              country: record.activeInventoryBatch.country,
-              upstreamProduct: record.activeInventoryBatch.upstreamProduct,
-              enabled: record.activeInventoryBatch.enabled,
-            },
-          }
-        : {}),
+      ...(all ? { enabledBatchCount: record._count?.inventoryBatches ?? 0 } : {}),
     }))
     .sort(
       (a, b) =>
@@ -1106,11 +1092,7 @@ export async function adminData(
       reserved: 0,
       consumed: 0,
     }
-    const supply = allProducts.find((product) => product.id === item.productId)?.supply
-    if (item.status === 'available') {
-      if (!supply || (supply.enabled && supply.batchId === item.batchId))
-        total.available += item._count._all
-    } else if (item.status === 'reserved' || item.status === 'consumed')
+    if (item.status === 'available' || item.status === 'reserved' || item.status === 'consumed')
       total[item.status] += item._count._all
     totals.set(item.productId, total)
   }

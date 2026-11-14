@@ -1,6 +1,12 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
-import { Alert, App, Button, Form, Input, Modal, Segmented, Select, Switch } from 'antd'
+import { Alert, App, Button, Form, Input, Modal, Segmented, Select, Switch, Upload } from 'antd'
+import {
+  CheckCircleOutlined,
+  DeleteOutlined,
+  FileTextOutlined,
+  UploadOutlined,
+} from '@ant-design/icons'
 import { api } from '../lib'
 import { inventoryFileLimit, parseAicdkCSV, parseInventoryText } from '../inventory-import'
 import type { InventoryImportResult } from '../inventory-types'
@@ -18,8 +24,9 @@ export function InventoryImportDialog({
   const { message } = App.useApp()
   const [form] = Form.useForm()
   const [mode, setMode] = useState<'text' | 'csv'>('text')
-  const [file, setFile] = useState<{ name: string; codes: string[] } | null>(null)
+  const [file, setFile] = useState<{ name: string; size: number; codes: string[] } | null>(null)
   const [error, setError] = useState('')
+  const [fileError, setFileError] = useState('')
   const [busy, setBusy] = useState(false)
   const [reading, setReading] = useState(false)
   const readVersion = useRef(0)
@@ -29,6 +36,38 @@ export function InventoryImportDialog({
     },
     [],
   )
+  async function readFile(selected: File) {
+    const version = ++readVersion.current
+    setFile(null)
+    setError('')
+    setFileError('')
+    setReading(true)
+    try {
+      if (!selected.name.toLowerCase().endsWith('.csv')) throw new Error('请选择 .csv 文件')
+      if (selected.size > inventoryFileLimit) throw new Error('CSV 文件不能超过 256 KB')
+      const codes = parseAicdkCSV(await selected.text())
+      if (version !== readVersion.current) return Upload.LIST_IGNORE
+      setFile({ name: selected.name, size: selected.size, codes })
+      if (!form.getFieldValue('batchName'))
+        form.setFieldValue('batchName', selected.name.replace(/\.csv$/i, '').slice(0, 80))
+    } catch (error) {
+      if (version === readVersion.current) setFileError((error as Error).message)
+    } finally {
+      if (version === readVersion.current) setReading(false)
+    }
+    // Files are parsed locally. Never let Upload send a request or keep a second
+    // copy in its internal file list.
+    return Upload.LIST_IGNORE
+  }
+  const uploadProps = {
+    accept: '.csv,text/csv',
+    multiple: false,
+    showUploadList: false,
+    fileList: [],
+    disabled: busy || reading,
+    beforeUpload: readFile,
+    'aria-label': '选择 CSV 文件',
+  }
   return (
     <Modal
       title="导入兑换库存"
@@ -46,12 +85,15 @@ export function InventoryImportDialog({
         layout="vertical"
         disabled={busy}
         clearOnDestroy
-        initialValues={{ activate: true }}
+        initialValues={{ enabled: true }}
         onFinish={async (values) => {
           setError('')
           let codes: string[]
           try {
-            if (mode === 'csv' && !file) throw new Error('请先选择 AICDK CSV 文件')
+            if (mode === 'csv' && !file) {
+              setFileError((current) => current || '请先选择 CSV 文件')
+              return
+            }
             codes = mode === 'csv' ? file!.codes : parseInventoryText(values.codes ?? '')
           } catch (error) {
             setError((error as Error).message)
@@ -62,10 +104,8 @@ export function InventoryImportDialog({
             const result = await api<InventoryImportResult>('/admin/inventory', {
               productId: values.productId,
               batchName: values.batchName,
-              upstreamProduct: values.upstreamProduct ?? '',
-              country: values.country ?? '',
               note: values.note ?? '',
-              activate: values.activate,
+              enabled: values.enabled,
               codes,
             })
             form.resetFields()
@@ -73,8 +113,8 @@ export function InventoryImportDialog({
             message.success(
               `已创建批次：导入 ${result.imported} 个，跳过重复 ${result.duplicates} 个`,
             )
-            if (result.imported === 0 && values.activate)
-              message.info('本批次没有新增兑换码，当前供货批次保持不变')
+            if (result.imported === 0 && values.enabled)
+              message.info('本批次没有新增兑换码，已保存为禁用状态')
             await onSaved()
             onClose()
           } catch (error) {
@@ -96,19 +136,8 @@ export function InventoryImportDialog({
           label="批次名称"
           rules={[{ required: true, whitespace: true, message: '请填写批次名称' }]}
         >
-          <Input maxLength={80} placeholder="例如 Plus · 土耳其 · 11 月补货" />
+          <Input maxLength={80} placeholder="例如 Plus · 11 月补货" />
         </Form.Item>
-        <div className="form-grid">
-          <Form.Item name="upstreamProduct" label="AICDK 商品">
-            <Input maxLength={120} placeholder="上游商品名称或 ID" />
-          </Form.Item>
-          <Form.Item name="country" label="国家 / 地区">
-            <Input maxLength={80} placeholder="例如 土耳其 / TR" />
-          </Form.Item>
-        </div>
-        <p className="tiny muted">
-          请按 AICDK 导出时的商品和国家填写；实际兑换以兑换码绑定的商品为准。
-        </p>
         <Segmented
           block
           className="mb-24"
@@ -116,7 +145,7 @@ export function InventoryImportDialog({
           disabled={busy || reading}
           options={[
             { value: 'text', label: '粘贴兑换码' },
-            { value: 'csv', label: 'AICDK CSV' },
+            { value: 'csv', label: 'File' },
           ]}
           onChange={(value) => {
             setMode(value as 'text' | 'csv')
@@ -134,57 +163,58 @@ export function InventoryImportDialog({
             />
           </Form.Item>
         ) : (
-          <div className="inventory-file-input">
-            <label htmlFor="inventory-csv">选择 AICDK CSV 文件</label>
-            <input
-              id="inventory-csv"
-              type="file"
-              accept=".csv,text/csv"
-              disabled={busy}
-              onChange={async (event) => {
-                const selected = event.target.files?.[0]
-                event.target.value = ''
-                if (!selected) return
-                const version = ++readVersion.current
-                setFile(null)
-                setError('')
-                setReading(true)
-                try {
-                  if (!selected.name.toLowerCase().endsWith('.csv'))
-                    throw new Error('请选择 .csv 文件')
-                  if (selected.size > inventoryFileLimit) throw new Error('CSV 文件不能超过 256 KB')
-                  const codes = parseAicdkCSV(await selected.text())
-                  if (version !== readVersion.current) return
-                  setFile({ name: selected.name, codes })
-                  if (!form.getFieldValue('batchName'))
-                    form.setFieldValue(
-                      'batchName',
-                      selected.name.replace(/\.csv$/i, '').slice(0, 80),
-                    )
-                } catch (error) {
-                  if (version === readVersion.current) setError((error as Error).message)
-                } finally {
-                  if (version === readVersion.current) setReading(false)
-                }
-              }}
-            />
-            <p className="tiny muted">
-              {reading
-                ? '正在读取…'
-                : file
-                  ? `${file.name} · 已识别 ${file.codes.length} 个兑换码`
-                  : '支持 AICDK 单列 code 表头，每批最多 500 个，文件不超过 256 KB。'}
-            </p>
+          <div className="inventory-file-import" aria-busy={reading}>
+            {file ? (
+              <div className="inventory-file-card">
+                <FileTextOutlined className="inventory-file-icon" aria-hidden="true" />
+                <div className="inventory-file-details">
+                  <strong>{file.name}</strong>
+                  <span className="tiny muted" role="status">
+                    <CheckCircleOutlined aria-hidden="true" /> 已识别 {file.codes.length} 个兑换码
+                    <span className="inventory-file-size">
+                      {Math.max(0.1, file.size / 1024).toFixed(1)} KB
+                    </span>
+                  </span>
+                </div>
+                <div className="inventory-file-actions">
+                  <Upload {...uploadProps}>
+                    <Button className="inventory-file-action" disabled={busy}>
+                      更换文件
+                    </Button>
+                  </Upload>
+                  <Button
+                    type="text"
+                    className="inventory-file-action"
+                    icon={<DeleteOutlined />}
+                    aria-label="移除文件"
+                    disabled={busy}
+                    onClick={() => {
+                      readVersion.current++
+                      setFile(null)
+                      setFileError('')
+                    }}
+                  />
+                </div>
+              </div>
+            ) : (
+              <Upload.Dragger {...uploadProps} className="inventory-file-dropzone">
+                <UploadOutlined className="inventory-upload-icon" aria-hidden="true" />
+                <strong>{reading ? '正在读取文件…' : '点击选择文件，或拖入 CSV'}</strong>
+                <span className="tiny muted">最多 500 个兑换码 · 256 KB</span>
+              </Upload.Dragger>
+            )}
+            <p className="tiny muted inventory-file-hint">支持 AICDK 导出的 CSV，表头为 code。</p>
+            {fileError && <Alert type="error" showIcon title={fileError} />}
           </div>
         )}
         <Form.Item name="note" label="批次备注">
           <Input.TextArea rows={2} maxLength={300} placeholder="例如进货成本、采购日期" />
         </Form.Item>
         <Form.Item
-          name="activate"
-          label="导入后切换为当前供货批次"
+          name="enabled"
+          label="导入后启用批次"
           valuePropName="checked"
-          extra="新订单只使用此批次；已有订单继续使用原兑换码。"
+          extra="同一商品的所有已启用批次共同供货，互不影响。"
         >
           <Switch />
         </Form.Item>

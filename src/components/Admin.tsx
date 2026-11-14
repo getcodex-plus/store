@@ -821,21 +821,11 @@ export function Admin() {
                             data.inventory.find((i) => i.productId === p.id)?.available || 0,
                         },
                         {
-                          title: '当前供货',
+                          title: '供货批次',
                           key: 'supply',
                           render: (_, p) => (
                             <div>
-                              {p.supply ? (
-                                <>
-                                  <span>{p.supply.name}</span>
-                                  <div className="tiny muted">
-                                    {p.supply.country || '未标注国家'} ·{' '}
-                                    {p.supply.enabled ? '已启用' : '已禁用'}
-                                  </div>
-                                </>
-                              ) : (
-                                <span className="muted">原有库存池</span>
-                              )}
+                              <span>{p.enabledBatchCount ?? 0} 个已启用</span>
                               <Button type="link" onClick={() => navigate('batches')}>
                                 管理批次
                               </Button>

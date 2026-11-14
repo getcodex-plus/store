@@ -62,7 +62,6 @@ export function InventoryManager({
   const [selected, setSelected] = useState<string[]>([])
   const [replacement, setReplacement] = useState<InventoryItem | null>(null)
   const [replacementError, setReplacementError] = useState('')
-  const [replacementForm] = Form.useForm()
   const [editBatch, setEditBatch] = useState<InventoryBatchItem | null>(null)
   const [batchForm] = Form.useForm()
   const revision = useRef(0)
@@ -111,6 +110,7 @@ export function InventoryManager({
     } catch (error) {
       setError((error as Error).message)
       setReplacementError((error as Error).message)
+      await onChanged().catch(() => {})
       return false
     } finally {
       setBusy(false)
@@ -118,6 +118,8 @@ export function InventoryManager({
   }
   const productName = (id: string) => products.find((p) => p.id === id)?.name ?? id
   const selectedItems = result?.items.filter((item) => selected.includes(item.id)) ?? []
+  const currentReplacement =
+    result?.items.find((item) => item.id === replacement?.id) ?? replacement
   return (
     <>
       <Card>
@@ -260,19 +262,33 @@ export function InventoryManager({
                 },
                 {
                   title: '状态',
-                  width: 100,
+                  width: 160,
                   render: (_, item) => (
-                    <Tag color={colors[item.status]}>{inventoryStatusLabels[item.status]}</Tag>
+                    <div>
+                      <Tag color={colors[item.status]}>{inventoryStatusLabels[item.status]}</Tag>
+                      {item.replacementState && (
+                        <div className="tiny muted">
+                          {item.replacementState === 'completed'
+                            ? '已更换'
+                            : item.replacementState === 'pending'
+                              ? '换码待核对'
+                              : '需到 AICDK 核对'}
+                          {item.replacementState === 'review' && item.replacementUpstreamCodeId && (
+                            <div className="mono">{item.replacementUpstreamCodeId}</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   ),
                 },
                 {
-                  title: '供货范围',
+                  title: '批次状态',
                   width: 110,
                   render: (_, item) =>
-                    item.currentSupply ? (
-                      <Tag color="blue">当前供货</Tag>
+                    item.batchEnabled ? (
+                      <Tag color="blue">已启用</Tag>
                     ) : (
-                      <span className="muted">{item.batchEnabled ? '备用批次' : '批次已禁用'}</span>
+                      <span className="muted">批次已禁用</span>
                     ),
                 },
                 { title: '入库时间', dataIndex: 'createdAt', width: 150, render: dateTime },
@@ -282,8 +298,21 @@ export function InventoryManager({
                   render: (_, item) =>
                     !canWrite ? (
                       '只读'
+                    ) : item.replacementState === 'pending' ? (
+                      <Button
+                        type="link"
+                        disabled={busy || loading}
+                        onClick={() => {
+                          setReplacementError('')
+                          setReplacement(item)
+                        }}
+                      >
+                        核对换码
+                      </Button>
                     ) : !item.manageable ? (
-                      <span className="muted">已锁定</span>
+                      <span className="muted">
+                        {item.status === 'consumed' ? '已使用' : '已锁定'}
+                      </span>
                     ) : (
                       <Space>
                         {item.status === 'disabled' ? (
@@ -308,7 +337,6 @@ export function InventoryManager({
                           type="link"
                           disabled={busy || loading}
                           onClick={() => {
-                            replacementForm.resetFields()
                             setReplacementError('')
                             setReplacement(item)
                           }}
@@ -327,7 +355,7 @@ export function InventoryManager({
             rowKey="id"
             loading={loading}
             dataSource={error ? [] : batches?.items}
-            scroll={{ x: 1350 }}
+            scroll={{ x: 1250 }}
             pagination={{
               current: page,
               total: batches?.total ?? 0,
@@ -342,19 +370,8 @@ export function InventoryManager({
                 render: (_, batch) => (
                   <div>
                     <strong>{batch.name}</strong>{' '}
-                    {batch.active && batch.enabled && <Tag color="blue">当前供货</Tag>}
                     <div className="tiny muted">{productName(batch.productId)}</div>
                     <div className="tiny muted mono">{batch.id}</div>
-                  </div>
-                ),
-              },
-              {
-                title: 'AICDK 商品 / 国家',
-                width: 200,
-                render: (_, batch) => (
-                  <div>
-                    {batch.upstreamProduct || '未标注商品'}
-                    <div className="tiny muted">{batch.country || '未标注国家'}</div>
                   </div>
                 ),
               },
@@ -457,7 +474,6 @@ export function InventoryManager({
         footer={null}
         onCancel={() => {
           if (!busy) {
-            replacementForm.resetFields()
             setReplacement(null)
           }
         }}
@@ -466,45 +482,26 @@ export function InventoryManager({
         keyboard={!busy}
       >
         <p>
-          新码沿用「{replacement?.batchName}」的商品和批次，旧码将停用并保留记录。切换国家或 AICDK
-          商品请导入新批次。
+          {currentReplacement?.replacementState === 'pending'
+            ? '将核对原换码请求的结果，旧码在确认前保持锁定。'
+            : '通过 AICDK 生成新兑换码，旧码将立即失效。新码自动加密保存，沿用原商品、批次和有效期。'}
         </p>
-        <Form
-          name="inventory-replacement"
-          form={replacementForm}
-          layout="vertical"
-          clearOnDestroy
-          onFinish={async (values) => {
+        <p className="mono">{replacement?.maskedCode}</p>
+        {replacementError && <Alert type="error" title={replacementError} className="mb-24" />}
+        <Button
+          block
+          type="primary"
+          loading={busy}
+          disabled={currentReplacement?.replacementState === 'review'}
+          onClick={async () => {
             if (!replacement) return
             setReplacementError('')
-            const ok = await change({ action: 'replace', id: replacement.id, code: values.code })
-            if (ok) {
-              replacementForm.resetFields()
-              setReplacement(null)
-            }
+            const ok = await change({ action: 'replace', id: replacement.id })
+            if (ok) setReplacement(null)
           }}
         >
-          <Form.Item
-            name="code"
-            label="新兑换码"
-            rules={[
-              { required: true, whitespace: true },
-              { min: 8, max: 200 },
-            ]}
-          >
-            <Input.Password
-              autoComplete="off"
-              spellCheck={false}
-              autoCorrect="off"
-              autoCapitalize="off"
-              disabled={busy}
-            />
-          </Form.Item>
-          {replacementError && <Alert type="error" title={replacementError} className="mb-24" />}
-          <Button block htmlType="submit" type="primary" loading={busy}>
-            更换并停用旧码
-          </Button>
-        </Form>
+          {currentReplacement?.replacementState === 'pending' ? '核对换码' : '确认更换'}
+        </Button>
       </Modal>
       <Modal
         title="编辑导入批次"

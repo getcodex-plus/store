@@ -53,16 +53,15 @@ export async function lockIntegration(client: DbClient, provider: string) {
 // Must run inside the order transaction. Keep the row lock through preflight,
 // quote binding and order creation; any failure rolls the reservation back.
 export async function reserveInventory(client: DbClient, productId: string) {
-  // Hold a shared product lock until checkout commits. A supply switch waits
-  // for in-flight allocations; subsequent orders then see only the new batch.
-  const [product] = await client.$queryRaw<{ active_inventory_batch_id: string | null }[]>`
-    SELECT active_inventory_batch_id FROM products WHERE id=${productId} FOR SHARE`
+  // Batch toggles wait for allocations already in flight. New allocations then
+  // use all enabled batches (and enabled legacy inventory without a batch).
+  const [product] = await client.$queryRaw<{ id: string }[]>`
+    SELECT id FROM products WHERE id=${productId} FOR SHARE`
   if (!product) return null
-  const batchId = product.active_inventory_batch_id
   const [stock] = await client.$queryRaw<{ id: string }[]>`SELECT i.id FROM inventory i
     WHERE i.product_id=${productId}
       AND i.enabled=true
-      AND (${batchId}::text IS NULL OR i.batch_id=${batchId})
+      AND NOT EXISTS(SELECT 1 FROM inventory_replacements r WHERE r.inventory_id=i.id)
       AND (i.batch_id IS NULL OR EXISTS(SELECT 1 FROM inventory_batches b WHERE b.id=i.batch_id AND b.enabled=true))
       AND (i.status='available' OR (i.status='reserved' AND i.reserved_until<now()))
       AND NOT EXISTS(SELECT 1 FROM quotes q JOIN orders o ON o.quote_id=q.id

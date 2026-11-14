@@ -1,7 +1,7 @@
 import { ApiError } from './config'
 import { decrypt, encrypt, id, secretHash } from './crypto'
 import { transaction, uniqueConflict, type DbClient } from './db'
-import { lockCredentialTables, lockRow } from './database-sql'
+import { lockCredentialTables } from './database-sql'
 import { validateInventoryCodes } from '../inventory-import'
 
 // The version is outside the ciphertext so legacy data can be migrated explicitly.
@@ -32,10 +32,8 @@ export async function importInventory(
   actor: string,
   options: {
     batchName?: string
-    upstreamProduct?: string
-    country?: string
     note?: string
-    activate?: boolean
+    enabled?: boolean
   } = {},
 ) {
   try {
@@ -44,7 +42,6 @@ export async function importInventory(
     throw new ApiError(400, (error as Error).message)
   }
   return transaction(async (client) => {
-    if (options.activate) await lockRow(client, 'products', productId)
     if (!(await client.product.findUnique({ where: { id: productId }, select: { id: true } })))
       throw new ApiError(404, '商品不存在，请刷新后重试')
     // Do not mix old SHA-256 indexes with keyed indexes: the same card could
@@ -59,10 +56,8 @@ export async function importInventory(
         name: options.batchName || '手动导入',
         importedBy: actor,
         imported: 0,
-        upstreamProduct: options.upstreamProduct ?? '',
-        country: options.country ?? '',
         note: options.note ?? '',
-        enabled: options.activate !== false,
+        enabled: options.enabled !== false,
       },
     })
     const { count: imported } = await client.inventory.createMany({
@@ -83,24 +78,6 @@ export async function importInventory(
     })
     const duplicates = codes.length - imported
     await client.inventoryBatch.update({ where: { id: batchId }, data: { imported, duplicates } })
-    if (options.activate && imported > 0) {
-      await client.inventoryBatch.updateMany({
-        where: { productId, id: { not: batchId } },
-        data: { enabled: false },
-      })
-      await client.product.update({
-        where: { id: productId },
-        data: { activeInventoryBatchId: batchId },
-      })
-      await client.audit.create({
-        data: {
-          id: id('a_'),
-          actor,
-          action: '切换商品供货批次',
-          target: `${productId}:${batchId}`,
-        },
-      })
-    }
     if (imported === 0)
       await client.inventoryBatch.update({ where: { id: batchId }, data: { enabled: false } })
     return { saved: true as const, imported, duplicates, batchId }

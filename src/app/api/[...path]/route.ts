@@ -439,10 +439,8 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
             productId: z.string().regex(/^[a-z\d_-]{1,64}$/),
             codes: z.array(z.string().trim().min(8).max(200)).min(1).max(500),
             batchName: z.string().trim().max(80).default(''),
-            upstreamProduct: z.string().trim().max(120).default(''),
-            country: z.string().trim().max(80).default(''),
             note: z.string().trim().max(300).default(''),
-            activate: z.boolean().default(false),
+            enabled: z.boolean().default(true),
           })
           .parse(data)
         result = await importInventory(input.productId, input.codes, admin.email, input)

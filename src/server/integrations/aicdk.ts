@@ -165,6 +165,40 @@ function validated<T>(schema: z.ZodType<T>, value: unknown): T {
   return result.data
 }
 
+export const replacementPreviewSchema = z.object({
+  product_id: identifier,
+  product_name: z.string().min(1).max(300),
+  plan: z.string().max(64),
+  expires_at: z.string().datetime({ offset: true }).nullable(),
+})
+const replacementResultSchema = replacementPreviewSchema
+  .extend({
+    id: identifier,
+    old_code_id: identifier,
+    new_code_id: identifier,
+    new_code: z
+      .string()
+      .trim()
+      .min(8)
+      .max(200)
+      .regex(/^[^\x00-\x1f\x7f]+$/)
+      .optional(),
+    secret_returned_once: z.boolean().optional(),
+  })
+  .refine((result) => result.old_code_id !== result.new_code_id)
+  .refine((result) => !!result.new_code || result.secret_returned_once === true)
+
+export async function previewReplacement(code: string, binding: AicdkBinding) {
+  return validated(
+    replacementPreviewSchema,
+    await aicdk('/replacements/previews', { code }, undefined, binding),
+  )
+}
+
+export async function replaceCode(code: string, key: string, binding: AicdkBinding) {
+  return validated(replacementResultSchema, await aicdk('/replacements', { code }, key, binding))
+}
+
 export async function checkAccount(session: unknown, binding: AicdkBinding): Promise<AccountCheck> {
   return validated(
     accountCheckSchema,

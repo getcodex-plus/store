@@ -2,7 +2,7 @@ export const inventoryStatusLabels = {
   available: '可用',
   disabled: '已停用',
   reserved: '已占用',
-  consumed: '已使用',
+  consumed: '已使用（Used）',
 } as const
 
 export type InventoryStatus = keyof typeof inventoryStatusLabels
@@ -12,11 +12,12 @@ export type InventoryItem = {
   maskedCode: string
   batchName: string
   batchId: string | null
-  currentSupply: boolean
   batchEnabled: boolean
   status: InventoryStatus
   createdAt: string
   manageable: boolean
+  replacementState?: 'pending' | 'review' | 'completed'
+  replacementUpstreamCodeId?: string
 }
 export type InventoryList = {
   items: InventoryItem[]
@@ -36,10 +37,7 @@ export type InventoryBatchItem = {
   importedBy: string
   imported: number
   duplicates: number
-  upstreamProduct: string
-  country: string
   note: string
-  active: boolean
   enabled: boolean
   createdAt: string
   counts: Record<InventoryStatus, number>

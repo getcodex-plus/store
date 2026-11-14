@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { openAdminPage } from './admin-helpers'
 
-test('CSV batches keep editable notes and switch countries without exposing codes', async ({
+test('CSV batches supply independently and keep editable notes without exposing codes', async ({
   page,
 }) => {
   await page.goto('/')
@@ -30,17 +30,42 @@ test('CSV batches keep editable notes and switch countries without exposing code
   const dialog = page.getByRole('dialog')
   await dialog.getByRole('combobox', { name: '绑定商品' }).click()
   await page.getByTitle('ChatGPT Plus', { exact: true }).click()
-  await dialog.getByLabel('AICDK 商品', { exact: true }).fill('Plus TR')
-  await dialog.getByLabel('国家 / 地区').fill('TR')
+  await expect(dialog.getByLabel('AICDK 商品', { exact: true })).toHaveCount(0)
+  await expect(dialog.getByLabel('国家 / 地区')).toHaveCount(0)
   await dialog.getByLabel('批次备注').fill('土耳其第一批，采购成本较低')
-  await dialog.getByText('AICDK CSV', { exact: true }).click()
-  await dialog.getByLabel('选择 AICDK CSV 文件').setInputFiles({
+  await dialog.getByText('File', { exact: true }).click()
+  const uploads: string[] = []
+  const observeUploads = (request: import('@playwright/test').Request) => {
+    if (
+      request.method() === 'POST' &&
+      (request.url().includes('/admin/inventory') ||
+        request.headers()['content-type']?.includes('multipart/form-data'))
+    )
+      uploads.push(request.url())
+  }
+  page.on('request', observeUploads)
+  await dialog.getByLabel('选择 CSV 文件').setInputFiles({
+    name: 'bad.csv',
+    mimeType: 'text/csv',
+    buffer: Buffer.from('wrong_header\ninvalid-code'),
+  })
+  await expect(dialog.getByRole('alert')).toContainText('单列 code')
+  const csv = {
     name: `${firstName}.csv`,
     mimeType: 'text/csv',
     buffer: Buffer.from(`\uFEFFcode\r\n"${codes[0]}"\r\n"${codes[1]}"\r\n"${codes[1]}"\r\n`),
-  })
+  }
+  await dialog.getByLabel('选择 CSV 文件').setInputFiles(csv)
   await expect(dialog.getByLabel('批次名称')).toHaveValue(firstName)
   await expect(dialog).toContainText('已识别 3 个兑换码')
+  await expect(dialog.getByRole('alert')).toHaveCount(0)
+  await expect(dialog.getByRole('button', { name: '更换文件' })).toBeVisible()
+  await dialog.getByRole('button', { name: '移除文件' }).click()
+  await expect(dialog).not.toContainText('已识别 3 个兑换码')
+  await dialog.getByLabel('选择 CSV 文件').setInputFiles(csv)
+  await expect(dialog).toContainText('已识别 3 个兑换码')
+  expect(uploads).toEqual([])
+  page.off('request', observeUploads)
   await dialog.getByRole('button', { name: '加密保存库存' }).click()
   await expect(dialog).toBeHidden()
   const first = page.getByRole('row').filter({ hasText: firstName })
@@ -54,15 +79,14 @@ test('CSV batches keep editable notes and switch countries without exposing code
   await expect(dialog).toBeHidden()
   await expect(first).toContainText('已核实：较低成本国家')
   const origin = process.env.E2E_BASE_URL || 'http://localhost:3000'
-  const secondName = `US-${token}`
+  const secondName = `TR-second-${token}`
   const response = await page.request.post('/api/admin/inventory', {
     headers: { Origin: origin, 'X-GetGPT-Request': '1' },
     data: {
       productId: 'plus',
       codes: [`csv-second-${token}`],
       batchName: secondName,
-      country: 'US',
-      activate: false,
+      enabled: false,
     },
   })
   expect(response.ok()).toBe(true)
@@ -71,14 +95,23 @@ test('CSV batches keep editable notes and switch countries without exposing code
   await expect(second.getByRole('switch')).not.toBeChecked()
   await second.getByRole('switch').click()
   await expect(second.getByRole('switch')).toBeChecked()
+  await expect(first.getByRole('switch')).toBeChecked()
+  await first.getByRole('switch').click()
   await expect(first.getByRole('switch')).not.toBeChecked()
-  await expect(second).toContainText('当前供货')
+  await expect(second.getByRole('switch')).toBeChecked()
   await first.getByRole('switch').click()
   await expect(first.getByRole('switch')).toBeChecked()
-  await expect(second.getByRole('switch')).not.toBeChecked()
+  await expect(second.getByRole('switch')).toBeChecked()
   await first.getByRole('button', { name: '查看兑换码' }).click()
   await expect(page.getByRole('heading', { name: '兑换码管理' })).toBeVisible()
   await expect(page.getByText('•••• 0001', { exact: true })).toBeVisible()
+  const codeRow = page.getByRole('row').filter({ hasText: '•••• 0001' })
+  await codeRow.getByRole('button', { name: '更换', exact: true }).click()
+  await expect(dialog.getByRole('textbox')).toHaveCount(0)
+  await expect(dialog).toContainText('通过 AICDK 生成新兑换码')
+  await expect(dialog.getByRole('button', { name: '确认更换' })).toBeVisible()
+  await dialog.locator('.ant-modal-close').click()
+  await expect(page.getByText('已使用（Used）', { exact: false }).first()).toBeVisible()
   const listResponse = await page.request.get('/api/admin/inventory')
   const body = await listResponse.text()
   for (const code of codes) expect(body).not.toContain(code)

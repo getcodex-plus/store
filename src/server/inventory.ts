@@ -1,9 +1,10 @@
 import { z } from 'zod'
-import { transaction, uniqueConflict, type Prisma } from './db'
+import { transaction, type Prisma } from './db'
 import { ApiError } from './config'
 import { id } from './crypto'
 import { lockRow } from './database-sql'
-import { inventoryFingerprint, openCredential, sealCredential } from './credential-storage'
+import { openCredential } from './credential-storage'
+import { replaceInventory } from './inventory-replacement'
 import type { InventoryBatchList, InventoryList, InventoryStatus } from '../inventory-types'
 
 const itemId = z.string().min(1).max(64)
@@ -18,23 +19,13 @@ export const inventoryChangeSchema = z.discriminatedUnion('action', [
   z.object({ action: z.enum(['enable', 'disable']), ids: z.array(itemId).min(1).max(100) }),
   z.object({ action: z.literal('enable-batch'), batchId: itemId }),
   z.object({ action: z.literal('disable-batch'), batchId: itemId }),
-  z.object({ action: z.literal('activate-batch'), batchId: itemId }),
   z.object({
     action: z.literal('edit-batch'),
     batchId: itemId,
     name: z.string().trim().min(1).max(80),
     note: z.string().trim().max(300),
   }),
-  z.object({
-    action: z.literal('replace'),
-    id: itemId,
-    code: z
-      .string()
-      .trim()
-      .min(8)
-      .max(200)
-      .regex(/^[^\x00-\x1f\x7f]+$/),
-  }),
+  z.object({ action: z.literal('replace'), id: itemId }).strict(),
 ])
 // Match reserveInventory's order exclusion even if a legacy row has the wrong status.
 const attachedOrder = { order: { is: { status: { not: 'cancelled' } } } } as const
@@ -81,8 +72,8 @@ export async function inventoryList(
           take: 20,
           skip: (input.page - 1) * 20,
           include: {
-            product: { select: { activeInventoryBatchId: true } },
             batch: { select: { name: true, enabled: true } },
+            replacement: { select: { state: true, upstreamCodeId: true } },
             quotes: { where: attachedOrder, select: { id: true }, take: 1 },
           },
         }),
@@ -103,15 +94,14 @@ export async function inventoryList(
           productId: item.productId,
           batchName: item.batch?.name ?? '历史库存',
           batchId: item.batchId,
-          currentSupply:
-            (item.batch?.enabled ?? true) &&
-            (item.product.activeInventoryBatchId === null ||
-              item.product.activeInventoryBatchId === item.batchId),
           batchEnabled: item.batch?.enabled ?? true,
           maskedCode: `•••• ${openCredential(item.code, 'inventory', item.id).slice(-4)}`,
           status: statusOf(item),
           createdAt: item.createdAt.toISOString(),
-          manageable: item.status === 'available' && item.quotes.length === 0,
+          replacementState: item.replacement?.state as
+            'pending' | 'review' | 'completed' | undefined,
+          replacementUpstreamCodeId: item.replacement?.upstreamCodeId ?? undefined,
+          manageable: item.status === 'available' && item.quotes.length === 0 && !item.replacement,
         })),
       }
     },
@@ -141,7 +131,6 @@ export async function inventoryBatches(
           orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
           take: 20,
           skip: (input.page - 1) * 20,
-          include: { product: { select: { activeInventoryBatchId: true } } },
         }),
         client.inventoryBatch.count({ where }),
       ])
@@ -156,10 +145,8 @@ export async function inventoryBatches(
           const counts = emptyCounts()
           for (const group of groups)
             if (group.batchId === batch.id) counts[statusOf(group)] += group._count._all
-          const { product, ...fields } = batch
           return {
-            ...fields,
-            active: product.activeInventoryBatchId === batch.id,
+            ...batch,
             createdAt: batch.createdAt.toISOString(),
             counts,
           }
@@ -171,6 +158,7 @@ export async function inventoryBatches(
 }
 
 export async function changeInventory(input: z.infer<typeof inventoryChangeSchema>, actor: string) {
+  if (input.action === 'replace') return replaceInventory(input.id, actor)
   return transaction(async (client) => {
     if (input.action === 'edit-batch') {
       const result = await client.inventoryBatch.updateMany({
@@ -183,99 +171,50 @@ export async function changeInventory(input: z.infer<typeof inventoryChangeSchem
       })
       return { saved: true }
     }
-    if (
-      input.action === 'activate-batch' ||
-      input.action === 'enable-batch' ||
-      input.action === 'disable-batch'
-    ) {
+    if (input.action === 'enable-batch' || input.action === 'disable-batch') {
       const batch = await client.inventoryBatch.findUnique({ where: { id: input.batchId } })
       if (!batch) throw new ApiError(404, '导入批次不存在')
+      // Coordinate with in-flight allocations without changing any other batch.
       await lockRow(client, 'products', batch.productId)
-      if (input.action === 'disable-batch') {
-        await client.inventoryBatch.update({ where: { id: batch.id }, data: { enabled: false } })
-        await client.audit.create({
-          data: { id: id('a_'), actor, action: '禁用导入批次', target: batch.id },
-        })
-        return { saved: true }
-      }
-      if (
-        !(await client.inventory.count({
-          where: {
-            batchId: batch.id,
-            enabled: true,
-            status: 'available',
-            quotes: { none: attachedOrder },
-          },
-        }))
-      )
-        throw new ApiError(409, '此批次没有可用兑换码，请先导入或启用库存')
-      await client.inventoryBatch.updateMany({
-        where: { productId: batch.productId, id: { not: batch.id } },
-        data: { enabled: false },
-      })
-      await client.inventoryBatch.update({ where: { id: batch.id }, data: { enabled: true } })
-      await client.product.update({
-        where: { id: batch.productId },
-        data: { activeInventoryBatchId: batch.id },
-      })
+      const enabled = input.action === 'enable-batch'
+      await client.inventoryBatch.update({ where: { id: batch.id }, data: { enabled } })
       await client.audit.create({
         data: {
           id: id('a_'),
           actor,
-          action: '切换商品供货批次',
-          target: `${batch.productId}:${batch.id}`,
+          action: enabled ? '启用导入批次' : '禁用导入批次',
+          target: batch.id,
         },
       })
       return { saved: true }
     }
-    const ids = [...new Set(input.action === 'replace' ? [input.id] : input.ids)].sort()
+    const ids = [...new Set(input.ids)].sort()
     // Same locks as checkout allocation; sorted ids prevent bulk-action deadlocks.
     for (const itemId of ids) await lockRow(client, 'inventory', itemId)
     const items = await client.inventory.findMany({
       where: { id: { in: ids } },
-      include: { quotes: { where: attachedOrder, select: { id: true }, take: 1 } },
+      include: {
+        quotes: { where: attachedOrder, select: { id: true }, take: 1 },
+        replacement: true,
+      },
     })
     if (items.length !== ids.length) throw new ApiError(404, '兑换码记录不存在，请刷新后重试')
     if (items.some((item) => item.status !== 'available' || item.quotes.length > 0))
       throw new ApiError(409, '已占用或已使用的兑换码不能更改，请刷新列表')
-    let replacementId: string | undefined
-    if (input.action === 'replace') {
-      const previous = items[0]
-      if (await client.inventory.count({ where: { NOT: { code: { startsWith: 'v2:' } } } }))
-        throw new ApiError(503, '凭据存储需要升级，请联系管理员执行数据库迁移')
-      replacementId = id('i_')
-      await client.inventory.create({
-        data: {
-          id: replacementId,
-          productId: previous.productId,
-          batchId: previous.batchId,
-          code: sealCredential(input.code, 'inventory', replacementId),
-          fingerprint: inventoryFingerprint(input.code),
-        },
-      })
-      await client.inventory.update({ where: { id: previous.id }, data: { enabled: false } })
-    } else {
-      await client.inventory.updateMany({
-        where: { id: { in: ids } },
-        data: { enabled: input.action === 'enable' },
-      })
-    }
+    if (items.some((item) => item.replacement))
+      throw new ApiError(409, '换码中的或已更换的旧码不能启用或停用')
+    await client.inventory.updateMany({
+      where: { id: { in: ids } },
+      data: { enabled: input.action === 'enable' },
+    })
     await client.audit.create({
       data: {
         id: id('a_'),
         actor,
-        action:
-          input.action === 'replace'
-            ? '更换兑换码'
-            : input.action === 'enable'
-              ? '启用兑换码'
-              : '停用兑换码',
-        target: [...ids, ...(replacementId ? [replacementId] : [])].join(','),
+        action: input.action === 'enable' ? '启用兑换码' : '停用兑换码',
+        target: ids.join(','),
       },
     })
-    return { saved: true, replacementId }
-  }).catch((error) => {
-    if (uniqueConflict(error)) throw new ApiError(409, '此兑换码已在库存中，请使用其他兑换码')
-    throw error
+    return { saved: true }
   })
 }
