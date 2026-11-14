@@ -29,8 +29,7 @@ import { useSite } from './Providers'
 import { api, channels, money, parseSession, demoSession, normalizeDemoSession } from '../lib'
 import type { AccountData, Channel, Order, Quote } from '../types'
 import { paymentLimitError, planNames } from '../pricing'
-import { Support } from './Support'
-import { serviceTerms, refundSummary } from '../product-copy'
+import { refundSummary } from '../product-copy'
 import { FunnelView } from './FunnelView'
 import { trackFunnel, attributionSource, analyticsAllowed } from '../funnel-client'
 
@@ -353,7 +352,6 @@ export function Checkout() {
                     </Link>
                   </details>
                 </div>
-                <Support guide />
                 {sessionEmail && (
                   <div className="session-preview" ref={sessionPreview} tabIndex={-1}>
                     <div aria-live="polite">
@@ -524,7 +522,6 @@ export function Checkout() {
               </div>
               <div className="checkout-conditions">
                 <strong>付款前请确认</strong>
-                <p>{quote.serviceTerms || serviceTerms(product)}</p>
                 <p>{refundSummary}</p>
               </div>
               <Button
@@ -561,11 +558,7 @@ export function Checkout() {
             </div>
             <h2>{product.name}</h2>
             <p className="muted">{product.subtitle}</p>
-            <p>
-              <strong>服务期限与交付范围</strong>
-            </p>
-            <p>{quote?.serviceTerms || serviceTerms(product)}</p>
-            <p className="tiny muted">本站按本次订单收费，不自动续扣。请确认上述内容后再付款。</p>
+            <p className="tiny muted">本站按本次订单收费，不自动续扣。</p>
             <div className="summary-price">
               {!quote && product.upgrade
                 ? '验证账号后报价'

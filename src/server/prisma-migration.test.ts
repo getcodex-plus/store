@@ -44,6 +44,20 @@ suite('Prisma schema, clock, seeding and worker invariants', () => {
     expect(Date.now() - record.expiresAt.getTime()).toBeLessThan(3000)
   })
 
+  it('accepts the historical baseline but requires retired columns to be removed for current installs', async () => {
+    await transaction(async (client) => {
+      await client.$executeRaw`ALTER TABLE products ADD COLUMN service_terms text NOT NULL DEFAULT ''`
+      await client.$executeRaw`ALTER TABLE quotes ADD COLUMN service_terms text NOT NULL DEFAULT ''`
+      await client.$executeRaw`ALTER TABLE orders ADD COLUMN service_terms text NOT NULL DEFAULT ''`
+      await verifyDatabase(client, true)
+      await expect(verifyDatabase(client)).rejects.toThrow('Removed columns still present')
+      await client.$executeRaw`ALTER TABLE products DROP COLUMN service_terms`
+      await client.$executeRaw`ALTER TABLE quotes DROP COLUMN service_terms`
+      await client.$executeRaw`ALTER TABLE orders DROP COLUMN service_terms`
+      await verifyDatabase(client)
+    })
+  })
+
   it('seeds missing records without overwriting prices, configuration or role changes', async () => {
     await transaction(seedDatabase)
     const original = await db.setting.findUniqueOrThrow({ where: { id: 1 } })

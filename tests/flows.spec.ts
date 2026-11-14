@@ -159,6 +159,8 @@ test('all tiers, upgrade quotation and partial wallet payment are visible to buy
     await pro.getByTitle(`ChatGPT Pro ${tier}`, { exact: true }).click()
     await expect(pro.getByRole('radio', { name: `Pro ${tier}`, exact: true })).toBeChecked()
     await expect(pro.locator('.price')).toContainText(price)
+    await expect(pro.locator('.plan-official-price')).toContainText(`官方月费 $${tier}`)
+    await expect(pro.locator('.plan-price-saving')).toBeVisible()
     await expect(pro.getByRole('link', { name: '选择此套餐' })).toHaveAttribute(
       'href',
       `/checkout?product=${product}`,
@@ -350,7 +352,6 @@ test('admin sets fixed base prices, cached currency conversion and upgrade round
     await expect(dialog.getByLabel('成本加价（%）')).toHaveCount(0)
     await expect(page.getByRole('button', { name: '请求刷新价格' })).toHaveCount(0)
     await dialog.getByLabel('固定售价（元）').fill('49.37')
-    await dialog.getByLabel('服务期限与交付范围').fill('仅测试：演示交付范围，不代表真实服务。')
     await dialog.getByRole('button', { name: '保存商品' }).click()
     await expect(dialog).toBeHidden()
     const fixed = await (
@@ -393,6 +394,13 @@ test('admin sets fixed base prices, cached currency conversion and upgrade round
     expect(usdQuote.amount).toBe(converted)
     const usdCatalog = await (await page.request.get('/api/bootstrap')).json()
     expect(usdCatalog.products.find((p: { id: string }) => p.id === 'go').price).toBe(converted)
+    // Go now costs more than its official $8 monthly reference; hide the comparison.
+    await page.goto('/')
+    const expensiveGo = page
+      .locator('.plan-card')
+      .filter({ has: page.getByRole('heading', { name: 'ChatGPT Go', exact: true }) })
+    await expect(expensiveGo.locator('.price')).toContainText((converted / 100).toFixed(2))
+    await expect(expensiveGo.locator('.plan-price-comparison')).toHaveCount(0)
     await page.goto('/checkout?product=go')
     await expect(page.locator('.summary-price')).toContainText((converted / 100).toFixed(2))
     await page.goto('/admin')

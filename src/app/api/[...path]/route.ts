@@ -56,7 +56,6 @@ const productSchema = z
     name: z.string().min(1).max(80),
     subtitle: z.string().max(100),
     description: z.string().max(500),
-    serviceTerms: z.string().trim().max(400).default(''),
     price: z.number().int().min(1).max(100000000),
     features: z.array(z.string().min(1).max(100)).min(1).max(8),
     plan: z.enum(['go', 'plus', 'pro5', 'pro20', 'promax']),
@@ -320,7 +319,7 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
       } else if (path === 'admin/products' && method === 'POST') {
         const p: Product = productSchema.parse(data)
         await transaction(async (client) => {
-          const record = { ...p, serviceTerms: p.serviceTerms ?? '', pricing: Prisma.DbNull }
+          const record = { ...p, pricing: Prisma.DbNull }
           await client.product.upsert({ where: { id: p.id }, create: record, update: record })
           await audit(admin.email, '更新商品', p.id, client)
         })

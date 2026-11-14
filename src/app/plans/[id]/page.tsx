@@ -4,7 +4,7 @@ import { notFound } from 'next/navigation'
 import { products } from '../../../server/services'
 import { money } from '../../../lib'
 import { pageMetadata, siteOrigin } from '../../../seo'
-import { serviceTerms, refundSummary } from '../../../product-copy'
+import { refundSummary } from '../../../product-copy'
 import { Support } from '../../../components/Support'
 import { JsonLd } from '../../../components/JsonLd'
 import { FunnelView } from '../../../components/FunnelView'
@@ -17,7 +17,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   if (!product) notFound()
   return pageMetadata(
     `${product.name}｜${product.upgrade ? '升级条件与报价说明' : '充值价格与服务说明'}`,
-    `${product.description} 查看服务期限、购买条件、账号验证与退款方式，确认后再付款。`,
+    `${product.description} 查看购买条件、账号验证与退款方式，确认后再付款。`,
     `/plans/${id}`,
   )
 }
@@ -73,8 +73,6 @@ export default async function Plan({ params }: { params: Promise<{ id: string }>
             : money(product.price)}{' '}
         <span>{product.upgrade ? '确认本次总价后再付款' : '/ 本次服务'}</span>
       </div>
-      <h2>服务期限与交付范围</h2>
-      <p>{serviceTerms(product)}</p>
       <p>
         本站按订单一次性收款，不会自动从你的支付账户续扣。ChatGPT
         账号中的订阅续费设置，请在对应账号中确认。
@@ -91,7 +89,7 @@ export default async function Plan({ params }: { params: Promise<{ id: string }>
       </p>
       <p>
         {product.upgrade
-          ? '升级金额需检查当前订阅后计算。不要把升级价格理解为新开订阅价格，也不要默认升级会重新开始一个完整周期；请先确认本商品的期限说明。'
+          ? '升级金额需检查当前订阅后计算，最终金额以本次报价为准。'
           : '已有订阅时，请先确认是否适合本商品。需要变更套餐可查看升级说明，不要直接重复购买。'}
       </p>
       <h2>购买后如何到账？</h2>

@@ -98,9 +98,23 @@ export async function verifyDatabase(client: DbClient = db, baselineOnly = false
   )
   const actual = await databaseContract(client)
   const problems: string[] = []
+  // Keep the historical contract intact for legacy adoption. Current installations
+  // must have applied the migration removing these columns and their constraints.
+  const removedColumns = ['products', 'quotes', 'orders'].map((table) => `${table}.service_terms`)
+  const removedConstraints = ['products', 'quotes', 'orders'].map(
+    (table) => `${table}.${table}_service_terms_not_null`,
+  )
   for (const category of Object.keys(expected) as (keyof DatabaseContract)[]) {
     const entries = new Map(actual[category].map((e) => [e.key, e.definition]))
     for (const item of expected[category]) {
+      if (
+        !baselineOnly &&
+        ((category === 'columns' && removedColumns.includes(item.key)) ||
+          (category === 'constraints' && removedConstraints.includes(item.key)))
+      ) {
+        if (entries.has(item.key)) problems.push(`Removed ${category} still present: ${item.key}`)
+        continue
+      }
       if (entries.get(item.key) !== item.definition) problems.push(`${category}: ${item.key}`)
     }
   }
@@ -108,8 +122,8 @@ export async function verifyDatabase(client: DbClient = db, baselineOnly = false
     throw new Error(`Database is not at the required baseline:\n${problems.join('\n')}`)
   await verifyDataPrerequisites(client)
   if (!baselineOnly) {
-    // The baseline contract remains usable for legacy adoption. Additive migrations
-    // are checked separately so db:baseline does not require migrations in advance.
+    // Additive migrations are checked separately so db:baseline does not require
+    // them in advance.
     await client.riskEvent.findFirst()
     await client.withdrawal.findFirst({ select: { payoutFingerprint: true } })
     const indexes = await client.$queryRaw<{ indexname: string }[]>`

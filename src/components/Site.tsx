@@ -363,6 +363,7 @@ function LoginDialogContent() {
           <Divider plain>或</Divider>
           {!recovery && (
             <Tabs
+              className="login-method-tabs"
               activeKey={mode}
               onChange={setMode}
               items={[

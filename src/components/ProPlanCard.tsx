@@ -3,10 +3,17 @@ import { useId, useState } from 'react'
 import { Radio } from 'antd'
 import type { Product } from '../types'
 import { PlanCard } from './PlanCard'
+import type { OfficialPriceComparison } from '../official-prices'
 
 const tiers: Record<string, string> = { pro5: '100', pro20: '200', promax: '500' }
 
-export function ProPlanCard({ products }: { products: Product[] }) {
+export function ProPlanCard({
+  products,
+  priceComparisons,
+}: {
+  products: Product[]
+  priceComparisons?: Record<string, OfficialPriceComparison | undefined>
+}) {
   const [selected, setSelected] = useState(products[0]?.id)
   const groupName = useId()
   const product = products.find((p) => p.id === selected) ?? products[0]
@@ -15,6 +22,7 @@ export function ProPlanCard({ products }: { products: Product[] }) {
     <PlanCard
       product={product}
       title="ChatGPT Pro"
+      priceComparison={priceComparisons?.[product.id]}
       selector={
         <Radio.Group
           name={groupName}

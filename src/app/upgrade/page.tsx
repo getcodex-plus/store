@@ -7,7 +7,7 @@ import { refundSummary } from '../../product-copy'
 export const dynamic = 'force-dynamic'
 export const metadata = pageMetadata(
   'ChatGPT 订阅升级｜账号条件与报价流程',
-  '已有 ChatGPT 订阅如何升级？了解账号检查、服务期限、最终总价、报价有效期和异常订单处理。',
+  '已有 ChatGPT 订阅如何升级？了解账号检查、最终总价、报价有效期和异常订单处理。',
   '/upgrade',
 )
 export default async function Upgrade() {
@@ -20,10 +20,6 @@ export default async function Upgrade() {
       <h2>充值与升级有什么区别？</h2>
       <p>
         普通充值按在售商品价格收费；升级需要检查当前订阅及目标套餐，再确认本次应付金额。是否支持升级，以账号检查结果为准。
-      </p>
-      <h2>升级后会重新计算订阅期限吗？</h2>
-      <p>
-        不要默认升级会增加一个完整周期。请先查看对应商品的服务期限与交付说明；说明不明确时，先联系支持确认再提交账号信息。
       </p>
       <h2>选择升级目标</h2>
       <ul>

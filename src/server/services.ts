@@ -61,7 +61,6 @@ import {
   requestExchangeRefresh,
   type ExchangeRate,
 } from './exchange-rates'
-import { serviceTerms } from '../product-copy'
 import { analyticsVisitor, funnelReport } from './funnel'
 import type { FunnelSource } from '../funnel'
 import { defaultReferralTiers, referralFunds, referralProgress } from '../referral'
@@ -243,7 +242,6 @@ export async function quote(
     amount,
     currentPlan,
     targetPlan: product.plan,
-    serviceTerms: serviceTerms(product),
     expiresAt: new Date(
       Math.min(Date.now() + 9 * 60_000, rate ? Date.parse(rate.expiresAt) : Infinity),
     ).toISOString(),
@@ -261,7 +259,6 @@ export async function quote(
         pricingSnapshot: pricingSnapshot ? jsonInput(pricingSnapshot as object) : Prisma.DbNull,
         currentPlan: currentPlan ?? null,
         targetPlan: product.plan,
-        serviceTerms: q.serviceTerms,
         analyticsVisitor: attribution.analytics ? analyticsVisitor(browser) : null,
         attributionSource: attribution.source,
       },
@@ -506,7 +503,6 @@ export async function newOrder(
           externalAmount,
           inviterId,
           buyerKey,
-          serviceTerms: quoteRecord?.serviceTerms ?? '',
         },
       }),
     )

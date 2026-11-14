@@ -249,7 +249,6 @@ export function Admin() {
       priceCurrency: product?.priceCurrency ?? 'CNY',
       roundingStep: product?.roundingStep ?? 100,
       featureText: product?.features.join('\n') ?? '',
-      serviceTerms: product?.serviceTerms ?? '',
     })
     setProductOpen(true)
   }
@@ -1712,17 +1711,6 @@ export function Admin() {
           )}
           <Form.Item name="featureText" label="套餐说明（每行一条）" rules={[{ required: true }]}>
             <Input.TextArea rows={3} />
-          </Form.Item>
-          <Form.Item
-            name="serviceTerms"
-            label="服务期限与交付范围"
-            rules={[
-              { required: true, whitespace: true, message: '请填写真实服务期限与交付范围' },
-              { max: 400 },
-            ]}
-            extra="写明实际期限、续费或升级如何影响到期日及交付内容。报价后保存快照，后续修改不改变已有订单。"
-          >
-            <Input.TextArea rows={3} maxLength={400} showCount />
           </Form.Item>
           <div className="form-three">
             <Form.Item name="enabled" label="上架" valuePropName="checked">

@@ -78,7 +78,6 @@ export function productView(record: ProductRecord): Product {
     roundingStep: z
       .union([z.literal(1), z.literal(10), z.literal(100), z.literal(1000)])
       .parse(record.roundingStep),
-    serviceTerms: record.serviceTerms,
   }
 }
 
@@ -101,7 +100,6 @@ export function orderView(record: OrderRecord): Order {
     rateBps: record.rateBps,
     settlementDays: record.settlementDays,
     firstOrderOnly: record.firstOrderOnly,
-    serviceTerms: record.serviceTerms,
     fulfillmentStatus: record.fulfillmentStatus,
   }
 }
@@ -137,7 +135,6 @@ export function quoteView(record: QuoteRecord): StoredQuote {
     expiresAt: record.expiresAt.toISOString(),
     currentPlan: record.currentPlan ?? undefined,
     targetPlan: record.targetPlan ?? undefined,
-    serviceTerms: record.serviceTerms,
     browserDigest: record.browserDigest,
     aicdkIntegrationId: record.aicdkIntegrationId ?? undefined,
     inventoryId: record.inventoryId ?? undefined,

@@ -258,7 +258,6 @@ model Order {
   externalAmount      Int            @map("external_amount")
   inviterId           String?        @map("inviter_id")
   buyerKey            String?        @map("buyer_key")
-  serviceTerms        String         @default("") @map("service_terms")
   fulfillmentStatus   String?        @map("fulfillment_status")
   redemptionVersion   Int            @default(0) @map("redemption_version")
   submissionAttempted Boolean        @default(false) @map("submission_attempted")
@@ -305,7 +304,6 @@ model Product {
   pricing       Json?
   priceCurrency String      @default("CNY") @map("price_currency")
   roundingStep  Int         @default(100) @map("rounding_step")
-  serviceTerms  String      @default("") @map("service_terms")
   inventory     Inventory[]
   order         Order[]
   quotes        Quote[]
@@ -328,7 +326,6 @@ model Quote {
   pricingSnapshot    Json?        @map("pricing_snapshot")
   currentPlan        String?      @map("current_plan")
   targetPlan         String?      @map("target_plan")
-  serviceTerms       String       @default("") @map("service_terms")
   analyticsVisitor   String?      @map("analytics_visitor")
   attributionSource  String       @default("direct") @map("attribution_source")
   flowVersion        Int          @default(2) @map("flow_version")

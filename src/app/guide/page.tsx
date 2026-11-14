@@ -3,7 +3,7 @@ import { Support } from '../../components/Support'
 import { pageMetadata } from '../../seo'
 export const metadata = pageMetadata(
   'ChatGPT 充值指南｜账号准备、付款与查单',
-  '了解 ChatGPT 充值的套餐选择、账号信息准备、付款确认和游客订单查询，购买前确认服务期限与退款方式。',
+  '了解 ChatGPT 充值的套餐选择、账号信息准备、付款确认和游客订单查询，以及退款方式。',
   '/guide',
 )
 export default function Guide() {
@@ -14,7 +14,7 @@ export default function Guide() {
       <p className="lead">先确认账号，再付款。每一步都可以在订单中继续。</p>
       <h2>1. 选择套餐</h2>
       <p>
-        在<Link href="/compare">套餐对比页</Link>查看价格、服务期限与交付范围。已有订阅时先阅读
+        在<Link href="/compare">套餐对比页</Link>查看套餐内容、适合的用户与价格。已有订阅时先阅读
         <Link href="/upgrade">升级说明</Link>，确认是否需要变更套餐。
       </p>
       <h2 id="account-info">2. 准备账号信息</h2>

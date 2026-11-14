@@ -106,11 +106,11 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
   afterAll(async () => {
     await cleanupTestDatabase()
   })
-  it('preserves accepted service terms and records only one authoritative event per order stage', async () => {
+  it('records only one authoritative event per order stage', async () => {
     const buyer = await fixtureUser(`${id()}@example.com`)
     const productId = id('metrics_')
     await testQuery(
-      Prisma.sql`INSERT INTO products(id,name,subtitle,description,price,features,plan,service_terms) VALUES(${productId},'Metrics test','','',6000,'[]','plus','已确认的演示服务说明')`,
+      Prisma.sql`INSERT INTO products(id,name,subtitle,description,price,features,plan) VALUES(${productId},'Metrics test','','',6000,'[]','plus')`,
     )
     const visitor = id('browser_')
     await recordView(visitor, 'checkout_view', productId, 'google')
@@ -119,14 +119,11 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
       source: 'google',
       analytics: true,
     })
-    await testQuery(Prisma.sql`UPDATE products SET service_terms='后续变更' WHERE id=${productId}`)
     const order = await newOrder(buyer, visitor, {
       quoteId: q.id,
       channel: 'alipay',
       requestKey: id(),
     })
-    expect(q.serviceTerms).toBe('已确认的演示服务说明')
-    expect(order.serviceTerms).toBe(q.serviceTerms)
     const receipt = { orderId: order.id, transactionId: id(), amount: order.amount, paid: true }
     await acceptPayment('xorpay', null, receipt)
     await acceptPayment('xorpay', null, receipt)

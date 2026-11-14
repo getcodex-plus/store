@@ -34,7 +34,7 @@ export function Support({ guide = false }: { guide?: boolean }) {
       <p>
         {email ? (
           <>
-            请联系 <a href={`mailto:${email}`}>{email}</a>，确认套餐、服务期限或操作方式。
+            请联系 <a href={`mailto:${email}`}>{email}</a>，确认套餐或操作方式。
           </>
         ) : (
           <>支持联系方式尚未公布。对套餐或账号信息有疑问时，请先暂停购买，待服务方提供明确说明。</>

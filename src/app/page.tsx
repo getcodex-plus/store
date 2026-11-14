@@ -6,7 +6,8 @@ import { Support } from '../components/Support'
 import { JsonLd } from '../components/JsonLd'
 import { pageMetadata, siteOrigin } from '../seo'
 import { money } from '../lib'
-import { serviceTerms } from '../product-copy'
+import { exchangeRate } from '../server/exchange-rates'
+import { officialPriceComparison } from '../official-prices'
 export const dynamic = 'force-dynamic'
 export const metadata = pageMetadata(
   'ChatGPT 充值与升级｜套餐与价格',
@@ -14,7 +15,11 @@ export const metadata = pageMetadata(
   '/',
 )
 export default async function Home() {
-  const catalog = await products()
+  const [catalog, usdRate] = await Promise.all([products(), exchangeRate()])
+  const priceComparisons = Object.fromEntries(
+    catalog.map((product) => [product.id, officialPriceComparison(product, usdRate)]),
+  )
+  const hasPriceComparisons = Object.values(priceComparisons).some(Boolean)
   const proVariants = ['pro5', 'pro20', 'promax'].flatMap((plan) => {
     const product = catalog.find((p) => !p.upgrade && p.plan === plan)
     return product ? [product] : []
@@ -38,16 +43,16 @@ export default async function Home() {
       />
       <section className="hero container">
         <div className="hero-copy">
-          <div className="eyebrow">自己的账号，一次清楚的升级</div>
+          <div className="eyebrow">从 Plus 开始，按需升级</div>
           <h1>
-            为你的 ChatGPT
+            更实惠的 ChatGPT
             <br />
             <span>充值与升级。</span>
           </h1>
           <p>
-            使用自己的账号，无需共享，也无需提前注册。
+            学习、创作和编程，选适合自己的套餐。
             <br />
-            看清服务内容，确认最终价格，再付款。
+            价格清楚，本站不自动续扣。
           </p>
           <div className="hero-actions">
             <a href="#plans" className="primary-link">
@@ -62,7 +67,6 @@ export default async function Home() {
             <span>✓ 先验证后付款</span>
             <span>✓ 进度随时可查</span>
           </div>
-          <p className="merchant-disclosure">独立充值与升级服务，与 OpenAI 无隶属关系。</p>
         </div>
         <aside className="purchase-entry" aria-label="快速选购">
           {recommended ? (
@@ -79,12 +83,10 @@ export default async function Home() {
                 </strong>
                 {recommended.priceStatus !== 'pending' && <span>本次总价</span>}
               </div>
-              <p className="entry-terms">{serviceTerms(recommended)}</p>
               <Link className="entry-cta" href={`/checkout?product=${recommended.id}`}>
                 {recommended.priceStatus === 'pending' ? '查看套餐状态' : '开始充值'}
                 <span aria-hidden="true">→</span>
               </Link>
-              <p className="entry-note">先检查账号与价格，此步不会扣款</p>
             </div>
           ) : (
             <div className="entry-plan">
@@ -112,7 +114,7 @@ export default async function Home() {
             <div>
               <div className="eyebrow">套餐与价格</div>
               <h2>找到适合你的使用方式。</h2>
-              <p>每笔订单单独收费，本站不自动续扣。服务期限与交付范围见各套餐说明。</p>
+              <p>从轻量使用到高阶模型，再到 10 倍、20 倍、50 倍额度，按需求选择。</p>
             </div>
             <Link href="/compare" className="secondary-link">
               比较全部套餐 <span aria-hidden="true">↗</span>
@@ -123,10 +125,40 @@ export default async function Home() {
               {catalog
                 .filter((p) => !p.upgrade && !proIds.has(p.id))
                 .map((product) => (
-                  <PlanCard key={product.id} product={product} />
+                  <PlanCard
+                    key={product.id}
+                    product={product}
+                    priceComparison={priceComparisons[product.id]}
+                  />
                 ))}
-              {proVariants.length > 0 && <ProPlanCard products={proVariants} />}
+              {proVariants.length > 0 && (
+                <ProPlanCard products={proVariants} priceComparisons={priceComparisons} />
+              )}
             </div>
+            {hasPriceComparisons && usdRate && (
+              <p className="plan-exchange-note">
+                <a
+                  href="https://learn.chatgpt.com/docs/pricing"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  官方美元月费
+                </a>
+                按参考汇率折算，1 USD ≈ {(usdRate.rateE8 / 100000000).toFixed(4)} CNY。 汇率日期{' '}
+                {usdRate.sourceDate}，更新于{' '}
+                <time dateTime={usdRate.fetchedAt}>
+                  {new Intl.DateTimeFormat('zh-CN', {
+                    timeZone: 'Asia/Shanghai',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false,
+                  }).format(new Date(usdRate.fetchedAt))}
+                </time>
+                （北京时间）。参考价不含税费及支付渠道费用。
+              </p>
+            )}
           </div>
           {upgradeOffer && (
             <article id="upgrade" className="upgrade-offer">
@@ -183,10 +215,6 @@ export default async function Home() {
         </div>
         <div className="faq-list">
           {[
-            [
-              '这次购买包含多久的服务？',
-              '以所选套餐展示的服务期限与交付范围为准。升级对到期日的影响请先查看升级说明；未明确公布的内容，请联系支持确认后再购买。本站不自动续扣。',
-            ],
             [
               '需要提供账号密码吗？',
               '不需要提供密码。充值需要完整的账号会话信息，它属于敏感登录凭证。请仅在确认服务方与用途后提交，并避免发送给无关人员。',

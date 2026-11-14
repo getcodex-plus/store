@@ -1,61 +1,92 @@
 import Link from 'next/link'
 import { products } from '../../server/services'
 import { money } from '../../lib'
-import { serviceTerms } from '../../product-copy'
+import { planComparisons } from '../../plan-comparison'
 import { pageMetadata } from '../../seo'
 import { Support } from '../../components/Support'
 
 export const dynamic = 'force-dynamic'
 export const metadata = pageMetadata(
-  'ChatGPT 套餐对比｜价格与购买条件',
-  '比较本站在售 ChatGPT 充值套餐、价格、服务期限和购买条件，已有订阅可查看升级流程。',
+  'ChatGPT 套餐对比｜套餐内容与适合的用户',
+  '比较 ChatGPT Go、Plus 和 Pro 各档位的套餐内容、适合的用户与本次价格，按自己的使用需求选择。',
   '/compare',
 )
 export default async function Compare() {
-  const catalog = (await products()).filter((p) => !p.upgrade)
+  const planOrder = ['go', 'plus', 'pro5', 'pro20', 'promax']
+  const catalog = (await products())
+    .filter((p) => !p.upgrade)
+    .sort(
+      (a, b) =>
+        (planOrder.indexOf(a.plan) < 0 ? planOrder.length : planOrder.indexOf(a.plan)) -
+        (planOrder.indexOf(b.plan) < 0 ? planOrder.length : planOrder.indexOf(b.plan)),
+    )
   return (
     <main className="container prose-page comparison-page">
       <div className="eyebrow">FIND YOUR FIT</div>
-      <h1>先看清差别，再选择套餐。</h1>
+      <h1>找到适合你的套餐。</h1>
       <p className="lead">
-        以下为本站在售商品与服务说明。套餐名称中的档位标识不是人民币售价；实际金额以价格栏及付款前确认的订单为准。
+        从偶尔问答到每天用 AI 工作，先看套餐内容和适合的用户，再按使用频率与预算选择。
       </p>
-      <div className="comparison-scroll" role="region" aria-label="套餐价格与服务对比" tabIndex={0}>
+      <div
+        className="comparison-scroll"
+        role="region"
+        aria-label="套餐内容与适合的用户对比"
+        tabIndex={0}
+      >
         <table className="comparison-table">
-          <caption>在售充值套餐</caption>
+          <caption>套餐内容与适合的用户</caption>
           <thead>
             <tr>
               <th scope="col">套餐</th>
+              <th scope="col">适合的用户</th>
+              <th scope="col">套餐内容</th>
               <th scope="col">本次价格</th>
-              <th scope="col">服务期限与交付范围</th>
-              <th scope="col">套餐说明</th>
             </tr>
           </thead>
           <tbody>
-            {catalog.map((p) => (
-              <tr key={p.id}>
-                <th scope="row">
-                  <Link href={`/plans/${p.id}`}>{p.name} →</Link>
-                </th>
-                <td>{p.priceStatus === 'pending' ? '价格更新中' : money(p.price)}</td>
-                <td>{serviceTerms(p)}</td>
-                <td>
-                  <p>{p.description}</p>
-                  <ul>
-                    {p.features.map((f) => (
-                      <li key={f}>{f}</li>
-                    ))}
-                  </ul>
-                </td>
-              </tr>
-            ))}
+            {catalog.map((p) => {
+              const comparison = planComparisons[p.plan]
+              return (
+                <tr key={p.id}>
+                  <th scope="row">
+                    <Link href={`/plans/${p.id}`}>{p.name}</Link>
+                  </th>
+                  <td>
+                    <strong>{comparison?.audience ?? p.subtitle}</strong>
+                    <p className="muted">{comparison?.scenarios ?? p.description}</p>
+                  </td>
+                  <td>
+                    <ul>
+                      {(comparison?.contents ?? p.features).map((f) => (
+                        <li key={f}>{f}</li>
+                      ))}
+                    </ul>
+                  </td>
+                  <td className="comparison-price">
+                    <strong>{p.priceStatus === 'pending' ? '价格更新中' : money(p.price)}</strong>
+                    <Link href={`/plans/${p.id}`} aria-label={`查看${p.name}详情`}>
+                      查看详情 →
+                    </Link>
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
       {!catalog.length && <p>暂时没有上架的充值套餐，请稍后再来。</p>}
-      <h2>应该怎样选择？</h2>
+      <p className="comparison-source">
+        适合的用户与场景为选购建议。功能参考{' '}
+        <a href="https://learn.chatgpt.com/docs/pricing" target="_blank" rel="noopener noreferrer">
+          OpenAI 套餐说明
+        </a>
+        。额度倍数以 Plus 的 Work / Codex 额度为基准；Pro 无 5 小时限额，仍有周额度限制。
+        实际功能及用量以账号内显示为准。表中价格为本站本次充值价格。
+      </p>
+      <h2>不确定选哪档？推荐从 Plus 开始。</h2>
       <p>
-        先确认你需要的套餐权益与使用额度，再核对本站商品的期限和交付范围。模型、额度等产品权益可能调整，本页不以未经核实的固定次数作承诺。
+        推荐先从 Plus 开始，用于日常学习、写作和编程。使用一段时间后，如果额度不够用，或需要更长时间连续工作，
+        再根据实际用量选择 Pro 100、Pro 200 或 Pro 500。
       </p>
       <h2>已有订阅，需要换套餐？</h2>
       <p>不要把充值与升级当作同一种服务。升级需要检查当前账号，再计算本次应付总价。</p>

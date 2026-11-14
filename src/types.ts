@@ -14,7 +14,6 @@ export interface Product {
   name: string
   subtitle: string
   description: string
-  serviceTerms?: string
   price: number
   features: string[]
   plan: string
@@ -55,7 +54,6 @@ export interface Order {
   rateBps: number
   settlementDays: number
   firstOrderOnly: boolean
-  serviceTerms?: string
   fulfillmentStatus?: string | null
 }
 export interface Commission {
@@ -231,5 +229,4 @@ export interface Quote {
   expiresAt: string
   currentPlan?: string
   targetPlan?: string
-  serviceTerms?: string
 }
