@@ -69,3 +69,4 @@ TEST_DATABASE_URL=postgresql://getgpt@127.0.0.1:55439/getgpt_test E2E_PRODUCTION
 - [邀请返现与提现](docs/invitations-and-withdrawals.md)
 - [风控](docs/risk-control.md)
 - [SEO 与统计](docs/growth-and-seo.md)
+- [发布前验收记录](docs/release-acceptance.md)

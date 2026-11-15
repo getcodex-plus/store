@@ -218,6 +218,13 @@ export interface AccountData {
 export interface AdminData {
   pagination?: { page: number; pageSize: number; total: number }
   pendingWithdrawalCount?: number
+  overview?: {
+    userCount?: number
+    purchaseAmount?: number
+    completedPurchaseCount?: number
+    attentionOrderCount?: number
+    dailyRevenue?: { date: string; amount: number }[]
+  }
   riskEvents?: {
     id: string
     scene: string

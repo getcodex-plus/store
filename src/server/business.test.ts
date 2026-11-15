@@ -859,9 +859,9 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
       )
       const owner = await fixtureUser(`${id()}@example.com`)
       const order = await referralOrder(owner)
-      expect(order.rateBps).toBe(200)
+      expect(order.rateBps).toBe(300)
       expect(await db.commission.findUniqueOrThrow({ where: { orderId: order.id } })).toMatchObject(
-        { amount: 120, status: 'pending' },
+        { amount: 180, status: 'pending' },
       )
     } finally {
       await testQuery(Prisma.sql`UPDATE settings SET body=${JSON.stringify(previous)} WHERE id=1`)

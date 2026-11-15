@@ -84,7 +84,6 @@ function SecurityContent() {
   return (
     <main className="container prose-page security-page">
       <h1>账号安全</h1>
-      <p className="lead">管理登录方式，为账号增加一道验证。</p>
       {error && (
         <Alert
           className="mb-24"
@@ -98,7 +97,6 @@ function SecurityContent() {
       ) : (
         <>
           <Card title="登录设备" className="mb-24">
-            <p className="muted">退出其他浏览器和设备上的登录，当前会话保持登录。</p>
             <Popconfirm
               title="退出其他设备？"
               description="其他设备需要重新登录，当前设备不受影响。"
@@ -122,7 +120,7 @@ function SecurityContent() {
                 <h2>
                   <SafetyCertificateOutlined /> 二步验证
                 </h2>
-                <p>密码验证后，再确认一次是你本人。</p>
+                {!data.twoStepEnabled && <p>开启后，登录需再验证邮箱或动态码。</p>}
               </div>
               <Switch
                 aria-label="二步验证"
@@ -135,26 +133,20 @@ function SecurityContent() {
               />
             </div>
             {data.passkeys.length > 0 && (
-              <p className="tiny muted">已绑定 Passkey，二步验证保持开启，保护密码备用登录。</p>
+              <p className="tiny muted">已绑定 Passkey，无法关闭二步验证。</p>
             )}
-            {data.twoStepEnabled ? (
+            {data.twoStepEnabled && (
               <div className="security-methods">
                 <div className="security-method">
                   <div>
                     <h3>邮箱验证码</h3>
                     <p>{site?.user?.email}</p>
-                    <span className="tiny muted">二步验证开启期间始终可用。</span>
                   </div>
                   <Tag>固定开启</Tag>
                 </div>
                 <div className="security-method">
                   <div>
                     <h3>身份验证器（TOTP）</h3>
-                    <p>
-                      {data.totp
-                        ? '登录时默认使用动态码，也可选择邮箱验证码。'
-                        : '可选。绑定后，登录时优先使用 6 位动态码。'}
-                    </p>
                   </div>
                   {data.totp ? (
                     <Tag>默认方式</Tag>
@@ -169,10 +161,6 @@ function SecurityContent() {
                   )}
                 </div>
               </div>
-            ) : (
-              <p className="security-off-note muted">
-                尚未开启。开启后使用邮箱验证码，还可以添加身份验证器。
-              </p>
             )}
           </Card>
           <Card
@@ -184,40 +172,39 @@ function SecurityContent() {
             }
             className="mb-24"
           >
-            <p className="muted">使用指纹、面容或设备 PIN 登录。私钥保留在你的设备上。</p>
-            <ul className="security-key-list">
-              {data.passkeys.map((p) => (
-                <li key={p.id}>
-                  <div>
-                    <strong>{p.name || '通行密钥'}</strong>
-                    <span className="muted">添加于 {dateTime(p.createdAt)}</span>
-                  </div>
-                  <Popconfirm
-                    title="移除此 Passkey？"
-                    description={
-                      data.passkeys.length === 1
-                        ? '二步验证设置会保留。移除后需要重新登录。'
-                        : '你仍可使用其他登录方式。'
-                    }
-                    okText="移除 Passkey"
-                    cancelText="保留"
-                    onConfirm={() =>
-                      action(async () => {
-                        authResult(await authClient.passkey.deletePasskey({ id: p.id }))
-                        if (data.passkeys.length === 1) window.location.reload()
-                      })
-                    }
-                  >
-                    <Button danger type="text">
-                      移除
-                    </Button>
-                  </Popconfirm>
-                </li>
-              ))}
-              {!data.passkeys.length && (
-                <li className="muted">尚未添加 Passkey。添加后可使用指纹、面容或设备 PIN 登录。</li>
-              )}
-            </ul>
+            <p className="muted">使用指纹、面容或设备 PIN 登录。</p>
+            {data.passkeys.length > 0 && (
+              <ul className="security-key-list">
+                {data.passkeys.map((p) => (
+                  <li key={p.id}>
+                    <div>
+                      <strong>{p.name || '通行密钥'}</strong>
+                      <span className="muted">添加于 {dateTime(p.createdAt)}</span>
+                    </div>
+                    <Popconfirm
+                      title="移除此 Passkey？"
+                      description={
+                        data.passkeys.length === 1
+                          ? '二步验证设置会保留。移除后需要重新登录。'
+                          : '你仍可使用其他登录方式。'
+                      }
+                      okText="移除 Passkey"
+                      cancelText="保留"
+                      onConfirm={() =>
+                        action(async () => {
+                          authResult(await authClient.passkey.deletePasskey({ id: p.id }))
+                          if (data.passkeys.length === 1) window.location.reload()
+                        })
+                      }
+                    >
+                      <Button danger type="text">
+                        移除
+                      </Button>
+                    </Popconfirm>
+                  </li>
+                ))}
+              </ul>
+            )}
             <label htmlFor="passkey-name" className="security-field-label">
               通行密钥名称
             </label>
@@ -237,9 +224,8 @@ function SecurityContent() {
           <Card title={data.password ? '修改登录密码' : '设置登录密码'}>
             {data.password && (
               <p>
-                不记得当前密码？
                 <Button type="link" onClick={() => openLogin(true, 'reset')}>
-                  验证身份并重置密码
+                  重置密码
                 </Button>
               </p>
             )}
@@ -332,9 +318,10 @@ function SecurityContent() {
         <p>
           {securityAction === 'disable'
             ? '关闭后将移除身份验证器，密码登录不再要求第二步验证。'
-            : '确认后继续。邮箱验证码在二步验证开启时始终可用。'}
+            : securityAction === 'totp'
+              ? '绑定后，登录优先使用动态码。'
+              : '开启后，密码登录需验证邮箱验证码。'}
         </p>
-        <p className="tiny muted">需要最近 10 分钟内完成登录及账号要求的二步验证。</p>
       </Modal>
       <Modal
         title="绑定身份验证器"

@@ -29,7 +29,6 @@ import { api, channels, money, parseSession, demoSession, normalizeDemoSession }
 import type { AccountData, Order, Quote } from '../types'
 import { PaymentOptions, usePaymentChannel } from './PaymentOptions'
 import { paymentLimitError, planNames } from '../pricing'
-import { refundSummary } from '../product-copy'
 import { FunnelView } from './FunnelView'
 import { trackFunnel, attributionSource, analyticsAllowed } from '../funnel-client'
 
@@ -502,10 +501,6 @@ function CheckoutContent({ productId }: { productId: string | null }) {
                     : `${channels[channel]}待付`}
                 </span>
                 <strong>{money(externalAmount)}</strong>
-              </div>
-              <div className="checkout-conditions">
-                <strong>付款前请确认</strong>
-                <p>{refundSummary}</p>
               </div>
               <Button
                 type="primary"

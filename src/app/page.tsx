@@ -6,8 +6,6 @@ import { Support } from '../components/Support'
 import { JsonLd } from '../components/JsonLd'
 import { pageMetadata, siteOrigin } from '../seo'
 import { money } from '../lib'
-import { exchangeRate } from '../server/exchange-rates'
-import { officialPriceComparison } from '../official-prices'
 export const dynamic = 'force-dynamic'
 export const metadata = pageMetadata(
   'ChatGPT Plus / Pro 充值与升级｜套餐价格',
@@ -15,11 +13,7 @@ export const metadata = pageMetadata(
   '/',
 )
 export default async function Home() {
-  const [catalog, usdRate] = await Promise.all([products(), exchangeRate()])
-  const priceComparisons = Object.fromEntries(
-    catalog.map((product) => [product.id, officialPriceComparison(product, usdRate)]),
-  )
-  const hasPriceComparisons = Object.values(priceComparisons).some(Boolean)
+  const catalog = await products()
   const proVariants = ['pro5', 'pro20', 'promax'].flatMap((plan) => {
     const product = catalog.find((p) => !p.upgrade && p.plan === plan)
     return product ? [product] : []
@@ -45,7 +39,7 @@ export default async function Home() {
         <div className="hero-copy">
           <div className="eyebrow">从 Plus 开始，按需升级</div>
           <h1>
-            更实惠的 ChatGPT
+            更省心的 ChatGPT
             <br />
             <span>充值与升级。</span>
           </h1>
@@ -125,40 +119,10 @@ export default async function Home() {
               {catalog
                 .filter((p) => !p.upgrade && !proIds.has(p.id))
                 .map((product) => (
-                  <PlanCard
-                    key={product.id}
-                    product={product}
-                    priceComparison={priceComparisons[product.id]}
-                  />
+                  <PlanCard key={product.id} product={product} />
                 ))}
-              {proVariants.length > 0 && (
-                <ProPlanCard products={proVariants} priceComparisons={priceComparisons} />
-              )}
+              {proVariants.length > 0 && <ProPlanCard products={proVariants} />}
             </div>
-            {hasPriceComparisons && usdRate && (
-              <p className="plan-exchange-note">
-                <a
-                  href="https://learn.chatgpt.com/docs/pricing"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  官方美元月费
-                </a>
-                按参考汇率折算，1 USD ≈ {(usdRate.rateE8 / 100000000).toFixed(4)} CNY。 汇率日期{' '}
-                {usdRate.sourceDate}，更新于{' '}
-                <time dateTime={usdRate.fetchedAt}>
-                  {new Intl.DateTimeFormat('zh-CN', {
-                    timeZone: 'Asia/Shanghai',
-                    month: '2-digit',
-                    day: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: false,
-                  }).format(new Date(usdRate.fetchedAt))}
-                </time>
-                （北京时间）。参考价不含税费及支付渠道费用。
-              </p>
-            )}
           </div>
           {upgradeOffer && (
             <article id="upgrade" className="upgrade-offer">

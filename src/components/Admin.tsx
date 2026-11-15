@@ -50,7 +50,12 @@ import { InventoryManager } from './InventoryManager'
 import { useSite } from './Providers'
 import { api, channels, dateTime, money, orderStatusLabel } from '../lib'
 import { refundNeedsReview } from '../refunds'
-import { defaultPaymentLimits, planNames, roundingOptions } from '../pricing'
+import {
+  defaultPaymentLimits,
+  defaultUpgradeMarkupBps,
+  planNames,
+  roundingOptions,
+} from '../pricing'
 import type {
   AdminData,
   AdminOrder,
@@ -162,6 +167,12 @@ const secretFields: Record<IntegrationKind, [string, string][]> = {
 }
 
 export function Admin() {
+  const { data } = useSite()
+  const identity = `${data?.user?.id ?? 'guest'}:${data?.user?.permissions.slice().sort().join(',') ?? ''}`
+  return <AdminContent key={identity} />
+}
+
+function AdminContent() {
   const { data: site, openLogin, refresh } = useSite()
   const { message } = App.useApp()
   const [data, setData] = useState<Data | null>(null)
@@ -286,7 +297,10 @@ export function Admin() {
             return [
               plan,
               {
-                markup: (rules?.markupBps ?? data.settings.upgradePricing?.markupBps ?? 2500) / 100,
+                markup:
+                  (rules?.markupBps ??
+                    data.settings.upgradePricing?.markupBps ??
+                    defaultUpgradeMarkupBps) / 100,
                 fee: (rules?.serviceFee ?? data.settings.upgradePricing?.serviceFee ?? 0) / 100,
                 profit: (rules?.minimumProfit ?? 1000) / 100,
                 roundingStep: rules?.roundingStep ?? 100,
@@ -295,7 +309,7 @@ export function Admin() {
           }),
         ),
         upgradeFx: (data.settings.upgradePricing?.fxRateBps ?? 70000) / 10000,
-        upgradeMarkup: (data.settings.upgradePricing?.markupBps ?? 2500) / 100,
+        upgradeMarkup: (data.settings.upgradePricing?.markupBps ?? defaultUpgradeMarkupBps) / 100,
         upgradeFee: (data.settings.upgradePricing?.serviceFee ?? 0) / 100,
         upgradeMinimum: (data.settings.upgradePricing?.minimum ?? 100) / 100,
       })
@@ -452,11 +466,6 @@ export function Admin() {
     )
   if (!can('admin:access'))
     return <Result status="403" title="无权访问管理后台" extra={<Link href="/">返回网站</Link>} />
-  const paid =
-    data?.orders.filter((o) =>
-      ['processing', 'completed', 'needs_session', 'failed'].includes(o.status),
-    ) || []
-  const purchases = paid.filter((o) => o.kind === 'purchase')
   const pendingCount = data?.pendingWithdrawalCount ?? 0
   const email = (id: string) => data?.users.find((u) => u.id === id)?.email || id
   const referralTiers = data?.settings.referralTiers ?? defaultReferralTiers
@@ -660,11 +669,15 @@ export function Admin() {
                       </div>
                       <Statistic
                         title="套餐成交金额"
-                        value={purchases.reduce((s, o) => s + o.amount, 0) / 100}
+                        value={
+                          data.overview?.purchaseAmount === undefined
+                            ? '—'
+                            : data.overview.purchaseAmount / 100
+                        }
                         precision={2}
                         prefix="¥"
                       />
-                      <span className="tiny muted">最近 500 笔订单 · 不含钱包充值</span>
+                      <span className="tiny muted">全部已付款套餐 · 不含钱包充值与已退款订单</span>
                     </Card>
                     <Card>
                       <div className="stat-icon">
@@ -672,7 +685,7 @@ export function Admin() {
                       </div>
                       <Statistic
                         title="成功交付"
-                        value={purchases.filter((o) => o.status === 'completed').length}
+                        value={data.overview?.completedPurchaseCount ?? '—'}
                         suffix="笔"
                       />
                       <span className="tiny muted">仅计充值完成的套餐订单</span>
@@ -681,8 +694,8 @@ export function Admin() {
                       <div className="stat-icon">
                         <TeamOutlined />
                       </div>
-                      <Statistic title="用户数" value={data.users.length} />
-                      <span className="tiny muted">当前展示最近 500 位用户</span>
+                      <Statistic title="用户数" value={data.overview?.userCount ?? '—'} />
+                      <span className="tiny muted">全部注册用户</span>
                     </Card>
                     <Card>
                       <div className="stat-icon amber">
@@ -702,9 +715,17 @@ export function Admin() {
                   <div className="admin-overview-grid">
                     <Card
                       title="近 7 天套餐成交"
-                      extra={<span className="tiny muted">按订单创建日期</span>}
+                      extra={<span className="tiny muted">按订单创建日期 · UTC</span>}
                     >
-                      <RevenueChart orders={purchases} />
+                      {data.overview?.dailyRevenue ? (
+                        <RevenueChart days={data.overview.dailyRevenue} />
+                      ) : (
+                        <Empty
+                          description={
+                            can('orders:read') ? '正在加载统计' : '当前角色无订单统计权限'
+                          }
+                        />
+                      )}
                     </Card>
                     <Card title="需要关注">
                       <div className="attention-row">
@@ -725,13 +746,7 @@ export function Admin() {
                         <span>
                           <i className="status-dot amber" /> 充值异常
                         </span>
-                        <strong>
-                          {
-                            data.orders.filter(
-                              (o) => o.status === 'failed' || o.status === 'needs_session',
-                            ).length
-                          }
-                        </strong>
+                        <strong>{data.overview?.attentionOrderCount ?? '—'}</strong>
                         <Button
                           type="text"
                           aria-label="查看异常订单"
@@ -1333,7 +1348,8 @@ export function Admin() {
                             upgradeFxMode === 'auto'
                               ? (data.settings.upgradePricing?.fxRateBps ?? 70000)
                               : Math.round(upgradeFx * 10000),
-                          markupBps: data.settings.upgradePricing?.markupBps ?? 2500,
+                          markupBps:
+                            data.settings.upgradePricing?.markupBps ?? defaultUpgradeMarkupBps,
                           serviceFee: 0,
                           minimum: Math.round(upgradeMinimum * 100),
                         },
@@ -2367,22 +2383,8 @@ export function Admin() {
     </div>
   )
 }
-function RevenueChart({ orders }: { orders: Order[] }) {
-  const days = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date()
-    d.setHours(0, 0, 0, 0)
-    d.setDate(d.getDate() - 6 + i)
-    return d
-  })
-  const values = days.map((day) =>
-    orders
-      .filter(
-        (o) =>
-          new Date(o.createdAt) >= day &&
-          new Date(o.createdAt).getTime() < day.getTime() + 86400000,
-      )
-      .reduce((s, o) => s + o.amount, 0),
-  )
+function RevenueChart({ days }: { days: { date: string; amount: number }[] }) {
+  const values = days.map((day) => day.amount)
   const max = Math.max(...values, 10000)
   const points = values.map((v, i) => `${45 + i * 80},${170 - (v / max) * 135}`).join(' ')
   return (
@@ -2418,9 +2420,9 @@ function RevenueChart({ orders }: { orders: Order[] }) {
         ))}
       </svg>
       <div className="chart-days muted">
-        {days.map((d) => (
-          <span key={d.toISOString()}>
-            {d.getMonth() + 1}/{d.getDate()}
+        {days.map((day) => (
+          <span key={day.date}>
+            {Number(day.date.slice(5, 7))}/{Number(day.date.slice(8, 10))}
           </span>
         ))}
       </div>

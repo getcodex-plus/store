@@ -43,6 +43,7 @@ import {
   qualifiedInvitesSql,
   readOnlyTransaction,
   savePaymentLocation,
+  dailyPurchaseRevenue,
 } from './database-sql'
 import { ApiError, demo } from './config'
 import { adminPageSize, adminQuerySchema, type AdminQuery } from './admin-query'
@@ -1207,7 +1208,48 @@ export async function adminData(
   }
   const inventory = [...totals.values()]
   const { upgradePricing: _pricing, ...publicSettings } = conf
+  let overview: AdminData['overview']
+  if (section === 'overview') {
+    const [userCount, paidPurchases, completedPurchaseCount, attentionOrderCount, dailyRevenue] =
+      await Promise.all([
+        can('users:read') ? db.user.count() : undefined,
+        can('orders:read')
+          ? db.order.aggregate({
+              where: {
+                kind: 'purchase',
+                status: { in: ['processing', 'completed', 'needs_session', 'failed'] },
+              },
+              _sum: { amount: true },
+            })
+          : undefined,
+        can('orders:read')
+          ? db.order.count({ where: { kind: 'purchase', status: 'completed' } })
+          : undefined,
+        can('orders:read')
+          ? db.order.count({
+              where: {
+                OR: [
+                  { status: { in: ['failed', 'needs_session'] } },
+                  {
+                    status: 'processing',
+                    fulfillmentStatus: { in: ['requires_action', 'uncertain'] },
+                  },
+                ],
+              },
+            })
+          : undefined,
+        can('orders:read') ? dailyPurchaseRevenue() : undefined,
+      ])
+    overview = {
+      userCount,
+      purchaseAmount: paidPurchases ? (paidPurchases._sum.amount ?? 0) : undefined,
+      completedPurchaseCount,
+      attentionOrderCount,
+      dailyRevenue,
+    }
+  }
   return {
+    overview,
     pagination:
       section === 'overview' ? undefined : { page: query.page, pageSize: adminPageSize, total },
     pendingWithdrawalCount: can('withdrawals:read')

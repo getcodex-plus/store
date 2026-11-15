@@ -96,18 +96,18 @@ test('admin edits referral levels, retains failed edits and restores automatic c
   const dialog = page.getByRole('dialog')
   await expect(dialog).toContainText(target.email)
   await dialog.getByLabel('返佣等级', { exact: true }).click()
-  await page.getByRole('option', { name: '邀请合伙人 · 5%', exact: true }).click()
+  await page.getByRole('option', { name: '邀请合伙人 · 6%', exact: true }).click()
   await dialog.getByRole('button', { name: /保\s*存/ }).click()
   await expect(page.getByText('返佣等级不存在，请刷新后重新选择', { exact: true })).toBeVisible()
   await expect(dialog).toBeVisible()
-  await expect(dialog.locator('.ant-select')).toContainText('邀请合伙人 · 5%')
+  await expect(dialog.locator('.ant-select')).toContainText('邀请合伙人 · 6%')
   await dialog.getByRole('button', { name: /保\s*存/ }).click()
   await expect(dialog).toBeHidden()
   await expect(
-    page.getByRole('cell', { name: '邀请合伙人 · 5%（指定）', exact: true }),
+    page.getByRole('cell', { name: '邀请合伙人 · 6%（指定）', exact: true }),
   ).toBeVisible()
   await page.getByRole('button', { name: '编辑', exact: true }).click()
-  await expect(dialog.locator('.ant-select')).toContainText('邀请合伙人 · 5%')
+  await expect(dialog.locator('.ant-select')).toContainText('邀请合伙人 · 6%')
   await dialog.getByLabel('返佣等级', { exact: true }).click()
   await page.getByRole('option', { name: '自动计算（按有效邀请人数）', exact: true }).click()
   await dialog.getByRole('button', { name: /保\s*存/ }).click()
@@ -172,7 +172,7 @@ test('referral tiers and withdrawal form preserve the invitation-only limit on d
   await page.goto('/referral')
   await expect(page.getByRole('heading', { name: /分享达人/ })).toBeVisible()
   await expect(page.getByText('再邀请 12 位可升至推荐官', { exact: false })).toBeVisible()
-  await expect(page.locator('.referral-level-percent')).toHaveText(['2%', '3%', '4%', '5%'])
+  await expect(page.locator('.referral-level-percent')).toHaveText(['3%', '4%', '5%', '6%'])
   for (const width of [1440, 760, 375, 320]) {
     await page.setViewportSize({ width, height: 1000 })
     expect(

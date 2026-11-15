@@ -1,6 +1,6 @@
 import { db, transaction, type DbClient } from '../src/server/db'
 import { jsonInput } from '../src/server/data'
-import { defaultPaymentLimits } from '../src/pricing'
+import { defaultPaymentLimits, defaultPlanPrices, defaultUpgradeMarkupBps } from '../src/pricing'
 import { defaultReferralTiers } from '../src/referral'
 import { defaultWithdrawalChannels } from '../src/withdrawals'
 
@@ -12,7 +12,7 @@ export async function seedDatabase(client: DbClient) {
       name: 'ChatGPT Plus',
       subtitle: '日常使用，轻松进阶',
       description: '适合日常问答、学习和创作。充值到你自己的账号。',
-      price: 12900,
+      price: defaultPlanPrices.plus,
       features: ['充值到自己的账号', '付款前检查账号', '订单进度随时可查'],
       plan: 'plus',
       featured: true,
@@ -23,7 +23,7 @@ export async function seedDatabase(client: DbClient) {
       name: 'ChatGPT Pro 100',
       subtitle: '给高频使用的你',
       description: '为更高强度的工作需求准备。购买前确认账号适用性。',
-      price: 65900,
+      price: defaultPlanPrices.pro5,
       features: ['适合高频工作需求', '账号适用性检查', '支持订单异常处理'],
       plan: 'pro5',
       featured: false,
@@ -47,7 +47,7 @@ export async function seedDatabase(client: DbClient) {
       name: 'ChatGPT Go',
       subtitle: '从轻量使用开始',
       description: '为自己的账号充值 Go。账号适用性以验证结果为准。',
-      price: 4900,
+      price: defaultPlanPrices.go,
       features: ['自己的账号', '付款前检查账号', '订单进度可查'],
       plan: 'go',
       featured: false,
@@ -58,7 +58,7 @@ export async function seedDatabase(client: DbClient) {
       name: 'ChatGPT Pro 200',
       subtitle: '面向更高强度的工作',
       description: '充值 Pro 200，付款前确认账号和本次服务。',
-      price: 132900,
+      price: defaultPlanPrices.pro20,
       features: ['Pro 200 目标套餐', '付款前检查账号', '订单异常协助'],
       plan: 'pro20',
       featured: false,
@@ -69,7 +69,7 @@ export async function seedDatabase(client: DbClient) {
       name: 'ChatGPT Pro 500',
       subtitle: '为密集工作需求准备',
       description: '充值 Pro 500，付款前确认账号和本次服务。',
-      price: 332900,
+      price: defaultPlanPrices.promax,
       features: ['Pro 500 目标套餐', '付款前检查账号', '订单异常协助'],
       plan: 'promax',
       featured: false,
@@ -118,12 +118,17 @@ export async function seedDatabase(client: DbClient) {
             targets: Object.fromEntries(
               ['plus', 'pro5', 'pro20', 'promax'].map((plan) => [
                 plan,
-                { markupBps: 2500, serviceFee: 0, minimumProfit: 1000, roundingStep: 100 },
+                {
+                  markupBps: defaultUpgradeMarkupBps,
+                  serviceFee: 0,
+                  minimumProfit: 1000,
+                  roundingStep: 100,
+                },
               ]),
             ),
             fxMode: 'auto',
             fxRateBps: 70000,
-            markupBps: 2500,
+            markupBps: defaultUpgradeMarkupBps,
             serviceFee: 0,
             roundingStep: 100,
             minimum: 100,

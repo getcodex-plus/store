@@ -1,6 +1,18 @@
 import type { Channel, PricingRules, Settings } from './types'
 import { channels, money } from './lib'
 
+// Fixed recharge prices in CNY fen, keyed by the upstream plan.
+export const defaultPlanPrices: Record<string, number> = {
+  go: 4800,
+  plus: 13500,
+  pro5: 67800,
+  pro20: 121000,
+  promax: 326000,
+}
+
+// Profit is expressed as a markup on cost, before fees and referral rewards.
+export const defaultUpgradeMarkupBps = 3000
+
 export const defaultPaymentLimits = {
   alipay: { min: 1, max: 200000 },
   wechat: { min: 1, max: 200000 },

@@ -8,14 +8,14 @@ import {
 
 describe('invitation levels and withdrawal policy', () => {
   it.each([
-    [0, 200, 5],
-    [4, 200, 1],
-    [5, 300, 15],
-    [19, 300, 1],
-    [20, 400, 30],
-    [49, 400, 1],
-    [50, 500, 0],
-    [500, 500, 0],
+    [0, 300, 5],
+    [4, 300, 1],
+    [5, 400, 15],
+    [19, 400, 1],
+    [20, 500, 30],
+    [49, 500, 1],
+    [50, 600, 0],
+    [500, 600, 0],
   ])('uses the correct tier at %i qualified referrals', (count, rate, remaining) => {
     const result = referralProgress(count, {})
     expect(result.current.rateBps).toBe(rate)
@@ -27,12 +27,12 @@ describe('invitation levels and withdrawal policy', () => {
   it('uses the assigned tier regardless of invite count and supports returning to automatic levels', () => {
     expect(referralProgress(0, {}, 'partner')).toMatchObject({
       manual: true,
-      current: { id: 'partner', rateBps: 500 },
+      current: { id: 'partner', rateBps: 600 },
       next: null,
     })
     expect(referralProgress(100, {}, 'sharer')).toMatchObject({
       manual: true,
-      current: { id: 'sharer', rateBps: 300 },
+      current: { id: 'sharer', rateBps: 400 },
       next: null,
     })
     for (const tierId of [null, 'deleted-tier'])

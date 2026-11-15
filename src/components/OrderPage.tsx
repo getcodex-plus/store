@@ -14,7 +14,7 @@ import {
   Steps,
   Tag,
 } from 'antd'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSite } from './Providers'
 import { api, ApiRequestError, channels, dateTime, money, orderStatusLabel } from '../lib'
 import type { Order } from '../types'
@@ -31,11 +31,17 @@ function OrderContent({ id }: { id: string }) {
   const [payment, setPayment] = useState<{ demo?: boolean; paymentUrl?: string } | null>(null)
   const [busy, setBusy] = useState(false)
   const [session, setSession] = useState('')
+  const requestVersion = useRef(0)
   const load = useCallback(async () => {
+    const version = ++requestVersion.current
     try {
-      setOrder(await api<Order>(`/orders/${id}`))
+      const latest = await api<Order>(`/orders/${id}`)
+      if (version !== requestVersion.current) return
+      setOrder(latest)
+      if (latest.status !== 'unpaid') setPayment(null)
       setError('')
     } catch (e) {
+      if (version !== requestVersion.current) return
       if (e instanceof ApiRequestError && [401, 403, 404].includes(e.status)) {
         setOrder(null)
         setPayment(null)
@@ -46,14 +52,30 @@ function OrderContent({ id }: { id: string }) {
   }, [id])
   useEffect(() => {
     if (!data) return
-    void load()
-    const timer = setInterval(() => void load(), 8000)
-    return () => clearInterval(timer)
+    let active = true
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const poll = async () => {
+      await load()
+      if (active) timer = setTimeout(() => void poll(), 8000)
+    }
+    void poll()
+    return () => {
+      active = false
+      clearTimeout(timer)
+      requestVersion.current++
+    }
   }, [data, load])
   async function pay() {
     setBusy(true)
     try {
-      setPayment(await api(`/orders/${id}/pay`, {}))
+      const result = await api<{ paid?: boolean; demo?: boolean; paymentUrl?: string }>(
+        `/orders/${id}/pay`,
+        {},
+      )
+      if (result.paid) {
+        setPayment(null)
+        await load()
+      } else setPayment(result)
     } catch (e) {
       message.error((e as Error).message)
     } finally {

@@ -163,3 +163,25 @@ export async function savePaymentLocation(orderId: string, paymentId: string, pa
 export async function readOnlyTransaction(client: DbClient) {
   await client.$executeRaw`SET TRANSACTION READ ONLY`
 }
+
+export async function dailyPurchaseRevenue(client: DbClient = db) {
+  // The reporting day is explicitly UTC, independent of the operator's device.
+  const rows = await client.$queryRaw<{ date: string; amount: bigint }[]>`
+    WITH days AS (
+      SELECT generate_series(
+        (now() AT TIME ZONE 'UTC')::date - 6,
+        (now() AT TIME ZONE 'UTC')::date,
+        interval '1 day'
+      )::date AS day
+    ), totals AS (
+      SELECT (created_at AT TIME ZONE 'UTC')::date AS day, sum(amount) AS amount
+      FROM orders
+      WHERE kind='purchase' AND status IN ('processing','completed','needs_session','failed')
+        AND created_at >= (((now() AT TIME ZONE 'UTC')::date - 6)::timestamp AT TIME ZONE 'UTC')
+        AND created_at < (((now() AT TIME ZONE 'UTC')::date + 1)::timestamp AT TIME ZONE 'UTC')
+      GROUP BY 1
+    )
+    SELECT to_char(days.day, 'YYYY-MM-DD') AS date, COALESCE(totals.amount, 0)::bigint AS amount
+    FROM days LEFT JOIN totals USING(day) ORDER BY days.day`
+  return rows.map((row) => ({ date: row.date, amount: Number(row.amount) }))
+}

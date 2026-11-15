@@ -289,7 +289,7 @@ test('account security can recover with a Passkey while keeping that Passkey and
   await createPasswordAccount(page, email, `original-${crypto.randomUUID()}`)
   await page.getByRole('button', { name: '添加 Passkey' }).click()
   await expect(page.getByText('Passkey 已添加，密码登录将需要二步验证')).toBeVisible()
-  await page.getByRole('button', { name: '验证身份并重置密码' }).click()
+  await page.getByRole('button', { name: '重置密码', exact: true }).click()
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByLabel('邮箱地址')).toHaveValue(email)
   await dialog.getByRole('button', { name: '使用 Passkey 登录' }).click()

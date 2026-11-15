@@ -87,7 +87,6 @@ test('demo checkout shares the real session form, consent and validation without
   await expect(page.getByText(email, { exact: true })).toBeVisible()
   await expect(sessionInput).toHaveCount(0)
   await expect(page.getByRole('heading', { name: '核对订单，选择支付方式' })).toBeVisible()
-  await expect(page.locator('.checkout-conditions')).toContainText('可原路退款或退回本站钱包')
   await page.screenshot({ path: 'test-results/checkout-confirm-mobile.png', fullPage: true })
 })
 test('SSR storefront, responsive layout, wallet topup and balance purchase', async ({
@@ -95,15 +94,15 @@ test('SSR storefront, responsive layout, wallet topup and balance purchase', asy
   request,
 }) => {
   const html = await (await request.get('/')).text()
-  expect(html).toContain('更实惠的 ChatGPT')
+  expect(html).toContain('更省心的 ChatGPT')
   expect(html).toContain('ChatGPT Plus')
   await page.goto('/')
-  await expect(page.getByRole('heading', { name: /更实惠的 ChatGPT.*充值与升级。/ })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /更省心的 ChatGPT.*充值与升级。/ })).toBeVisible()
   await expect(page.getByRole('link', { name: '开始充值', exact: true })).toHaveAttribute(
     'href',
     '/checkout?product=plus',
   )
-  await expect(page.locator('.entry-price')).toContainText('¥129.00')
+  await expect(page.locator('.entry-price')).toContainText('¥135.00')
   await page.getByRole('link', { name: /已有订阅，想升级/ }).click()
   await expect(page).toHaveURL(/#upgrade$/)
   for (const width of [320, 375, 768, 1440]) {
@@ -137,7 +136,7 @@ test('SSR storefront, responsive layout, wallet topup and balance purchase', asy
   await page.getByRole('button', { name: /确认订单/ }).click()
   await expect(page.getByRole('heading', { name: '已收到付款，正在为你充值。' })).toBeVisible()
   await page.goto('/wallet')
-  await expect(page.locator('.wallet-number')).toHaveText('¥171.00')
+  await expect(page.locator('.wallet-number')).toHaveText('¥165.00')
   await page.goto('/admin')
   await expect(page.getByText('无权访问管理后台')).toBeVisible()
 })
@@ -153,15 +152,15 @@ test('all tiers, upgrade quotation and partial wallet payment are visible to buy
     .filter({ has: page.getByRole('heading', { name: 'ChatGPT Pro', exact: true }) })
   await expect(page.locator('.plan-card')).toHaveCount(3)
   for (const [tier, product, price] of [
-    ['100', 'pro100', '¥659.00'],
-    ['200', 'pro200', '¥1,329.00'],
-    ['500', 'pro500', '¥3,329.00'],
+    ['100', 'pro100', '¥678.00'],
+    ['200', 'pro200', '¥1,210.00'],
+    ['500', 'pro500', '¥3,260.00'],
   ]) {
     await pro.getByTitle(`ChatGPT Pro ${tier}`, { exact: true }).click()
     await expect(pro.getByRole('radio', { name: `Pro ${tier}`, exact: true })).toBeChecked()
     await expect(pro.locator('.price')).toContainText(price)
-    await expect(pro.locator('.plan-official-price')).toContainText(`官方月费 $${tier}`)
-    await expect(pro.locator('.plan-price-saving')).toBeVisible()
+    await expect(pro.locator('.plan-official-price')).toHaveCount(0)
+    await expect(pro.locator('.plan-price-saving')).toHaveCount(0)
     await expect(pro.getByRole('link', { name: '选择此套餐' })).toHaveAttribute(
       'href',
       `/checkout?product=${product}`,
@@ -198,12 +197,12 @@ test('all tiers, upgrade quotation and partial wallet payment are visible to buy
   await expect(page.getByRole('radio', { name: /账户余额/ })).toHaveCount(0)
   await page.getByRole('checkbox', { name: /使用账户余额抵扣/ }).check()
   await expect(page.getByLabel('本次余额抵扣')).toHaveValue('30.00')
-  await expect(page.locator('.checkout-total')).toContainText('¥99.00')
+  await expect(page.locator('.checkout-total')).toContainText('¥105.00')
   await page.getByRole('checkbox', { name: /使用账户余额抵扣/ }).uncheck()
-  await expect(page.locator('.checkout-total')).toContainText('¥129.00')
+  await expect(page.locator('.checkout-total')).toContainText('¥135.00')
   await page.getByRole('checkbox', { name: /使用账户余额抵扣/ }).check()
   await page.getByRole('button', { name: /确认订单/ }).click()
-  await expect(page.getByRole('heading', { name: '应付 ¥99.00' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '应付 ¥105.00' })).toBeVisible()
   await page.screenshot({ path: 'test-results/split-payment-desktop.png', fullPage: true })
   await page.getByRole('button', { name: '获取支付信息' }).click()
   await page.getByRole('button', { name: '模拟付款成功' }).click()
@@ -395,7 +394,7 @@ test('admin sets fixed base prices, cached currency conversion and upgrade round
     expect(usdQuote.amount).toBe(converted)
     const usdCatalog = await (await page.request.get('/api/bootstrap')).json()
     expect(usdCatalog.products.find((p: { id: string }) => p.id === 'go').price).toBe(converted)
-    // Go now costs more than its official $8 monthly reference; hide the comparison.
+    // Converted product prices remain visible without an official-price comparison.
     await page.goto('/')
     const expensiveGo = page
       .locator('.plan-card')

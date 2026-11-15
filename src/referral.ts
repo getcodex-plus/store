@@ -1,10 +1,10 @@
 import type { Commission, ReferralTier, Settings, Withdrawal } from './types'
 
 export const defaultReferralTiers: ReferralTier[] = [
-  { id: 'starter', name: '邀请新星', minimumInvites: 0, rateBps: 200 },
-  { id: 'sharer', name: '分享达人', minimumInvites: 5, rateBps: 300 },
-  { id: 'ambassador', name: '推荐官', minimumInvites: 20, rateBps: 400 },
-  { id: 'partner', name: '邀请合伙人', minimumInvites: 50, rateBps: 500 },
+  { id: 'starter', name: '邀请新星', minimumInvites: 0, rateBps: 300 },
+  { id: 'sharer', name: '分享达人', minimumInvites: 5, rateBps: 400 },
+  { id: 'ambassador', name: '推荐官', minimumInvites: 20, rateBps: 500 },
+  { id: 'partner', name: '邀请合伙人', minimumInvites: 50, rateBps: 600 },
 ]
 
 export function referralProgress(

@@ -18,6 +18,9 @@ import { id } from './crypto'
 import { userView } from './data'
 import { newOrder } from './services'
 import { defaultReferralTiers } from '../referral'
+import { defaultPlanPrices, defaultUpgradeMarkupBps } from '../pricing'
+import { updateCommercialPolicy } from '../../scripts/update-commercial-policy'
+import { settingsData } from './data'
 
 const suite = process.env.TEST_DATABASE_URL ? describe : describe.skip
 suite('Prisma schema, clock, seeding and worker invariants', () => {
@@ -55,7 +58,12 @@ suite('Prisma schema, clock, seeding and worker invariants', () => {
     const original = await db.setting.findUniqueOrThrow({ where: { id: 1 } })
     expect((original.body as Prisma.JsonObject).firstOrderOnly).toBe(false)
     expect((original.body as Prisma.JsonObject).referralTiers).toEqual(defaultReferralTiers)
-    expect((original.body as Prisma.JsonObject).rateBps).toBe(200)
+    expect((original.body as Prisma.JsonObject).rateBps).toBe(300)
+    for (const [plan, price] of Object.entries(defaultPlanPrices))
+      expect((await db.product.findFirstOrThrow({ where: { plan, upgrade: false } })).price).toBe(
+        price,
+      )
+    expect(settingsData(original.body).upgradePricing?.markupBps).toBe(defaultUpgradeMarkupBps)
     await db.product.update({ where: { id: 'plus' }, data: { price: 43210 } })
     await db.setting.update({
       where: { id: 1 },
@@ -75,6 +83,44 @@ suite('Prisma schema, clock, seeding and worker invariants', () => {
     expect((await db.role.findUniqueOrThrow({ where: { id: 'support' } })).name).toBe(
       'Custom support',
     )
+  })
+
+  it('rolls out prices and rates while preserving unrelated settings and existing snapshots', async () => {
+    const before = settingsData((await db.setting.findUniqueOrThrow({ where: { id: 1 } })).body)
+    const upgrades = await db.product.findMany({ where: { upgrade: true } })
+    const oldOrders = await db.order.findMany()
+    const oldQuotes = await db.quote.findMany()
+    const oldCommissions = await db.commission.findMany()
+    await transaction(updateCommercialPolicy)
+    const after = settingsData((await db.setting.findUniqueOrThrow({ where: { id: 1 } })).body)
+    expect(after).toMatchObject({
+      supportEmail: before.supportEmail,
+      firstOrderOnly: before.firstOrderOnly,
+      settlementDays: before.settlementDays,
+      rateBps: 300,
+      upgradePricing: { ...before.upgradePricing, markupBps: 3000, targets: expect.any(Object) },
+    })
+    expect(after.referralTiers?.map((tier) => tier.rateBps)).toEqual([300, 400, 500, 600])
+    expect(after.referralTiers?.map(({ rateBps: _, ...tier }) => tier)).toEqual(
+      before.referralTiers?.map(({ rateBps: _, ...tier }) => tier),
+    )
+    for (const target of Object.values(after.upgradePricing!.targets!))
+      expect(target.markupBps).toBe(3000)
+    for (const [plan, price] of Object.entries(defaultPlanPrices))
+      expect(await db.product.findFirstOrThrow({ where: { plan, upgrade: false } })).toMatchObject({
+        price,
+        priceCurrency: 'CNY',
+        pricingMode: 'fixed',
+      })
+    expect(await db.product.findMany({ where: { upgrade: true } })).toEqual(upgrades)
+    expect(await db.order.findMany()).toEqual(oldOrders)
+    expect(await db.quote.findMany()).toEqual(oldQuotes)
+    expect(await db.commission.findMany()).toEqual(oldCommissions)
+    await transaction(updateCommercialPolicy)
+    expect(settingsData((await db.setting.findUniqueOrThrow({ where: { id: 1 } })).body)).toEqual(
+      after,
+    )
+    expect(await db.audit.count({ where: { target: 'commercial-policy' } })).toBe(2)
   })
 
   it('keeps partial account uniqueness without treating every provider as one-to-one', async () => {

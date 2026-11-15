@@ -521,33 +521,6 @@ svg {
   font-size: var(--text-caption);
   color: var(--muted);
 }
-.plan-price-comparison {
-  margin-top: 12px;
-}
-.plan-official-price {
-  margin: 0 0 8px;
-  color: var(--muted);
-  font-size: var(--text-caption);
-}
-.plan-price-saving {
-  display: inline-block;
-  padding: 5px 9px;
-  border-radius: 5px;
-  background: var(--surface-hover);
-  color: var(--accent);
-  font-size: var(--text-caption);
-  font-weight: 600;
-}
-.plan-exchange-note {
-  margin: 18px 0 0;
-  color: var(--muted);
-  font-size: var(--text-caption);
-  line-height: 1.8;
-}
-.plan-exchange-note a {
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
 .plan-action-note {
   color: var(--muted);
   font-size: var(--text-caption);
@@ -905,17 +878,6 @@ svg {
   padding-inline: 0;
   min-height: 44px;
 }
-.checkout-conditions {
-  background: var(--surface-subtle);
-  border-radius: 10px;
-  padding: 16px;
-  margin-bottom: 20px;
-  font-size: var(--text-ui);
-}
-.checkout-conditions p {
-  margin: 8px 0 0;
-  color: var(--muted);
-}
 .secure-note {
   text-align: center;
   font-size: var(--text-caption);
@@ -1005,9 +967,6 @@ svg {
 .security-section-heading > .ant-switch,
 .security-key-list .ant-btn {
   flex-shrink: 0;
-}
-.security-off-note {
-  margin: 24px 0 0;
 }
 .security-key-list {
   list-style: none;

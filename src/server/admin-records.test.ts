@@ -127,5 +127,88 @@ suite('admin history pagination and permission boundaries', () => {
     expect(wallet.users).toEqual([])
     expect(wallet.withdrawals).toEqual([])
     expect(wallet.pendingWithdrawalCount).toBeUndefined()
+    const overview = await adminData(finance)
+    expect(overview.overview?.userCount).toBeUndefined()
+    expect(overview.overview?.purchaseAmount).toBeUndefined()
+    expect(overview.overview?.dailyRevenue).toBeUndefined()
+    expect(overview.overview?.attentionOrderCount).toBeUndefined()
+  })
+
+  it('aggregates all orders beyond the recent window and reports seven UTC days', async () => {
+    const now = new Date()
+    const today = now.toISOString().slice(0, 10)
+    const midnight = new Date(`${today}T00:00:00.000Z`)
+    const yesterday = new Date(midnight.getTime() - 1)
+    const base = {
+      productName: 'Release totals',
+      email: owner.email,
+      contactEmail: owner.email,
+      amount: 100,
+      externalAmount: 100,
+      kind: 'purchase',
+      status: 'completed',
+      channel: 'alipay',
+      provider: 'xorpay',
+      rateBps: 0,
+      settlementDays: 0,
+      firstOrderOnly: false,
+      createdAt: now,
+    }
+    await db.order.createMany({
+      data: [
+        ...Array.from({ length: 501 }, (_, i) => ({ ...base, id: `overview-completed-${i}` })),
+        {
+          ...base,
+          id: 'overview-old-failure',
+          amount: 250,
+          externalAmount: 250,
+          status: 'failed',
+          createdAt: new Date('2019-01-01'),
+        },
+        {
+          ...base,
+          id: 'overview-session',
+          amount: 300,
+          externalAmount: 300,
+          status: 'needs_session',
+        },
+        {
+          ...base,
+          id: 'overview-uncertain',
+          amount: 400,
+          externalAmount: 400,
+          status: 'processing',
+          fulfillmentStatus: 'uncertain',
+        },
+        {
+          ...base,
+          id: 'overview-yesterday',
+          amount: 175,
+          externalAmount: 175,
+          createdAt: yesterday,
+        },
+        { ...base, id: 'overview-topup', kind: 'topup', amount: 99900, externalAmount: 99900 },
+        {
+          ...base,
+          id: 'overview-refund',
+          status: 'refunded',
+          amount: 99900,
+          externalAmount: 99900,
+        },
+      ],
+    })
+    const result = await adminData(owner)
+    expect(result.orders).toHaveLength(500)
+    expect(result.overview).toMatchObject({
+      userCount: 501,
+      purchaseAmount: 51225,
+      completedPurchaseCount: 502,
+      attentionOrderCount: 3,
+    })
+    const days = result.overview!.dailyRevenue!
+    expect(days).toHaveLength(7)
+    expect(days.at(-1)).toEqual({ date: today, amount: 50800 })
+    expect(days.at(-2)).toEqual({ date: yesterday.toISOString().slice(0, 10), amount: 175 })
+    expect(days.slice(0, 5).every((day) => day.amount === 0)).toBe(true)
   })
 })

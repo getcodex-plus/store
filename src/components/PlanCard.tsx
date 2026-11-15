@@ -3,18 +3,15 @@ import type { ReactNode } from 'react'
 import type { Product } from '../types'
 import { money } from '../lib'
 import { planComparisons } from '../plan-comparison'
-import type { OfficialPriceComparison } from '../official-prices'
 
 export function PlanCard({
   product,
   title = product.name,
   selector,
-  priceComparison,
 }: {
   product: Product
   title?: string
   selector?: ReactNode
-  priceComparison?: OfficialPriceComparison
 }) {
   const comparison = !product.upgrade ? planComparisons[product.plan] : undefined
   return (
@@ -28,7 +25,7 @@ export function PlanCard({
       <h3>{title}</h3>
       <p className="plan-subtitle">{product.subtitle}</p>
       <div className="plan-price-block" aria-live="polite" aria-atomic="true">
-        <span className="plan-price-caption">{product.upgrade ? '本次升级' : '本站价格'}</span>
+        <span className="plan-price-caption">{product.upgrade ? '本次升级' : '本次充值'}</span>
         <div className="price">
           {product.upgrade || product.priceStatus === 'pending' ? (
             <strong className="quote-price-label">
@@ -38,18 +35,6 @@ export function PlanCard({
             <strong>{money(product.price)}</strong>
           )}
         </div>
-        {priceComparison && (
-          <div className="plan-price-comparison">
-            <p className="plan-official-price">
-              官方月费 ${(priceComparison.usdCents / 100).toFixed(0)} ≈{' '}
-              {money(priceComparison.cnyCents)}
-            </p>
-            <span className="plan-price-saving">
-              低 {money(priceComparison.differenceCents)}
-              {priceComparison.discountPercent > 0 && <> · 约 {priceComparison.discountPercent}%</>}
-            </span>
-          </div>
-        )}
       </div>
       <Link
         className={product.featured ? 'primary-link plan-button' : 'secondary-link plan-button'}
