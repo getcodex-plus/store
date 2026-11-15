@@ -48,7 +48,7 @@ bun run dev
 3. 对空库执行 `db:init`、`db:seed`、`db:verify`。
 4. 设置 `ADMIN_EMAIL` 和 `BOOTSTRAP_PASSWORD_FILE`（权限 0600，密码 16–128 字符），执行 `bun run admin:bootstrap`。完成邮件与账号安全配置后删除密码文件。
 5. 在后台配置实际商品、价格、库存和服务，完成真实渠道联调。
-6. 执行 `bun run build`，分别启动 `bun run start` 和 `bun run worker`，通过 HTTPS 反向代理提供服务。代理覆写 `X-Real-IP` 且源站不可绕过时才开启 `TRUST_PROXY`。
+6. 执行 `bun run build`，分别启动 `bun run start` 和 `bun run worker`，通过 HTTPS 网关提供服务。登录、风控和支付统一使用 Better Auth 的解析规则读取网关提供的 `X-Forwarded-For`，无需单独配置代理信任开关。
 
 ## 开发验证
 

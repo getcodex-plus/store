@@ -16,6 +16,7 @@ import { riskLimits } from './risk-policy'
 import { clearLoginTurnstile, requireLoginTurnstile } from './login-turnstile'
 import { sendLoginEmail } from './integrations/email'
 import { opaqueAuth } from './opaque'
+import { clientIPOptions } from './client-ip'
 
 type AuthAdapter = Parameters<typeof getCurrentAdapter>[0]
 async function hookAdapter(context?: { adapter: AuthAdapter }): Promise<AuthAdapter> {
@@ -269,6 +270,7 @@ export const auth = betterAuth({
   database: prismaAdapter(db, { provider: 'postgresql', transaction: true }),
   trustedOrigins: [appUrl],
   advanced: {
+    ipAddress: clientIPOptions,
     disableOriginCheck: false,
     disableCSRFCheck: false,
     cookiePrefix: 'getgpt',

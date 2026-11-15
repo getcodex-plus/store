@@ -14,7 +14,6 @@ import { prepareTestDatabase, cleanupTestDatabase } from './database-test-suppor
 import {
   checkRiskRate,
   checkRiskChallenge,
-  trustedRiskIP,
   payoutFingerprint,
   riskDigest,
   assessRisk,
@@ -26,16 +25,6 @@ import { seedDatabase } from '../../scripts/seed'
 
 describe('Risk identity boundaries', () => {
   afterEach(() => vi.unstubAllEnvs())
-  it('ignores forwarded headers without an explicitly trusted proxy', () => {
-    vi.stubEnv('TRUST_PROXY', 'false')
-    expect(trustedRiskIP(new Headers({ 'x-real-ip': '192.0.2.1' }))).toBeUndefined()
-    vi.stubEnv('TRUST_PROXY', 'true')
-    expect(trustedRiskIP(new Headers({ 'x-forwarded-for': '192.0.2.1' }))).toBeUndefined()
-    expect(trustedRiskIP(new Headers({ 'x-real-ip': '192.0.2.1, 192.0.2.2' }))).toBeUndefined()
-    expect(trustedRiskIP(new Headers({ 'x-real-ip': 'fe80::1%en0' }))).toBeUndefined()
-    expect(trustedRiskIP(new Headers({ 'x-real-ip': '::ffff:192.0.2.1' }))).toBe('192.0.2.1')
-    expect(trustedRiskIP(new Headers({ 'x-real-ip': '2001:0db8:0:0:0:0:0:1' }))).toBe('2001:db8::1')
-  })
   it('separates HMAC domains and preserves case-sensitive payout identities', () => {
     expect(riskDigest('email', 'example')).not.toBe(riskDigest('user', 'example'))
     expect(payoutFingerprint('USDT', 'ERC20', '0xAbCd')).toBe(

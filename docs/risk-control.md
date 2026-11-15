@@ -14,7 +14,9 @@
 
 ## 配置与记录
 
-仅在可信代理覆写 `X-Real-IP` 且源站不可绕过时设置 `TRUST_PROXY=true`。否则跳过 IP 维度，不信任客户端转发头。
+本项目部署在网关后。登录、风控和支付共用 `src/server/client-ip.ts` 中的配置与 Better Auth IP 解析函数，统一读取网关提供的 `X-Forwarded-For`，不再使用 `TRUST_PROXY` 或 `X-Real-IP`。
+
+遵循当前 Better Auth 默认行为：接受单个有效地址，未配置可信代理列表时不接受多地址链；IPv4 映射地址转换为 IPv4，IPv6 按 /64 网段归一化。生产环境缺失或无效的地址不参与 IP 维度限流，支付参数使用空字符串；开发和测试环境沿用 Better Auth 的 `127.0.0.1` 回退。
 
 关联标识使用按用途隔离的 HMAC，不在风控记录中保存邮箱、IP、收款账号或 Session 明文。后台「风控记录」展示命中原因和规则版本，需要 `audit:read` 权限。
 

@@ -41,7 +41,8 @@ import { integrationSchema, saveIntegration } from '../../../server/integrations
 import type { Product } from '../../../types'
 import { authorize, mayGrant, permissions, type Permission } from '../../../server/rbac'
 import { turnstilePublic } from '../../../server/turnstile'
-import { checkRiskChallenge, checkRiskRate, trustedRiskIP } from '../../../server/risk'
+import { checkRiskChallenge, checkRiskRate } from '../../../server/risk'
+import { clientIP } from '../../../server/client-ip'
 import { securityStatus } from '../../../server/security'
 import { funnelSchema, sourceSchema } from '../../../funnel'
 import { recordView } from '../../../server/funnel'
@@ -146,7 +147,7 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
       await checkRiskRate('quote', {
         browser,
         user: (await currentUser())?.id,
-        ip: trustedRiskIP(request.headers),
+        ip: clientIP(request.headers),
       })
       let text = input.session
       if (demo) {
@@ -185,7 +186,7 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
         .parse(data)
       const user = await currentUser()
       const browser = await browserDigest()
-      await checkRiskRate('order', { browser, user: user?.id, ip: trustedRiskIP(request.headers) })
+      await checkRiskRate('order', { browser, user: user?.id, ip: clientIP(request.headers) })
       if (!demo && input.quoteId) await checkRiskRate('preflight', {})
       if (input.contactEmail) await checkRiskRate('order-contact', { email: input.contactEmail })
       result = await newOrder(user, browser, {
@@ -203,9 +204,12 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
       result = await cancelOrder(await currentUser(), await browserDigest(), path.split('/')[1])
     } else if (/^orders\/[^/]+\/pay$/.test(path) && method === 'POST') {
       const user = await currentUser()
-      const clientIP =
-        process.env.TRUST_PROXY === 'true' ? request.headers.get('x-real-ip') || '' : '127.0.0.1'
-      result = await paymentInfo(user, path.split('/')[1], clientIP, await browserDigest())
+      result = await paymentInfo(
+        user,
+        path.split('/')[1],
+        clientIP(request.headers) ?? '',
+        await browserDigest(),
+      )
     } else if (/^orders\/[^/]+\/demo-pay$/.test(path) && method === 'POST') {
       if (!demo) throw new ApiError(404, '不存在')
       const user = await currentUser()
@@ -223,7 +227,7 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
       await checkRiskRate('session-update', {
         browser: await browserDigest(),
         user: (await currentUser())?.id,
-        ip: trustedRiskIP(request.headers),
+        ip: clientIP(request.headers),
       })
       result = await confirmSession(
         await currentUser(),
@@ -243,7 +247,7 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
       await requireRecent(user)
       await checkRiskRate('withdrawal-request', {
         user: user.id,
-        ip: trustedRiskIP(request.headers),
+        ip: clientIP(request.headers),
       })
       result = { submitted: true, withdrawal: await withdraw(user, data) }
     } else if (path.startsWith('admin')) {

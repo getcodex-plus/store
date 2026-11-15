@@ -1,4 +1,3 @@
-import { isIP } from 'node:net'
 import { db, transaction, type DbClient } from './db'
 import { incrementRateLimit } from './database-sql'
 import { id, secretHash } from './crypto'
@@ -15,22 +14,6 @@ import {
 } from './risk-policy'
 import { turnstilePublic, verifyTurnstileResult, type VerificationScene } from './turnstile'
 import { integration } from './integrations/config'
-
-export function trustedRiskIP(headers: Pick<Headers, 'get'>): string | undefined {
-  if (process.env.TRUST_PROXY !== 'true') return
-  const value = headers.get('x-real-ip')?.trim()
-  // Scoped/link-local zone identifiers are not a usable public client identity.
-  if (!value || value.includes('%') || !isIP(value)) return
-  // WHATWG URL serializes equivalent IPv6 addresses to the same representation.
-  const canonical = isIP(value) === 6 ? new URL(`http://[${value}]`).hostname.slice(1, -1) : value
-  return canonical.startsWith('::ffff:') && /^::ffff:[a-f0-9]+:[a-f0-9]+$/.test(canonical)
-    ? canonical
-        .slice(7)
-        .split(':')
-        .flatMap((part) => [parseInt(part, 16) >> 8, parseInt(part, 16) & 255])
-        .join('.')
-    : canonical
-}
 
 export function riskDigest(dimension: string, value: string) {
   return secretHash(`risk:${dimension}\0${value}`)
