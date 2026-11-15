@@ -80,7 +80,7 @@ test('admin screens stay usable at narrow widths and refresh preserves settings 
   expect(stored.settings.supportEmail).not.toBe('unsaved-review@example.com')
 
   await openAdminPage(page, '订单管理')
-  const search = page.getByLabel('搜索订单、联系邮箱、充值账号或套餐')
+  const search = page.getByLabel('搜索订单、联系邮箱、充值账号、套餐或 IP')
   const searched = page.waitForResponse((response) =>
     response.url().includes('search=no-matching-delivery-review'),
   )

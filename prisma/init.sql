@@ -289,6 +289,7 @@ CREATE TABLE orders (
     failure_reason text,
     contact_email text,
     guest_browser_digest text,
+    ip_address text,
     aicdk_integration_id text,
     balance_amount integer DEFAULT 0 NOT NULL,
     external_amount integer NOT NULL,

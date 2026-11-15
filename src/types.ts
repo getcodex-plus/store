@@ -12,6 +12,7 @@ export interface OrderRefund {
   completedAt: string | null
 }
 export interface AdminOrder extends Order {
+  ipAddress: string | null
   provider: PaymentProvider
   refundRecord: {
     note: string

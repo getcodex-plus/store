@@ -42,6 +42,7 @@ suite('admin history pagination and permission boundaries', () => {
         productName: 'History plan',
         email: `recharge-${i}@example.com`,
         contactEmail: `contact-${i}@example.com`,
+        ipAddress: i === 0 ? '192.0.2.10' : null,
         amount: 100,
         externalAmount: 100,
         kind: i === 0 ? 'topup' : 'purchase',
@@ -86,6 +87,9 @@ suite('admin history pagination and permission boundaries', () => {
     )
     const old = await query({ section: 'orders', search: ' CONTACT-0@EXAMPLE.COM ' })
     expect(old.orders.map((order) => order.id)).toEqual(['history-order-0'])
+    const byIP = await query({ section: 'orders', search: '192.0.2.10' })
+    expect(byIP.orders.map((order) => order.id)).toEqual(['history-order-0'])
+    expect(byIP.orders[0].ipAddress).toBe('192.0.2.10')
     const last = await query({ section: 'orders', page: 42 })
     expect(last.orders).toHaveLength(9)
     expect(last.orders.at(-1)?.id).toBe('history-order-0')

@@ -119,6 +119,7 @@ export function orderView(record: OrderRecord): Order {
 export function adminOrderView(record: OrderRecord): AdminOrder {
   return {
     ...orderView(record),
+    ipAddress: record.ipAddress,
     provider: z.enum(['xorpay', 'gmpay', 'epay_v1', 'epay_v2', 'balance']).parse(record.provider),
     refundRecord: record.refundStatus
       ? {

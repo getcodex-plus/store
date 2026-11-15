@@ -295,6 +295,7 @@ model Order {
   failureReason       String?        @map("failure_reason")
   contactEmail        String?        @map("contact_email")
   guestBrowserDigest  String?        @map("guest_browser_digest")
+  ipAddress           String?        @map("ip_address")
   aicdkIntegrationId  String?        @map("aicdk_integration_id")
   balanceAmount       Int            @default(0) @map("balance_amount")
   externalAmount      Int            @map("external_amount")

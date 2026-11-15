@@ -43,4 +43,11 @@ describe('Shared client IP policy', () => {
     const { clientIP } = await import('./client-ip')
     expect(clientIP(new Headers())).toBe('127.0.0.1')
   })
+
+  it('preserves the full IPv6 address for order records without changing rate-limit identity', async () => {
+    const { clientIP } = await import('./client-ip')
+    const headers = new Headers({ 'x-forwarded-for': '2001:db8:1234:5678:abcd::1' })
+    expect(clientIP(headers, { ipv6Subnet: 128 })).toBe('2001:0db8:1234:5678:abcd:0000:0000:0001')
+    expect(clientIP(headers)).toBe('2001:0db8:1234:5678:0000:0000:0000:0000')
+  })
 })

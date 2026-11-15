@@ -354,6 +354,7 @@ export async function newOrder(
     referralCode?: string
     session?: string
   },
+  ipAddress?: string,
 ) {
   if (!user && (!input.quoteId || input.channel === 'balance' || (input.balanceAmount ?? 0) > 0))
     throw new ApiError(401, '钱包功能需要先登录')
@@ -560,6 +561,7 @@ export async function newOrder(
           requestHash,
           contactEmail,
           guestBrowserDigest: user ? null : browser,
+          ipAddress: ipAddress ?? null,
           aicdkIntegrationId: quoteRecord?.aicdkIntegrationId ?? null,
           balanceAmount,
           externalAmount,
@@ -1122,7 +1124,7 @@ export async function adminData(
       ? {
           AND: [
             {
-              OR: ['id', 'email', 'contactEmail', 'productName'].map((field) => ({
+              OR: ['id', 'email', 'contactEmail', 'productName', 'ipAddress'].map((field) => ({
                 [field]: { contains: query.search, mode: 'insensitive' },
               })),
             },

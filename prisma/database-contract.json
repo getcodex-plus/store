@@ -581,6 +581,10 @@
       "definition": "text|false|"
     },
     {
+      "key": "orders.ip_address",
+      "definition": "text|false|"
+    },
+    {
       "key": "orders.kind",
       "definition": "text|true|'purchase'::text"
     },

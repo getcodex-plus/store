@@ -485,6 +485,14 @@ export function Admin() {
       ),
     },
     { title: '充值账号', dataIndex: 'email', width: 230, ellipsis: true },
+    {
+      title: '下单 IP',
+      dataIndex: 'ipAddress',
+      width: 190,
+      render: (value: string | null) => (
+        <span className="mono wrap-anywhere">{value || '未记录'}</span>
+      ),
+    },
     { title: '订单金额', dataIndex: 'amount', width: 110, render: money },
     { title: '余额抵扣', dataIndex: 'balanceAmount', width: 110, render: money },
     { title: '渠道金额', dataIndex: 'externalAmount', width: 110, render: money },
@@ -815,9 +823,9 @@ export function Admin() {
                   <div className="table-toolbar">
                     <h3>全部订单</h3>
                     <Input.Search
-                      placeholder="搜索订单 / 邮箱 / 套餐"
+                      placeholder="搜索订单 / 邮箱 / 套餐 / IP"
                       value={search}
-                      aria-label="搜索订单、联系邮箱、充值账号或套餐"
+                      aria-label="搜索订单、联系邮箱、充值账号、套餐或 IP"
                       onChange={(e) => updateSearch(e.target.value)}
                       style={{ maxWidth: 320 }}
                       allowClear

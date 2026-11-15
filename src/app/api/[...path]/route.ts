@@ -189,10 +189,16 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
       await checkRiskRate('order', { browser, user: user?.id, ip: clientIP(request.headers) })
       if (!demo && input.quoteId) await checkRiskRate('preflight', {})
       if (input.contactEmail) await checkRiskRate('order-contact', { email: input.contactEmail })
-      result = await newOrder(user, browser, {
-        ...input,
-        session: demo && input.session ? normalizeDemoSession(input.session) : input.session,
-      })
+      result = await newOrder(
+        user,
+        browser,
+        {
+          ...input,
+          session: demo && input.session ? normalizeDemoSession(input.session) : input.session,
+        },
+        // Keep the full address for the order snapshot, not the /64 rate-limit identity.
+        clientIP(request.headers, { ipv6Subnet: 128 }),
+      )
     } else if (/^orders\/[^/]+$/.test(path) && method === 'GET') {
       const order = await accessibleOrder(
         await currentUser(),

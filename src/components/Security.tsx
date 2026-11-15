@@ -97,6 +97,25 @@ function SecurityContent() {
         <Skeleton active />
       ) : (
         <>
+          <Card title="登录设备" className="mb-24">
+            <p className="muted">退出其他浏览器和设备上的登录，当前会话保持登录。</p>
+            <Popconfirm
+              title="退出其他设备？"
+              description="其他设备需要重新登录，当前设备不受影响。"
+              okText="退出其他设备"
+              cancelText="取消"
+              onConfirm={() =>
+                action(async () => {
+                  authResult(await authClient.revokeOtherSessions())
+                  message.success('其他登录会话已退出，当前会话已保留')
+                })
+              }
+            >
+              <Button danger loading={busy}>
+                退出其他设备
+              </Button>
+            </Popconfirm>
+          </Card>
           <Card className="mb-24 two-step-card">
             <div className="security-section-heading">
               <div>
