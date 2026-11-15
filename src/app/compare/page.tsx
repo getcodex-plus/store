@@ -8,7 +8,7 @@ import { Support } from '../../components/Support'
 export const dynamic = 'force-dynamic'
 export const metadata = pageMetadata(
   'ChatGPT Go、Plus 与 Pro 套餐对比｜价格与选购建议',
-  '比较 ChatGPT Go、Plus 和 Pro 各档位的套餐内容、适合的用户与本次价格，按自己的使用需求选择。',
+  '比较 ChatGPT Go、Plus 和 Pro 各档位的套餐内容、适合的用户与每月价格，按自己的使用需求选择。',
   '/compare',
 )
 export default async function Compare() {
@@ -40,7 +40,7 @@ export default async function Compare() {
               <th scope="col">套餐</th>
               <th scope="col">适合的用户</th>
               <th scope="col">套餐内容</th>
-              <th scope="col">本次价格</th>
+              <th scope="col">每月价格</th>
             </tr>
           </thead>
           <tbody>
@@ -63,7 +63,9 @@ export default async function Compare() {
                     </ul>
                   </td>
                   <td className="comparison-price">
-                    <strong>{p.priceStatus === 'pending' ? '价格更新中' : money(p.price)}</strong>
+                    <strong>
+                      {p.priceStatus === 'pending' ? '价格更新中' : `${money(p.price)} / 月`}
+                    </strong>
                     <Link href={`/plans/${p.id}`} aria-label={`查看${p.name}详情`}>
                       查看详情 →
                     </Link>
@@ -81,7 +83,7 @@ export default async function Compare() {
           OpenAI 套餐说明
         </a>
         。额度倍数以 Plus 的 Work / Codex 额度为基准；Pro 无 5 小时限额，仍有周额度限制。
-        实际功能及用量以账号内显示为准。表中价格为本站本次充值价格。
+        实际功能及用量以账号内显示为准。表中价格为本站每月充值价格。
       </p>
       <h2>不确定选哪档？推荐从 Plus 开始。</h2>
       <p>
@@ -92,7 +94,7 @@ export default async function Compare() {
       <h2>Plus 和 Pro 怎么选？先看实际使用情况</h2>
       <p>
         如果你还没有遇到影响工作的用量限制，可以先按预算选择，记录自己常用的任务和使用频率。
-        如果经常因额度不足中断工作，再比较 Pro 各档位的内容与本次价格，确认增加的预算是否符合需求。
+        如果经常因额度不足中断工作，再比较 Pro 各档位的内容与每月价格，确认增加的预算是否符合需求。
       </p>
       <p>
         套餐名称不能代替具体服务说明。购买前打开对应详情，核对订阅期限、目标套餐和账号条件；
@@ -100,7 +102,7 @@ export default async function Compare() {
       </p>
       <h2>这里的价格包含什么？会自动续费吗？</h2>
       <p>
-        表中金额是本站普通充值服务的本次价格，服务内容以对应商品说明及付款前确认的信息为准。
+        表中金额是本站普通充值服务的每月价格，服务内容以对应商品说明及付款前确认的信息为准。
         本站按订单一次性收款，不自动续扣；账号自身的订阅续费设置需要另行确认。
         已有订阅需要升级时，应先检查账号并获取升级报价。
       </p>

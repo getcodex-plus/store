@@ -75,7 +75,7 @@ export default async function Home() {
                 <strong>
                   {recommended.priceStatus === 'pending' ? '价格更新中' : money(recommended.price)}
                 </strong>
-                {recommended.priceStatus !== 'pending' && <span>本次总价</span>}
+                {recommended.priceStatus !== 'pending' && <span>/ 月</span>}
               </div>
               <Link className="entry-cta" href={`/checkout?product=${recommended.id}`}>
                 {recommended.priceStatus === 'pending' ? '查看套餐状态' : '开始充值'}

@@ -2890,3 +2890,6 @@ svg {
 .footer-links {
   flex-wrap: wrap;
 }
+.ant-btn:not(.ant-btn-loading) .ant-btn-loading-icon {
+  display: none;
+}

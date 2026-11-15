@@ -77,7 +77,7 @@ export default async function Plan({ params }: { params: Promise<{ id: string }>
           : product.priceStatus === 'pending'
             ? '价格更新中'
             : money(product.price)}{' '}
-        <span>{product.upgrade ? '确认本次总价后再付款' : '/ 本次服务'}</span>
+        <span>{product.upgrade ? '确认本次总价后再付款' : '/ 月'}</span>
       </div>
       <p>
         本站按订单一次性收款，不会自动从你的支付账户续扣。ChatGPT
@@ -103,7 +103,7 @@ export default async function Plan({ params }: { params: Promise<{ id: string }>
       <p>
         {product.upgrade
           ? '升级金额根据当前账号检查结果确定，不能直接用两个普通充值套餐的售价相减。检查通过后，核对目标套餐、最终总价和报价有效时间。'
-          : '页面金额为本站该商品的本次充值价格，付款前仍需检查账号适用性并核对订单金额。价格更新中时，请等待可用价格后再确认购买。'}
+          : '页面金额为本站该商品的每月充值价格，付款前仍需检查账号适用性并核对订单金额。价格更新中时，请等待可用价格后再确认购买。'}
       </p>
       <p>
         订阅期限与交付内容以本商品说明和付款前确认的信息为准。如说明中未明确期限，或你已有订阅但不确定如何处理，

@@ -16,7 +16,7 @@ export const planBuyingAdvice: Record<string, { audience: string; consideration:
   pro5: {
     audience: '适合已经有固定 AI 工作习惯，正在考虑从 Plus 转向 Pro 的开发者与创作者。',
     consideration:
-      '先确认 Plus 是否经常无法满足实际任务，再比较 Pro 100 的套餐内容和本次价格，避免仅凭档位名称升级。',
+      '先确认 Plus 是否经常无法满足实际任务，再比较 Pro 100 的套餐内容和每月价格，避免仅凭档位名称升级。',
   },
   pro20: {
     audience: '适合把 AI 用于持续开发、研究或多个项目，并能根据实际使用情况评估预算的个人用户。',
