@@ -47,6 +47,7 @@ import { WithdrawalEstimate } from './WithdrawalEstimate'
 import { RefundDialog } from './RefundDialog'
 import { InventoryImportDialog } from './InventoryImportDialog'
 import { InventoryManager } from './InventoryManager'
+import { ReferralTierEditor } from './ReferralTierEditor'
 import { useSite } from './Providers'
 import { api, channels, dateTime, money, orderStatusLabel } from '../lib'
 import { refundNeedsReview } from '../refunds'
@@ -125,6 +126,17 @@ const providerNames: Record<IntegrationKind, string> = {
   resend: 'Resend 邮件',
   sendflare: 'Sendflare 邮件',
   turnstile: 'Cloudflare Turnstile',
+}
+const providerDetails: Record<IntegrationKind, { icon: string; description: string }> = {
+  xorpay: { icon: 'X', description: '支付宝和微信收款。' },
+  gmpay: { icon: '₮', description: '加密货币收款。' },
+  epay_v1: { icon: '易', description: '支付宝和微信收款。当前协议 v1（MD5）。' },
+  epay_v2: { icon: '易', description: '支付宝和微信收款。当前协议 v2（RSA-SHA256）。' },
+  aicdk: { icon: 'A', description: '账号检查、充值与升级。' },
+  smtp: { icon: '@', description: '发送登录验证码和订单通知。' },
+  resend: { icon: '@', description: '发送登录验证码和订单通知。' },
+  sendflare: { icon: '@', description: '发送登录验证码和订单通知。' },
+  turnstile: { icon: '盾', description: '可选安全验证，覆盖登录、验证码发送与购买。' },
 }
 const publicFields: Record<IntegrationKind, [string, string, string][]> = {
   xorpay: [['appId', 'App ID', '商户应用 ID']],
@@ -1199,17 +1211,7 @@ function AdminContent() {
                           <Card key={provider}>
                             <div className="integration-card-head">
                               <span className={`provider-icon ${provider}`}>
-                                {provider === 'turnstile'
-                                  ? '盾'
-                                  : provider === 'aicdk'
-                                    ? 'A'
-                                    : ['smtp', 'resend'].includes(provider)
-                                      ? '@'
-                                      : provider === 'gmpay'
-                                        ? '₮'
-                                        : provider.startsWith('epay')
-                                          ? '易'
-                                          : 'X'}
+                                {providerDetails[provider].icon}
                               </span>
                               <Tag color={config?.enabled ? 'success' : 'default'}>
                                 {config?.enabled ? '已配置并启用' : '未启用'}
@@ -1218,19 +1220,7 @@ function AdminContent() {
                             <h3>
                               {provider.startsWith('epay_') ? '易支付' : providerNames[provider]}
                             </h3>
-                            <p>
-                              {provider === 'turnstile'
-                                ? '可选安全验证，覆盖登录、验证码发送与购买。'
-                                : provider === 'aicdk'
-                                  ? '账号检查、充值与升级。'
-                                  : ['smtp', 'resend'].includes(provider)
-                                    ? '发送登录验证码。'
-                                    : provider === 'gmpay'
-                                      ? '加密货币收款。'
-                                      : provider.startsWith('epay_')
-                                        ? `支付宝和微信收款。当前协议 ${provider === 'epay_v2' ? 'v2（RSA-SHA256）' : 'v1（MD5）'}。`
-                                        : '支付宝和微信收款。'}
-                            </p>
+                            <p>{providerDetails[provider].description}</p>
                             <div className="integration-meta">
                               {config ? (
                                 <span>更新于 {dateTime(config.createdAt)}</span>
@@ -1372,53 +1362,14 @@ function AdminContent() {
                   >
                     <h3>邀请返现</h3>
                     <p className="muted">
-                      按已结算订单的联系邮箱去重统计有效邀请，游客也计入。默认返现为{' '}
-                      {defaultReferralTiers.map((tier) => `${tier.rateBps / 100}%`).join(' / ')}
-                      ，后台可配置至 9%。调整只影响新订单，已有订单保留原比例。
+                      按已结算订单的联系邮箱去重统计有效邀请，游客也计入。可新增或删除等级，并设置名称、邀请门槛与返现比例（最高
+                      9%）。 至少保留一级，第一级门槛为 0
+                      人，后续门槛逐级提高，返现比例不低于前一级。保存后对新订单生效，已有订单保留原比例。
                     </p>
-                    <Form.List name="tierRules">
-                      {(fields) =>
-                        fields.map((field, index) => (
-                          <div className="referral-tier-fields" key={field.key}>
-                            <Form.Item name={[field.name, 'id']} hidden>
-                              <Input />
-                            </Form.Item>
-                            <Form.Item
-                              name={[field.name, 'name']}
-                              label={`等级 ${index + 1} 名称`}
-                              rules={[{ required: true, whitespace: true, max: 20 }]}
-                            >
-                              <Input maxLength={20} />
-                            </Form.Item>
-                            <Form.Item
-                              name={[field.name, 'minimumInvites']}
-                              label={`等级 ${index + 1} 有效邀请（人）`}
-                              rules={[{ required: true }]}
-                            >
-                              <InputNumber
-                                min={0}
-                                max={1000000}
-                                precision={0}
-                                disabled={index === 0}
-                                style={{ width: '100%' }}
-                              />
-                            </Form.Item>
-                            <Form.Item
-                              name={[field.name, 'ratePercent']}
-                              label={`等级 ${index + 1} 返现（%）`}
-                              rules={[{ required: true }]}
-                            >
-                              <InputNumber
-                                min={0}
-                                max={9}
-                                precision={2}
-                                style={{ width: '100%' }}
-                              />
-                            </Form.Item>
-                          </div>
-                        ))
-                      }
-                    </Form.List>
+                    <p className="muted">
+                      删除第一级后，下一级门槛自动归零。原先被指定到已删除等级的用户，将恢复按有效邀请人数自动计算等级。
+                    </p>
+                    <ReferralTierEditor disabled={!can('settings:write')} />
                     <div className="form-two">
                       <Form.Item
                         name="settlementDays"

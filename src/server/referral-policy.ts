@@ -1,4 +1,5 @@
 import { z } from 'zod'
+export { referralTiersSchema } from '../referral-policy'
 import {
   usdtNetworks,
   validUsdtAddress,
@@ -46,43 +47,6 @@ export const withdrawalChannelsSchema = z
           message: `${label}最低起提金额必须高于该金额对应的手续费`,
         })
     }
-  })
-
-export const referralTiersSchema = z
-  .array(
-    z.object({
-      id: z.string().regex(/^[a-z\d_-]{1,32}$/),
-      name: z.string().trim().min(1).max(20),
-      minimumInvites: z.number().int().min(0).max(1000000),
-      rateBps: z.number().int().min(0).max(900),
-    }),
-  )
-  .length(4)
-  .superRefine((tiers, ctx) => {
-    if (!tiers.length) return
-    if (tiers[0].minimumInvites !== 0)
-      ctx.addIssue({
-        code: 'custom',
-        message: '第一级邀请门槛必须为 0 人',
-        path: [0, 'minimumInvites'],
-      })
-    if (new Set(tiers.map((tier) => tier.id)).size !== tiers.length)
-      ctx.addIssue({ code: 'custom', message: '邀请等级标识不能重复' })
-    tiers.forEach((tier, index) => {
-      if (!index) return
-      if (tier.minimumInvites <= tiers[index - 1].minimumInvites)
-        ctx.addIssue({
-          code: 'custom',
-          message: '各等级人数门槛必须逐级提高',
-          path: [index, 'minimumInvites'],
-        })
-      if (tier.rateBps < tiers[index - 1].rateBps)
-        ctx.addIssue({
-          code: 'custom',
-          message: '高等级返现比例不能低于前一级',
-          path: [index, 'rateBps'],
-        })
-    })
   })
 
 const withdrawalFields = {

@@ -13,10 +13,17 @@ export async function updateCommercialPolicy(client: DbClient) {
   const pricing = settings.upgradePricing
   if (!pricing) throw new Error('Initialize upgrade pricing before applying the commercial policy')
   const tiers = referralTiersSchema.parse(settings.referralTiers ?? defaultReferralTiers)
-  const referralTiers = tiers.map((tier, index) => ({
-    ...tier,
-    rateBps: defaultReferralTiers[index].rateBps,
-  }))
+  // This rollout only targets the original ladder; custom configurations keep their rates.
+  const usesDefaultLadder =
+    tiers.length === defaultReferralTiers.length &&
+    tiers.every(
+      (tier, index) =>
+        tier.id === defaultReferralTiers[index].id &&
+        tier.minimumInvites === defaultReferralTiers[index].minimumInvites,
+    )
+  const referralTiers = usesDefaultLadder
+    ? tiers.map((tier, index) => ({ ...tier, rateBps: defaultReferralTiers[index].rateBps }))
+    : tiers
   const targets = { ...pricing.targets }
   for (const plan of ['plus', 'pro5', 'pro20', 'promax']) {
     targets[plan] = {
@@ -74,7 +81,7 @@ if (import.meta.main) {
   try {
     await transaction(updateCommercialPolicy)
     console.log(
-      'Updated recharge prices, upgrade cost markup (30%), and referral rates (3/4/5/6%). Existing order and quote snapshots preserved.',
+      'Updated recharge prices, upgrade cost markup (30%), and default referral ladder rates (3/4/5/6%). Custom ladders and existing order and quote snapshots preserved.',
     )
   } finally {
     await db.$disconnect()

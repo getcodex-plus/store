@@ -1667,8 +1667,52 @@ svg {
   color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
-.inventory-file-import {
-  margin-block-end: 24px;
+.inventory-import-form {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding-block-start: 16px;
+}
+.inventory-import-form .ant-form-item {
+  margin-block-end: 0;
+}
+.inventory-import-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+.inventory-import-source {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.inventory-import-source .ant-segmented {
+  padding: 4px;
+}
+.inventory-import-source .ant-segmented-item-label {
+  min-height: 36px;
+  line-height: 36px;
+}
+.inventory-import-enabled {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.inventory-import-enabled > label {
+  font-size: var(--text-ui);
+}
+.inventory-import-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding-block-start: 20px;
+  border-block-start: 1px solid var(--line);
+}
+@media (max-width: 560px) {
+  .inventory-import-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .inventory-file-import .ant-upload-drag {
   border-color: var(--line);

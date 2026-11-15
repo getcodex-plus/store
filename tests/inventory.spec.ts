@@ -33,7 +33,7 @@ test('CSV batches supply independently and keep editable notes without exposing 
   await expect(dialog.getByLabel('AICDK 商品', { exact: true })).toHaveCount(0)
   await expect(dialog.getByLabel('国家 / 地区')).toHaveCount(0)
   await dialog.getByLabel('批次备注').fill('土耳其第一批，采购成本较低')
-  await dialog.getByText('File', { exact: true }).click()
+  await dialog.getByText('上传 CSV', { exact: true }).click()
   const uploads: string[] = []
   const observeUploads = (request: import('@playwright/test').Request) => {
     if (

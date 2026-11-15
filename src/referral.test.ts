@@ -7,6 +7,49 @@ import {
 } from './server/referral-policy'
 
 describe('invitation levels and withdrawal policy', () => {
+  it.each([1, 2, 6])('supports %i configured tiers at every promotion boundary', (count) => {
+    const tiers = referralTiersSchema.parse(
+      Array.from({ length: count }, (_, index) => ({
+        id: `custom_${index}`,
+        name: `自定义等级 ${index + 1}`,
+        minimumInvites: index * 3,
+        rateBps: 125 + index * 100,
+      })),
+    )
+    for (const [index, tier] of tiers.entries()) {
+      expect(referralProgress(tier.minimumInvites, { referralTiers: tiers })).toMatchObject({
+        current: tier,
+        next: tiers[index + 1] ?? null,
+        remaining: index < count - 1 ? 3 : 0,
+        progress: index < count - 1 ? 0 : 100,
+      })
+      if (index > 0)
+        expect(referralProgress(tier.minimumInvites - 1, { referralTiers: tiers }).current).toEqual(
+          tiers[index - 1],
+        )
+    }
+    expect(referralProgress(1000000, { referralTiers: tiers }).current).toEqual(tiers.at(-1))
+  })
+
+  it('preserves assignments by ID after edits and falls back when the assigned tier is deleted', () => {
+    const tiers = [
+      { id: 'base', name: '普通会员', minimumInvites: 0, rateBps: 150 },
+      { id: 'custom', name: '推广伙伴', minimumInvites: 10, rateBps: 650 },
+    ]
+    expect(referralProgress(0, { referralTiers: tiers }, 'custom')).toMatchObject({
+      manual: true,
+      current: tiers[1],
+      next: null,
+    })
+    expect(referralProgress(20, { referralTiers: tiers.slice(0, 1) }, 'custom')).toMatchObject({
+      manual: false,
+      current: tiers[0],
+      next: null,
+      remaining: 0,
+      progress: 100,
+    })
+  })
+
   it.each([
     [0, 300, 5],
     [4, 300, 1],
@@ -91,6 +134,10 @@ describe('invitation levels and withdrawal policy', () => {
     expect(referralTiersSchema.safeParse(defaultReferralTiers).success).toBe(true)
     for (const invalid of [
       [],
+      [{ ...defaultReferralTiers[0], minimumInvites: 1 }],
+      [{ ...defaultReferralTiers[0], name: '   ' }],
+      [{ ...defaultReferralTiers[0], rateBps: 12.5 }],
+      defaultReferralTiers.map((tier) => ({ ...tier, id: 'duplicate' })),
       defaultReferralTiers.map((tier) => ({ ...tier, minimumInvites: 0 })),
       defaultReferralTiers.map((tier, i) => ({ ...tier, rateBps: i === 3 ? 1000 : tier.rateBps })),
       defaultReferralTiers.map((tier, i) => ({ ...tier, rateBps: i === 2 ? 100 : tier.rateBps })),

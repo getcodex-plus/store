@@ -75,6 +75,8 @@ export function InventoryImportDialog({
   return (
     <Modal
       title="导入兑换库存"
+      className="inventory-import-dialog"
+      width={600}
       open
       onCancel={onClose}
       footer={null}
@@ -85,6 +87,7 @@ export function InventoryImportDialog({
     >
       <Form
         name="inventory-import"
+        className="inventory-import-form"
         form={form}
         layout="vertical"
         disabled={busy}
@@ -130,15 +133,27 @@ export function InventoryImportDialog({
           }
         }}
       >
-        <Form.Item
-          name="productId"
-          label="绑定商品"
-          rules={[{ required: true, message: '请选择站内商品' }]}
-        >
-          <Select options={products.map((p) => ({ value: p.id, label: p.name }))} />
-        </Form.Item>
+        <div className="inventory-import-fields">
+          <Form.Item
+            name="productId"
+            label="绑定商品"
+            rules={[{ required: true, message: '请选择站内商品' }]}
+          >
+            <Select
+              placeholder="选择商品"
+              options={products.map((p) => ({ value: p.id, label: p.name }))}
+            />
+          </Form.Item>
+          <Form.Item
+            name="batchName"
+            label="批次名称"
+            rules={[{ required: true, whitespace: true, message: '请填写批次名称' }]}
+          >
+            <Input maxLength={80} placeholder="例如 Plus · 常规补货" />
+          </Form.Item>
+        </div>
         {supportsDiscount && (
-          <>
+          <div className="inventory-import-fields">
             <Form.Item name="channel" label="兑换渠道">
               <Select
                 options={[
@@ -158,99 +173,97 @@ export function InventoryImportDialog({
                 <Input maxLength={2} placeholder="例如 us、tr、jp" />
               </Form.Item>
             )}
-          </>
-        )}
-        <Form.Item
-          name="batchName"
-          label="批次名称"
-          rules={[{ required: true, whitespace: true, message: '请填写批次名称' }]}
-        >
-          <Input maxLength={80} placeholder="例如 Plus · 11 月补货" />
-        </Form.Item>
-        <Segmented
-          block
-          className="mb-24"
-          value={mode}
-          disabled={busy || reading}
-          options={[
-            { value: 'text', label: '粘贴兑换码' },
-            { value: 'csv', label: 'File' },
-          ]}
-          onChange={(value) => {
-            setMode(value as 'text' | 'csv')
-            setError('')
-          }}
-        />
-        {mode === 'text' ? (
-          <Form.Item name="codes" label="兑换码（每行一个）">
-            <Input.TextArea
-              rows={6}
-              autoComplete="off"
-              spellCheck={false}
-              autoCorrect="off"
-              autoCapitalize="off"
-            />
-          </Form.Item>
-        ) : (
-          <div className="inventory-file-import" aria-busy={reading}>
-            {file ? (
-              <div className="inventory-file-card">
-                <FileTextOutlined className="inventory-file-icon" aria-hidden="true" />
-                <div className="inventory-file-details">
-                  <strong>{file.name}</strong>
-                  <span className="tiny muted" role="status">
-                    <CheckCircleOutlined aria-hidden="true" /> 已识别 {file.codes.length} 个兑换码
-                    <span className="inventory-file-size">
-                      {Math.max(0.1, file.size / 1024).toFixed(1)} KB
-                    </span>
-                  </span>
-                </div>
-                <div className="inventory-file-actions">
-                  <Upload {...uploadProps}>
-                    <Button className="inventory-file-action" disabled={busy}>
-                      更换文件
-                    </Button>
-                  </Upload>
-                  <Button
-                    type="text"
-                    className="inventory-file-action"
-                    icon={<DeleteOutlined />}
-                    aria-label="移除文件"
-                    disabled={busy}
-                    onClick={() => {
-                      readVersion.current++
-                      setFile(null)
-                      setFileError('')
-                    }}
-                  />
-                </div>
-              </div>
-            ) : (
-              <Upload.Dragger {...uploadProps} className="inventory-file-dropzone">
-                <UploadOutlined className="inventory-upload-icon" aria-hidden="true" />
-                <strong>{reading ? '正在读取文件…' : '点击选择文件，或拖入 CSV'}</strong>
-                <span className="tiny muted">最多 500 个兑换码 · 256 KB</span>
-              </Upload.Dragger>
-            )}
-            <p className="tiny muted inventory-file-hint">支持 AICDK 导出的 CSV，表头为 code。</p>
-            {fileError && <Alert type="error" showIcon title={fileError} />}
           </div>
         )}
+        <div className="inventory-import-source">
+          <Segmented
+            block
+            aria-label="导入方式"
+            value={mode}
+            disabled={busy || reading}
+            options={[
+              { value: 'text', label: '粘贴兑换码' },
+              { value: 'csv', label: '上传 CSV' },
+            ]}
+            onChange={(value) => {
+              setMode(value as 'text' | 'csv')
+              setError('')
+            }}
+          />
+          {mode === 'text' ? (
+            <Form.Item name="codes" label="兑换码（每行一个）">
+              <Input.TextArea
+                rows={6}
+                autoComplete="off"
+                spellCheck={false}
+                autoCorrect="off"
+                autoCapitalize="off"
+              />
+            </Form.Item>
+          ) : (
+            <div className="inventory-file-import" aria-busy={reading}>
+              {file ? (
+                <div className="inventory-file-card">
+                  <FileTextOutlined className="inventory-file-icon" aria-hidden="true" />
+                  <div className="inventory-file-details">
+                    <strong>{file.name}</strong>
+                    <span className="tiny muted" role="status">
+                      <CheckCircleOutlined aria-hidden="true" /> 已识别 {file.codes.length} 个兑换码
+                      <span className="inventory-file-size">
+                        {Math.max(0.1, file.size / 1024).toFixed(1)} KB
+                      </span>
+                    </span>
+                  </div>
+                  <div className="inventory-file-actions">
+                    <Upload {...uploadProps}>
+                      <Button className="inventory-file-action" disabled={busy}>
+                        更换文件
+                      </Button>
+                    </Upload>
+                    <Button
+                      type="text"
+                      className="inventory-file-action"
+                      icon={<DeleteOutlined />}
+                      aria-label="移除文件"
+                      disabled={busy}
+                      onClick={() => {
+                        readVersion.current++
+                        setFile(null)
+                        setFileError('')
+                      }}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <Upload.Dragger {...uploadProps} className="inventory-file-dropzone">
+                  <UploadOutlined className="inventory-upload-icon" aria-hidden="true" />
+                  <strong>{reading ? '正在读取文件…' : '点击选择文件，或拖入 CSV'}</strong>
+                  <span className="tiny muted">最多 500 个兑换码 · 256 KB</span>
+                </Upload.Dragger>
+              )}
+              <p className="tiny muted inventory-file-hint">支持 AICDK 导出的 CSV，表头为 code。</p>
+              {fileError && <Alert type="error" showIcon title={fileError} />}
+            </div>
+          )}
+        </div>
         <Form.Item name="note" label="批次备注">
-          <Input.TextArea rows={2} maxLength={300} placeholder="例如进货成本、采购日期" />
+          <Input.TextArea rows={2} maxLength={300} placeholder="选填，例如供应商、采购成本" />
         </Form.Item>
-        <Form.Item
-          name="enabled"
-          label="导入后启用批次"
-          valuePropName="checked"
-          extra="同一商品的所有已启用批次共同供货，互不影响。"
-        >
-          <Switch />
-        </Form.Item>
-        {error && <Alert className="mb-24" type="error" showIcon title={error} />}
-        <Button htmlType="submit" type="primary" loading={busy} disabled={reading} block>
-          加密保存库存
-        </Button>
+        <div className="inventory-import-enabled">
+          <label htmlFor="inventory-import-enabled">导入后启用批次</label>
+          <Form.Item name="enabled" valuePropName="checked" noStyle>
+            <Switch id="inventory-import-enabled" />
+          </Form.Item>
+        </div>
+        {error && <Alert type="error" showIcon title={error} />}
+        <div className="inventory-import-footer">
+          <Button onClick={onClose} disabled={busy}>
+            取消
+          </Button>
+          <Button htmlType="submit" type="primary" loading={busy} disabled={reading}>
+            加密保存库存
+          </Button>
+        </div>
       </Form>
     </Modal>
   )

@@ -20,7 +20,7 @@ import { newOrder } from './services'
 import { defaultReferralTiers } from '../referral'
 import { defaultPlanPrices, defaultUpgradeMarkupBps } from '../pricing'
 import { updateCommercialPolicy } from '../../scripts/update-commercial-policy'
-import { settingsData } from './data'
+import { jsonInput, settingsData } from './data'
 
 const suite = process.env.TEST_DATABASE_URL ? describe : describe.skip
 suite('Prisma schema, clock, seeding and worker invariants', () => {
@@ -122,6 +122,31 @@ suite('Prisma schema, clock, seeding and worker invariants', () => {
     )
     expect(await db.audit.count({ where: { target: 'commercial-policy' } })).toBe(2)
   })
+
+  it.each([1, 6])(
+    'preserves a custom %i-tier ladder during a commercial policy rollout',
+    async (count) => {
+      const before = settingsData((await db.setting.findUniqueOrThrow({ where: { id: 1 } })).body)
+      const referralTiers = Array.from({ length: count }, (_, index) => ({
+        id: `custom_${index}`,
+        name: `自定义 ${index + 1}`,
+        minimumInvites: index * 10,
+        rateBps: 125 + index * 100,
+      }))
+      try {
+        await db.setting.update({
+          where: { id: 1 },
+          data: { body: jsonInput({ ...before, referralTiers, rateBps: 125 }) },
+        })
+        await transaction(updateCommercialPolicy)
+        const after = settingsData((await db.setting.findUniqueOrThrow({ where: { id: 1 } })).body)
+        expect(after.referralTiers).toEqual(referralTiers)
+        expect(after.rateBps).toBe(125)
+      } finally {
+        await db.setting.update({ where: { id: 1 }, data: { body: jsonInput(before) } })
+      }
+    },
+  )
 
   it('keeps partial account uniqueness without treating every provider as one-to-one', async () => {
     const user = await db.user.create({
