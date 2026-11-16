@@ -1,0 +1,6 @@
+# Overlay: docker compose -f compose.prod.yaml -f compose.ghcr.yaml up -d --no-build
+services:
+  web:
+    image: '${GETCODEX_IMAGE:-ghcr.io/akinokaede/getcodex-plus:latest}'
+  worker:
+    image: '${GETCODEX_IMAGE:-ghcr.io/akinokaede/getcodex-plus:latest}'

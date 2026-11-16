@@ -44,12 +44,49 @@ bun run dev
 
 ## 部署
 
-1. 使用独立 PostgreSQL 数据库；Compose 的本地 trust 配置不用于正式环境。
+1. 使用独立 PostgreSQL 数据库；`compose.yaml` 中的本地 `trust` 配置仅用于开发，不用于正式环境。
 2. 配置 `APP_MODE=live`、`APP_URL=https://getcodex.plus`、`DATABASE_URL` 及 `.env.example` 中的加密与认证密钥。密钥需安全备份。
 3. 对空库执行 `db:init`、`db:seed`、`db:verify`。
 4. 设置 `ADMIN_EMAIL` 和 `BOOTSTRAP_PASSWORD_FILE`（权限 0600，密码 16–128 字符），执行 `bun run admin:bootstrap`。完成邮件与账号安全配置后删除密码文件。
 5. 在后台配置实际商品、价格、库存和服务，完成真实渠道联调。
 6. 执行 `bun run build`，分别启动 `bun run start` 和 `bun run worker`，通过 HTTPS 网关提供服务。登录、风控和支付统一使用 Better Auth 的解析规则读取网关提供的 `X-Forwarded-For`，无需单独配置代理信任开关。
+
+## Docker 部署
+
+项目根 `Dockerfile` 提供多阶段生产镜像，默认以非 root 用户 `bun` 启动 `web`（`0.0.0.0:3000`），也支持通过参数运行 `worker`、`db:init`、`db:seed`、`db:verify`、`admin:bootstrap` 与 `healthcheck`。
+
+```sh
+# 本地构建镜像（如需启用 GA4，构建与运行时均需传入 NEXT_PUBLIC_GA_ID）
+docker build -t getcodex-plus:local .
+```
+
+生产环境使用 `compose.prod.yaml`（带强密码 PostgreSQL 18、只读根文件系统与最小权限），可叠加 `compose.ghcr.yaml` 与 `compose.traefik.yaml`，外部数据库可使用 `compose.external.yaml`：
+
+```sh
+# 1. 初始化并校验空数据库
+docker compose -f compose.prod.yaml up -d postgres
+docker compose -f compose.prod.yaml run --rm web db:init
+docker compose -f compose.prod.yaml run --rm web db:seed
+docker compose -f compose.prod.yaml run --rm web db:verify
+
+# 2. 启动 web 与 worker（或叠加 -f compose.ghcr.yaml -f compose.traefik.yaml）
+docker compose -f compose.prod.yaml up -d --build
+```
+
+创建初始管理员时，可将受保护的密码文件挂载进容器执行 `admin:bootstrap`：
+
+```sh
+docker compose -f compose.prod.yaml run --rm \
+  -v /path/to/bootstrap-password:/run/secrets/bootstrap-password:ro \
+  -e BOOTSTRAP_PASSWORD_FILE=/run/secrets/bootstrap-password \
+  web admin:bootstrap
+```
+
+## 发布流程
+
+- `.github/workflows/test.yaml`：在 `push`、`pull_request` 或手动触发时运行类型检查、单元测试与 PostgreSQL 集成测试、`next build` 及容器健康冒烟测试。
+- `.github/workflows/release.yaml`：手动触发，输入不带 `v` 前缀的版本号（如 `1.0.0` 或 `1.0.0-rc.1`）与 `prerelease` 标记，校验版本格式、验证构建并创建带 `v` 前缀的 Tag 与 Draft Release。
+- `.github/workflows/docker.yaml`：在 Release 发布或转正时触发，校验版本号后构建并推送 `linux/amd64` 与 `linux/arm64` 多架构镜像至 GHCR（含 `version`、`prereleased`、`latest`（仅正式版）及 `sha` 标签，并附带 Provenance 与 SBOM）。
 
 ## 开发验证
 

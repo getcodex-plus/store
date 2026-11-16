@@ -1,0 +1,78 @@
+name: Test
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.event_name }}-${{ (github.event_name == 'push' || github.event_name == 'pull_request') && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: getgpt
+          POSTGRES_PASSWORD: ci-only
+          POSTGRES_DB: getgpt_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U getgpt -d getgpt_test"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgresql://getgpt:ci-only@127.0.0.1:5432/getgpt_test
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+      - run: bun run test
+      - run: bun run build
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build container for smoke testing
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: getcodex-plus:ci
+          cache-from: type=gha,scope=getcodex-plus
+          cache-to: type=gha,mode=max,scope=getcodex-plus
+      - name: Container health smoke test
+        run: |
+          trap 'docker rm -fv getcodex-ci getcodex-worker-ci >/dev/null 2>&1 || true' EXIT
+          export DATABASE_URL="$TEST_DATABASE_URL"
+          docker run --rm --network host \
+            -e DATABASE_URL getcodex-plus:ci sh -c \
+            "bun scripts/init-database.ts && bun scripts/seed.ts && bun scripts/verify-database.ts"
+          docker run -d --name getcodex-ci \
+            --network host --cap-drop ALL \
+            --security-opt no-new-privileges:true \
+            -e DATABASE_URL \
+            -e APP_MODE=demo \
+            -e APP_URL=http://localhost:3000 \
+            -e ADMIN_EMAIL=admin@example.com \
+            getcodex-plus:ci
+          for _ in $(seq 1 30); do
+            if docker exec getcodex-ci /app/scripts/docker-entrypoint.sh healthcheck && \
+                curl --fail --silent http://127.0.0.1:3000/api/bootstrap >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          docker logs getcodex-ci
+          exit 1

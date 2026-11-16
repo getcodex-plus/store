@@ -1,0 +1,85 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version without v prefix (e.g. 1.0.0 or 1.0.0-rc.1)
+        required: true
+        type: string
+      prerelease:
+        description: Mark as prerelease
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check version and prerelease flag
+        env:
+          VERSION: ${{ inputs.version }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: bash scripts/check-release-version.sh "$VERSION" "$PRERELEASE"
+
+  verify:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+      - run: bun run build
+
+  draft:
+    name: Create draft release
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ inputs.version }}
+      PRERELEASE: ${{ inputs.prerelease }}
+    steps:
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          tag="v$VERSION"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists; refusing to replace it." >&2
+            exit 1
+          fi
+          # Pin the tag to the verified commit; never move an existing tag.
+          refs=$(gh api "repos/$GH_REPO/git/matching-refs/tags/$tag")
+          if jq -e --arg ref "refs/tags/$tag" 'any(.[]; .ref == $ref)' <<< "$refs" >/dev/null; then
+            existing=$(gh api "repos/$GH_REPO/commits/refs/tags/$tag" --jq .sha)
+            if [[ "$existing" != "$GITHUB_SHA" ]]; then
+              echo "Tag $tag already points to another commit." >&2
+              exit 1
+            fi
+          else
+            gh api --method POST "repos/$GH_REPO/git/refs" -f ref="refs/tags/$tag" -f sha="$GITHUB_SHA" --silent
+          fi
+          gh release create "$tag" --verify-tag --draft --prerelease="$PRERELEASE" \
+            --title "$tag" --generate-notes

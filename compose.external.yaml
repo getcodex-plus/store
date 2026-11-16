@@ -1,0 +1,30 @@
+# Standalone file, not an overlay. PostgreSQL is managed externally.
+x-app: &app
+  image: '${GETCODEX_IMAGE:-getcodex-plus:local}'
+  build:
+    context: .
+    args:
+      NEXT_PUBLIC_GA_ID: '${NEXT_PUBLIC_GA_ID:-}'
+  env_file: .env
+  tmpfs:
+    - /tmp
+    - /app/.next/cache:uid=1000,gid=1000
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  restart: unless-stopped
+  networks: [backend]
+
+services:
+  web:
+    <<: *app
+    command: [web]
+    ports: ['${BIND_ADDRESS:-127.0.0.1}:${PORT:-3000}:3000']
+  worker:
+    <<: *app
+    command: [worker]
+    stop_grace_period: 140s
+    healthcheck: { disable: true }
+
+networks:
+  backend:
