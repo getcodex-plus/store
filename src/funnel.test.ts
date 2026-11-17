@@ -22,6 +22,8 @@ describe('minimal funnel input', () => {
   it('classifies sources without returning raw queries, referrals or identifiers', () => {
     const origin = 'https://shop.example'
     expect(classifySource('?ref=abcdef1234', '', origin)).toBe('referral')
+    expect(classifySource('?coupon=save20', '', origin)).toBe('coupon')
+    expect(classifySource('?promo=VIP_2026', '', origin)).toBe('coupon')
     expect(classifySource('?utm_source=google&utm_term=private', '', origin)).toBe('google')
     expect(classifySource('?utm_source=person@example.com', '', origin)).toBe('other')
     expect(classifySource('', 'https://www.google.com/search?q=private', origin)).toBe('google')

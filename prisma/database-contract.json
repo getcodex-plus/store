@@ -225,6 +225,142 @@
       "definition": "text|true|"
     },
     {
+      "key": "coupon_redemptions.buyer_key",
+      "definition": "text|true|"
+    },
+    {
+      "key": "coupon_redemptions.contact_key",
+      "definition": "text|true|"
+    },
+    {
+      "key": "coupon_redemptions.coupon_id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "coupon_redemptions.created_at",
+      "definition": "timestamp with time zone|true|now()"
+    },
+    {
+      "key": "coupon_redemptions.discount_amount",
+      "definition": "integer|true|"
+    },
+    {
+      "key": "coupon_redemptions.expires_at",
+      "definition": "timestamp with time zone|false|"
+    },
+    {
+      "key": "coupon_redemptions.id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "coupon_redemptions.order_id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "coupon_redemptions.status",
+      "definition": "text|true|'reserved'::text"
+    },
+    {
+      "key": "coupon_redemptions.updated_at",
+      "definition": "timestamp with time zone|true|now()"
+    },
+    {
+      "key": "coupon_redemptions.user_id",
+      "definition": "text|false|"
+    },
+    {
+      "key": "coupons.affiliate_rate_bps",
+      "definition": "integer|false|"
+    },
+    {
+      "key": "coupons.affiliate_user_id",
+      "definition": "text|false|"
+    },
+    {
+      "key": "coupons.allow_referral",
+      "definition": "boolean|true|true"
+    },
+    {
+      "key": "coupons.code",
+      "definition": "text|true|"
+    },
+    {
+      "key": "coupons.created_at",
+      "definition": "timestamp with time zone|true|now()"
+    },
+    {
+      "key": "coupons.discount_kind",
+      "definition": "text|true|"
+    },
+    {
+      "key": "coupons.discount_value",
+      "definition": "integer|true|"
+    },
+    {
+      "key": "coupons.enabled",
+      "definition": "boolean|true|true"
+    },
+    {
+      "key": "coupons.expires_at",
+      "definition": "timestamp with time zone|false|"
+    },
+    {
+      "key": "coupons.first_order_only",
+      "definition": "boolean|true|false"
+    },
+    {
+      "key": "coupons.id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "coupons.max_discount_amount",
+      "definition": "integer|false|"
+    },
+    {
+      "key": "coupons.max_redemptions",
+      "definition": "integer|false|"
+    },
+    {
+      "key": "coupons.min_amount",
+      "definition": "integer|true|0"
+    },
+    {
+      "key": "coupons.name",
+      "definition": "text|true|"
+    },
+    {
+      "key": "coupons.note",
+      "definition": "text|true|''::text"
+    },
+    {
+      "key": "coupons.per_buyer_limit",
+      "definition": "integer|false|1"
+    },
+    {
+      "key": "coupons.product_ids",
+      "definition": "jsonb|true|'[]'::jsonb"
+    },
+    {
+      "key": "coupons.require_login",
+      "definition": "boolean|true|false"
+    },
+    {
+      "key": "coupons.scope_mode",
+      "definition": "text|true|'all'::text"
+    },
+    {
+      "key": "coupons.starts_at",
+      "definition": "timestamp with time zone|false|"
+    },
+    {
+      "key": "coupons.updated_at",
+      "definition": "timestamp with time zone|true|now()"
+    },
+    {
+      "key": "coupons.upgrade_protection",
+      "definition": "text|true|'cost'::text"
+    },
+    {
       "key": "demo_mailbox.browser_digest",
       "definition": "text|true|"
     },
@@ -537,8 +673,24 @@
       "definition": "text|false|"
     },
     {
+      "key": "orders.coupon_code",
+      "definition": "text|false|"
+    },
+    {
+      "key": "orders.coupon_id",
+      "definition": "text|false|"
+    },
+    {
+      "key": "orders.coupon_snapshot",
+      "definition": "jsonb|false|"
+    },
+    {
       "key": "orders.created_at",
       "definition": "timestamp with time zone|true|now()"
+    },
+    {
+      "key": "orders.discount_amount",
+      "definition": "integer|true|0"
     },
     {
       "key": "orders.email",
@@ -591,6 +743,10 @@
     {
       "key": "orders.kind",
       "definition": "text|true|'purchase'::text"
+    },
+    {
+      "key": "orders.list_amount",
+      "definition": "integer|true|"
     },
     {
       "key": "orders.payment_attempted",
@@ -1347,6 +1503,178 @@
       "definition": "NOT NULL user_id"
     },
     {
+      "key": "coupon_redemptions.coupon_redemptions_buyer_key_not_null",
+      "definition": "NOT NULL buyer_key"
+    },
+    {
+      "key": "coupon_redemptions.coupon_redemptions_contact_key_not_null",
+      "definition": "NOT NULL contact_key"
+    },
+    {
+      "key": "coupon_redemptions.coupon_redemptions_coupon_id_fkey",
+      "definition": "FOREIGN KEY (coupon_id) REFERENCES coupons(id)"
+    },
+    {
+      "key": "coupon_redemptions.coupon_redemptions_coupon_id_not_null",
+      "definition": "NOT NULL coupon_id"
+    },
+    {
+      "key": "coupon_redemptions.coupon_redemptions_created_at_not_null",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "key": "coupon_redemptions.coupon_redemptions_discount_amount_check",
+      "definition": "CHECK ((discount_amount > 0))"
+    },
+    {
+      "key": "coupon_redemptions.coupon_redemptions_discount_amount_not_null",
+      "definition": "NOT NULL discount_amount"
+    },
+    {
+      "key": "coupon_redemptions.coupon_redemptions_expires_check",
+      "definition": "CHECK (((status = 'reserved'::text) OR (expires_at IS NULL)))"
+    },
+    {
+      "key": "coupon_redemptions.coupon_redemptions_id_not_null",
+      "definition": "NOT NULL id"
+    },
+    {
+      "key": "coupon_redemptions.coupon_redemptions_order_id_fkey",
+      "definition": "FOREIGN KEY (order_id) REFERENCES orders(id)"
+    },
+    {
+      "key": "coupon_redemptions.coupon_redemptions_order_id_key",
+      "definition": "UNIQUE (order_id)"
+    },
+    {
+      "key": "coupon_redemptions.coupon_redemptions_order_id_not_null",
+      "definition": "NOT NULL order_id"
+    },
+    {
+      "key": "coupon_redemptions.coupon_redemptions_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "coupon_redemptions.coupon_redemptions_status_check",
+      "definition": "CHECK ((status = ANY (ARRAY['reserved'::text, 'redeemed'::text, 'released'::text])))"
+    },
+    {
+      "key": "coupon_redemptions.coupon_redemptions_status_not_null",
+      "definition": "NOT NULL status"
+    },
+    {
+      "key": "coupon_redemptions.coupon_redemptions_updated_at_not_null",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "key": "coupon_redemptions.coupon_redemptions_user_id_fkey",
+      "definition": "FOREIGN KEY (user_id) REFERENCES users(id)"
+    },
+    {
+      "key": "coupons.coupons_affiliate_rate_check",
+      "definition": "CHECK (((affiliate_rate_bps IS NULL) OR ((affiliate_user_id IS NOT NULL) AND (affiliate_rate_bps >= 0) AND (affiliate_rate_bps <= 900))))"
+    },
+    {
+      "key": "coupons.coupons_affiliate_user_id_fkey",
+      "definition": "FOREIGN KEY (affiliate_user_id) REFERENCES users(id)"
+    },
+    {
+      "key": "coupons.coupons_allow_referral_not_null",
+      "definition": "NOT NULL allow_referral"
+    },
+    {
+      "key": "coupons.coupons_code_check",
+      "definition": "CHECK ((code ~ '^[A-Z0-9_-]{3,32}$'::text))"
+    },
+    {
+      "key": "coupons.coupons_code_key",
+      "definition": "UNIQUE (code)"
+    },
+    {
+      "key": "coupons.coupons_code_not_null",
+      "definition": "NOT NULL code"
+    },
+    {
+      "key": "coupons.coupons_created_at_not_null",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "key": "coupons.coupons_discount_check",
+      "definition": "CHECK ((((discount_kind = 'fixed'::text) AND (discount_value > 0) AND (discount_value <= 100000000) AND (max_discount_amount IS NULL)) OR ((discount_kind = 'percent'::text) AND (discount_value >= 1) AND (discount_value <= 9900) AND ((max_discount_amount IS NULL) OR ((max_discount_amount > 0) AND (max_discount_amount <= 100000000))))))"
+    },
+    {
+      "key": "coupons.coupons_discount_kind_not_null",
+      "definition": "NOT NULL discount_kind"
+    },
+    {
+      "key": "coupons.coupons_discount_value_not_null",
+      "definition": "NOT NULL discount_value"
+    },
+    {
+      "key": "coupons.coupons_enabled_not_null",
+      "definition": "NOT NULL enabled"
+    },
+    {
+      "key": "coupons.coupons_first_order_only_not_null",
+      "definition": "NOT NULL first_order_only"
+    },
+    {
+      "key": "coupons.coupons_id_not_null",
+      "definition": "NOT NULL id"
+    },
+    {
+      "key": "coupons.coupons_limits_check",
+      "definition": "CHECK (((min_amount >= 0) AND (min_amount <= 100000000) AND ((max_redemptions IS NULL) OR (max_redemptions > 0)) AND ((per_buyer_limit IS NULL) OR (per_buyer_limit > 0))))"
+    },
+    {
+      "key": "coupons.coupons_min_amount_not_null",
+      "definition": "NOT NULL min_amount"
+    },
+    {
+      "key": "coupons.coupons_name_not_null",
+      "definition": "NOT NULL name"
+    },
+    {
+      "key": "coupons.coupons_note_not_null",
+      "definition": "NOT NULL note"
+    },
+    {
+      "key": "coupons.coupons_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "coupons.coupons_product_ids_not_null",
+      "definition": "NOT NULL product_ids"
+    },
+    {
+      "key": "coupons.coupons_require_login_not_null",
+      "definition": "NOT NULL require_login"
+    },
+    {
+      "key": "coupons.coupons_scope_mode_check",
+      "definition": "CHECK ((scope_mode = ANY (ARRAY['all'::text, 'recharge_only'::text, 'upgrade_only'::text, 'products'::text])))"
+    },
+    {
+      "key": "coupons.coupons_scope_mode_not_null",
+      "definition": "NOT NULL scope_mode"
+    },
+    {
+      "key": "coupons.coupons_updated_at_not_null",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "key": "coupons.coupons_upgrade_protection_check",
+      "definition": "CHECK ((upgrade_protection = ANY (ARRAY['cost'::text, 'min_profit'::text, 'none'::text])))"
+    },
+    {
+      "key": "coupons.coupons_upgrade_protection_not_null",
+      "definition": "NOT NULL upgrade_protection"
+    },
+    {
+      "key": "coupons.coupons_window_check",
+      "definition": "CHECK (((starts_at IS NULL) OR (expires_at IS NULL) OR (starts_at < expires_at)))"
+    },
+    {
       "key": "demo_mailbox.demo_mailbox_browser_digest_not_null",
       "definition": "NOT NULL browser_digest"
     },
@@ -1444,7 +1772,7 @@
     },
     {
       "key": "funnel_events.funnel_events_source_check",
-      "definition": "CHECK ((source = ANY (ARRAY['direct'::text, 'google'::text, 'bing'::text, 'baidu'::text, 'referral'::text, 'other'::text])))"
+      "definition": "CHECK ((source = ANY (ARRAY['direct'::text, 'google'::text, 'bing'::text, 'baidu'::text, 'referral'::text, 'coupon'::text, 'other'::text])))"
     },
     {
       "key": "funnel_events.funnel_events_source_not_null",
@@ -1703,8 +2031,20 @@
       "definition": "NOT NULL channel"
     },
     {
+      "key": "orders.orders_coupon_id_fkey",
+      "definition": "FOREIGN KEY (coupon_id) REFERENCES coupons(id)"
+    },
+    {
       "key": "orders.orders_created_at_not_null",
       "definition": "NOT NULL created_at"
+    },
+    {
+      "key": "orders.orders_discount_amount_not_null",
+      "definition": "NOT NULL discount_amount"
+    },
+    {
+      "key": "orders.orders_discount_check",
+      "definition": "CHECK (((list_amount > 0) AND (discount_amount >= 0) AND ((list_amount - discount_amount) = amount) AND (((discount_amount = 0) AND (coupon_id IS NULL) AND (coupon_code IS NULL) AND (coupon_snapshot IS NULL)) OR ((kind = 'purchase'::text) AND (discount_amount > 0) AND (coupon_id IS NOT NULL) AND (coupon_code IS NOT NULL) AND (coupon_snapshot IS NOT NULL)))))"
     },
     {
       "key": "orders.orders_email_not_null",
@@ -1741,6 +2081,10 @@
     {
       "key": "orders.orders_kind_not_null",
       "definition": "NOT NULL kind"
+    },
+    {
+      "key": "orders.orders_list_amount_not_null",
+      "definition": "NOT NULL list_amount"
     },
     {
       "key": "orders.orders_payment_attempted_not_null",
@@ -2445,6 +2789,50 @@
       "definition": "CREATE INDEX commissions_user ON commissions USING btree (user_id)"
     },
     {
+      "key": "coupon_redemptions.coupon_redemptions_buyer_idx",
+      "definition": "CREATE INDEX coupon_redemptions_buyer_idx ON coupon_redemptions USING btree (coupon_id, buyer_key) WHERE (status <> 'released'::text)"
+    },
+    {
+      "key": "coupon_redemptions.coupon_redemptions_contact_idx",
+      "definition": "CREATE INDEX coupon_redemptions_contact_idx ON coupon_redemptions USING btree (coupon_id, contact_key) WHERE (status <> 'released'::text)"
+    },
+    {
+      "key": "coupon_redemptions.coupon_redemptions_coupon_status_idx",
+      "definition": "CREATE INDEX coupon_redemptions_coupon_status_idx ON coupon_redemptions USING btree (coupon_id, status)"
+    },
+    {
+      "key": "coupon_redemptions.coupon_redemptions_expiring_idx",
+      "definition": "CREATE INDEX coupon_redemptions_expiring_idx ON coupon_redemptions USING btree (expires_at) WHERE ((status = 'reserved'::text) AND (expires_at IS NOT NULL))"
+    },
+    {
+      "key": "coupon_redemptions.coupon_redemptions_order_id_key",
+      "definition": "CREATE UNIQUE INDEX coupon_redemptions_order_id_key ON coupon_redemptions USING btree (order_id)"
+    },
+    {
+      "key": "coupon_redemptions.coupon_redemptions_pkey",
+      "definition": "CREATE UNIQUE INDEX coupon_redemptions_pkey ON coupon_redemptions USING btree (id)"
+    },
+    {
+      "key": "coupon_redemptions.coupon_redemptions_user_idx",
+      "definition": "CREATE INDEX coupon_redemptions_user_idx ON coupon_redemptions USING btree (coupon_id, user_id) WHERE ((user_id IS NOT NULL) AND (status <> 'released'::text))"
+    },
+    {
+      "key": "coupons.coupons_affiliate_idx",
+      "definition": "CREATE INDEX coupons_affiliate_idx ON coupons USING btree (affiliate_user_id) WHERE (affiliate_user_id IS NOT NULL)"
+    },
+    {
+      "key": "coupons.coupons_code_key",
+      "definition": "CREATE UNIQUE INDEX coupons_code_key ON coupons USING btree (code)"
+    },
+    {
+      "key": "coupons.coupons_created_idx",
+      "definition": "CREATE INDEX coupons_created_idx ON coupons USING btree (created_at DESC, id DESC)"
+    },
+    {
+      "key": "coupons.coupons_pkey",
+      "definition": "CREATE UNIQUE INDEX coupons_pkey ON coupons USING btree (id)"
+    },
+    {
       "key": "demo_mailbox.demo_mailbox_pkey",
       "definition": "CREATE UNIQUE INDEX demo_mailbox_pkey ON demo_mailbox USING btree (browser_digest, email)"
     },
@@ -2527,6 +2915,10 @@
     {
       "key": "orders.orders_buyer",
       "definition": "CREATE INDEX orders_buyer ON orders USING btree (buyer_key) WHERE (kind = 'purchase'::text)"
+    },
+    {
+      "key": "orders.orders_coupon_idx",
+      "definition": "CREATE INDEX orders_coupon_idx ON orders USING btree (coupon_id) WHERE (coupon_id IS NOT NULL)"
     },
     {
       "key": "orders.orders_pkey",

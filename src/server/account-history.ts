@@ -30,6 +30,7 @@ export async function accountHistory(userId: string, query: z.infer<typeof accou
                 OR: [
                   { id: { contains: query.search, mode: 'insensitive' } },
                   { productName: { contains: query.search, mode: 'insensitive' } },
+                  { couponCode: { contains: query.search, mode: 'insensitive' } },
                 ],
               }
             : {}),

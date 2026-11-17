@@ -65,6 +65,7 @@ suite('manual fulfillment decisions', () => {
         productName: 'Manual resolution fixture',
         email: buyer.email,
         contactEmail: buyer.email,
+        listAmount: quote.amount,
         amount: quote.amount,
         balanceAmount: quote.amount,
         externalAmount: 0,

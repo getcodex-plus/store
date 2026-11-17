@@ -1,8 +1,8 @@
 import Link from 'next/link'
 import type { ReactNode } from 'react'
 import type { Product } from '../types'
-import { money } from '../lib'
 import { planComparisons } from '../plan-comparison'
+import { PlanPrice } from './PlanPrice'
 
 export function PlanCard({
   product,
@@ -24,21 +24,7 @@ export function PlanCard({
       </div>
       <h3>{title}</h3>
       <p className="plan-subtitle">{product.subtitle}</p>
-      <div className="plan-price-block" aria-live="polite" aria-atomic="true">
-        <span className="plan-price-caption">{product.upgrade ? '本次升级' : '每月订阅'}</span>
-        <div className="price">
-          {product.upgrade || product.priceStatus === 'pending' ? (
-            <strong className="quote-price-label">
-              {product.upgrade ? '验证账号后报价' : '价格更新中'}
-            </strong>
-          ) : (
-            <>
-              <strong>{money(product.price)}</strong>
-              <span>/ 月</span>
-            </>
-          )}
-        </div>
-      </div>
+      <PlanPrice product={product} variant="card" />
       <Link
         className={product.featured ? 'primary-link plan-button' : 'secondary-link plan-button'}
         href={`/checkout?product=${product.id}`}

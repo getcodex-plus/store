@@ -48,6 +48,7 @@ import {
   withdrawalFee,
   withdrawalRule,
 } from '../withdrawals'
+import { formatCouponBenefit, formatCouponScope } from '../coupons'
 
 export function Account({ section }: { section: 'orders' | 'wallet' | 'referral' }) {
   const { data } = useSite()
@@ -313,7 +314,7 @@ function AccountContent({ section }: { section: 'orders' | 'wallet' | 'referral'
                 />
                 <Input.Search
                   aria-label="搜索订单号或套餐"
-                  placeholder="搜索订单号或套餐"
+                  placeholder="搜索订单号、套餐或优惠码"
                   value={search}
                   onChange={(e) => {
                     setSearch(e.target.value)
@@ -348,7 +349,15 @@ function AccountContent({ section }: { section: 'orders' | 'wallet' | 'referral'
                             {order.kind === 'topup' ? '充值到本站钱包' : order.email}
                           </p>
                           <div className="mobile-order-meta">
-                            <strong>{money(order.amount)}</strong>
+                            <div>
+                              <strong>{money(order.amount)}</strong>
+                              {(order.discountAmount ?? 0) > 0 && (
+                                <span className="tiny muted ml-8">
+                                  已省 {money(order.discountAmount ?? 0)}
+                                  {order.couponCode ? ` · ${order.couponCode}` : ''}
+                                </span>
+                              )}
+                            </div>
                             <span className="tiny muted">{dateTime(order.createdAt)}</span>
                           </div>
                           <Link href={`/orders/${order.id}`} className="text-link">
@@ -396,7 +405,22 @@ function AccountContent({ section }: { section: 'orders' | 'wallet' | 'referral'
                     ),
                   },
                   { title: '账号', dataIndex: 'email' },
-                  { title: '金额', dataIndex: 'amount', render: money },
+                  {
+                    title: '金额',
+                    dataIndex: 'amount',
+                    render: (amount: number, o: Order) => (
+                      <div>
+                        <div>{money(amount)}</div>
+                        {(o.discountAmount ?? 0) > 0 && (
+                          <div className="tiny muted">
+                            <del>{money(o.listAmount ?? amount + (o.discountAmount ?? 0))}</del> ·
+                            省 {money(o.discountAmount ?? 0)}
+                            {o.couponCode ? ` (${o.couponCode})` : ''}
+                          </div>
+                        )}
+                      </div>
+                    ),
+                  },
                   {
                     title: '状态',
                     dataIndex: 'status',
@@ -647,6 +671,77 @@ function AccountContent({ section }: { section: 'orders' | 'wallet' | 'referral'
                 </div>
                 <div className="referral-decoration">✧</div>
               </div>
+              {(account.affiliateCoupons?.length ?? 0) > 0 && (
+                <Card className="mb-24" title="你的专属推广优惠码">
+                  <p className="muted">
+                    买家使用下方优惠码或推广链接下单，可享券后差价优惠；订单完成后将自动按折后实付金额为你结算推广收益，无需额外携带{' '}
+                    <code>?ref=</code> 参数。
+                  </p>
+                  <div className="affiliate-coupon-list">
+                    {account.affiliateCoupons?.map((c) => {
+                      const productNames =
+                        c.scopeMode === 'products'
+                          ? data.products
+                              .filter((p) => c.productIds.includes(p.id))
+                              .map((p) => p.name)
+                          : undefined
+                      const rateText =
+                        c.affiliateRateBps !== null
+                          ? `专属返佣 ${c.affiliateRateBps / 100}%`
+                          : `按当前等级返佣（${account.referral.current.rateBps / 100}%）`
+                      return (
+                        <div key={c.id} className="affiliate-coupon-item">
+                          <div className="affiliate-coupon-main">
+                            <div className="affiliate-coupon-header">
+                              <code className="coupon-code-chip">{c.code}</code>
+                              <strong>{c.name}</strong>
+                              <Tag color="warning">{formatCouponBenefit(c)}</Tag>
+                              <Tag>{rateText}</Tag>
+                            </div>
+                            <p className="tiny muted">
+                              {formatCouponScope(c, productNames)} · 累计成交 {c.redeemedCount} 单
+                              {c.expiresAt ? ` · 有效期至 ${dateTime(c.expiresAt)}` : ''}
+                            </p>
+                          </div>
+                          <div className="affiliate-coupon-actions">
+                            <Button
+                              size="small"
+                              icon={<CopyOutlined />}
+                              onClick={async () => {
+                                try {
+                                  await navigator.clipboard.writeText(c.code)
+                                  message.success(`已复制优惠码 ${c.code}`)
+                                } catch {
+                                  message.error('无法自动复制，请手动复制优惠码')
+                                }
+                              }}
+                            >
+                              复制优惠码
+                            </Button>
+                            <Button
+                              size="small"
+                              type="primary"
+                              icon={<CopyOutlined />}
+                              onClick={async () => {
+                                try {
+                                  await navigator.clipboard.writeText(
+                                    `${window.location.origin}/?coupon=${c.code}`,
+                                  )
+                                  message.success(`已复制带券推广链接`)
+                                } catch {
+                                  message.error('无法自动复制，请手动复制链接')
+                                }
+                              }}
+                            >
+                              复制推广链接
+                            </Button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </Card>
+              )}
               <ReferralLevels referral={account.referral} />
               <div className="stats-grid">
                 <Card>
@@ -722,9 +817,10 @@ function AccountContent({ section }: { section: 'orders' | 'wallet' | 'referral'
                   {data.settings.firstOrderOnly
                     ? '仅好友首笔成功交付的套餐订单参与返现。'
                     : '好友每笔符合条件的成功交付套餐订单均参与返现，复购也有奖励。'}
-                  按下单时邀请等级对应比例计算（当前 {account.referral.current.rateBps / 100}
-                  %），结算期为 {data.settings.settlementDays}{' '}
-                  天。各提现渠道的最低起提金额与手续费以申请表展示为准。
+                  按下单时邀请等级对应比例或专属推广优惠码约定比例，以买家折后实际支付金额为基数计算（当前等级{' '}
+                  {account.referral.current.rateBps / 100}%），结算期为{' '}
+                  {data.settings.settlementDays}{' '}
+                  天；标注不与邀请返现叠加的活动优惠码除外。各提现渠道的最低起提金额与手续费以申请表展示为准。
                   钱包充值不产生返现，退款订单的对应奖励将被撤销。
                   只奖励直接邀请，不计算好友继续邀请他人的订单。禁止自邀与循环交易。
                 </p>

@@ -10,6 +10,7 @@ const lockTables = {
   quotes: Prisma.raw('"quotes"'),
   inventory: Prisma.raw('"inventory"'),
   products: Prisma.raw('"products"'),
+  coupons: Prisma.raw('"coupons"'),
   roles: Prisma.raw('"roles"'),
   withdrawals: Prisma.raw('"withdrawals"'),
 }

@@ -1,11 +1,11 @@
 import Link from 'next/link'
 import { products } from '../server/services'
 import { PlanCard } from '../components/PlanCard'
+import { PlanPrice, UpgradeCouponHint } from '../components/PlanPrice'
 import { ProPlanCard } from '../components/ProPlanCard'
 import { Support } from '../components/Support'
 import { JsonLd } from '../components/JsonLd'
 import { pageMetadata, siteOrigin } from '../seo'
-import { money } from '../lib'
 export const dynamic = 'force-dynamic'
 export const metadata = pageMetadata(
   'ChatGPT Plus / Pro 充值与升级｜套餐价格',
@@ -71,12 +71,7 @@ export default async function Home() {
               </div>
               <h2>选择 {recommended.name}</h2>
               <p className="entry-subtitle">{recommended.subtitle}</p>
-              <div className="entry-price">
-                <strong>
-                  {recommended.priceStatus === 'pending' ? '价格更新中' : money(recommended.price)}
-                </strong>
-                {recommended.priceStatus !== 'pending' && <span>/ 月</span>}
-              </div>
+              <PlanPrice product={recommended} variant="hero" />
               <Link className="entry-cta" href={`/checkout?product=${recommended.id}`}>
                 {recommended.priceStatus === 'pending' ? '查看套餐状态' : '开始充值'}
                 <span aria-hidden="true">→</span>
@@ -127,7 +122,9 @@ export default async function Home() {
           {upgradeOffer && (
             <article id="upgrade" className="upgrade-offer">
               <div>
-                <div className="eyebrow">已有订阅</div>
+                <div className="eyebrow">
+                  已有订阅 <UpgradeCouponHint product={upgradeOffer} />
+                </div>
                 <h3>升级现有订阅</h3>
                 <p>选择想升级的套餐，检查账号后获取本次总价。确认报价，再付款。</p>
                 <span className="tiny muted">支持 Plus / Pro 100 / Pro 200 / Pro 500</span>

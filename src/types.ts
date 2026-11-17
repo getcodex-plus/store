@@ -69,6 +69,9 @@ export interface Order {
   productId: string | null
   productName: string
   email: string
+  listAmount?: number
+  discountAmount?: number
+  couponCode?: string | null
   amount: number
   balanceAmount: number
   externalAmount: number
@@ -81,6 +84,96 @@ export interface Order {
   firstOrderOnly: boolean
   fulfillmentStatus?: string | null
   refund?: OrderRefund | null
+}
+export type CouponDiscountKind = 'fixed' | 'percent'
+export type CouponScopeMode = 'all' | 'recharge_only' | 'upgrade_only' | 'products'
+export type CouponUpgradeProtection = 'cost' | 'min_profit' | 'none'
+export interface Coupon {
+  id: string
+  code: string
+  name: string
+  note: string
+  discountKind: CouponDiscountKind
+  discountValue: number
+  maxDiscountAmount: number | null
+  minAmount: number
+  scopeMode: CouponScopeMode
+  productIds: string[]
+  upgradeProtection: CouponUpgradeProtection
+  firstOrderOnly: boolean
+  requireLogin: boolean
+  maxRedemptions: number | null
+  perBuyerLimit: number | null
+  startsAt: string | null
+  expiresAt: string | null
+  allowReferral: boolean
+  affiliateUserId: string | null
+  affiliateRateBps: number | null
+  enabled: boolean
+  createdAt: string
+  updatedAt: string
+}
+export interface AdminCoupon extends Coupon {
+  affiliateEmail: string | null
+  affiliateReferralCode: string | null
+  reservedCount: number
+  redeemedCount: number
+  totalDiscountAmount: number
+  totalOrderAmount: number
+}
+export interface AffiliateCouponSummary {
+  id: string
+  code: string
+  name: string
+  discountKind: CouponDiscountKind
+  discountValue: number
+  maxDiscountAmount: number | null
+  minAmount: number
+  scopeMode: CouponScopeMode
+  productIds: string[]
+  affiliateRateBps: number | null
+  expiresAt: string | null
+  redeemedCount: number
+}
+export interface CouponItemPreview {
+  productId: string
+  eligible: boolean
+  upgradeDynamic: boolean
+  listAmount: number
+  discountAmount: number
+  finalAmount: number
+  costFloorCapped: boolean
+  reason?: string
+}
+export interface CouponPreview {
+  valid: boolean
+  code: string
+  name?: string
+  summary?: string
+  scopeLabel?: string
+  discountKind?: CouponDiscountKind
+  discountValue?: number
+  maxDiscountAmount?: number | null
+  minAmount?: number
+  scopeMode?: CouponScopeMode
+  productIds?: string[]
+  upgradeProtection?: CouponUpgradeProtection
+  firstOrderOnly?: boolean
+  requireLogin?: boolean
+  allowReferral?: boolean
+  affiliateReferralCode?: string | null
+  expiresAt?: string | null
+  reason?: string
+  items: Record<string, CouponItemPreview>
+  quote?: {
+    quoteId: string
+    eligible: boolean
+    listAmount: number
+    discountAmount: number
+    finalAmount: number
+    costFloorCapped: boolean
+    reason?: string
+  }
 }
 export interface Commission {
   id: string
@@ -216,6 +309,7 @@ export interface AccountData {
   withdrawn: number
   balance: number
   ledger: WalletEntry[]
+  affiliateCoupons?: AffiliateCouponSummary[]
 }
 export interface AdminData {
   pagination?: { page: number; pageSize: number; total: number }
@@ -251,6 +345,7 @@ export interface AdminData {
   users: User[]
   products: Product[]
   orders: AdminOrder[]
+  coupons?: AdminCoupon[]
   commissions: Commission[]
   withdrawals: Withdrawal[]
   settings: Settings

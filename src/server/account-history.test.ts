@@ -30,6 +30,7 @@ suite('customer history remains complete and scoped to its owner', () => {
         productName: index === 0 ? 'Oldest plan' : 'ChatGPT Plus',
         email: 'recharge@example.com',
         contactEmail: 'contact@example.com',
+        listAmount: 100,
         amount: 100,
         externalAmount: 100,
         kind: 'purchase',

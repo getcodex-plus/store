@@ -40,6 +40,7 @@ test('admin refunds enforce channel capabilities, required notes and split amoun
         productName: `退款 UI ${provider}`,
         email: 'refund@example.com',
         contactEmail: admin.email,
+        listAmount: 10000,
         amount: 10000,
         balanceAmount: 4000,
         externalAmount: 6000,
@@ -59,6 +60,7 @@ test('admin refunds enforce channel capabilities, required notes and split amoun
     data: {
       ...orders[0],
       fulfillmentResolution: orders[0].fulfillmentResolution ?? Prisma.DbNull,
+      couponSnapshot: orders[0].couponSnapshot ?? Prisma.DbNull,
       id: id(),
       paymentId: id(),
       productName: '退款 UI 待核实',

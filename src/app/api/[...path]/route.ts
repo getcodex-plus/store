@@ -53,6 +53,7 @@ import { updateAdminUser } from '../../../server/admin-users'
 import { adminQuerySchema } from '../../../server/admin-query'
 import { accountHistory, accountHistoryQuery } from '../../../server/account-history'
 import { resolveOrder } from '../../../server/order-resolution'
+import { previewCoupon, saveAdminCoupon } from '../../../server/coupons'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -165,6 +166,17 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
           request.headers.get('dnt') !== '1' &&
           request.headers.get('sec-gpc') !== '1',
       })
+    } else if (path === 'coupons/preview' && method === 'POST') {
+      const input = z
+        .object({
+          code: z.string().min(1).max(64),
+          quoteId: z.string().max(64).optional(),
+        })
+        .parse(data)
+      const browser = await browserDigest()
+      await checkRiskRate('coupon-preview', { browser, ip: clientIP(request.headers) })
+      const [user, catalog] = await Promise.all([currentUser(), products()])
+      result = await previewCoupon(input, user, browser, catalog)
     } else if (path === 'orders' && method === 'POST') {
       await checkRiskChallenge('purchase', data.turnstileToken)
       const input = z
@@ -180,6 +192,7 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
             .string()
             .regex(/^[a-z\d]{10,12}$/)
             .optional(),
+          couponCode: z.string().max(64).optional(),
         })
         .refine((v) => Boolean(v.quoteId) !== Boolean(v.amount), {
           message: '请选择商品订单或钱包充值',
@@ -262,6 +275,7 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
       const permissionMap: Record<string, Permission> = {
         'admin/integrations': 'integrations:write',
         'admin/products': 'products:write',
+        'admin/coupons': 'coupons:write',
         'admin/inventory': 'products:write',
         'admin/inventory/change': 'products:write',
         'admin/settings': 'settings:write',
@@ -287,6 +301,8 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
           admin,
           adminQuerySchema.parse(Object.fromEntries(request.nextUrl.searchParams)),
         )
+      else if (path === 'admin/coupons' && method === 'POST')
+        result = await saveAdminCoupon(admin.email, data, audit)
       else if (path === 'admin/integrations' && method === 'POST')
         result = await saveIntegration(integrationSchema.parse(data), admin.email)
       else if (path === 'admin/roles' && method === 'POST') {

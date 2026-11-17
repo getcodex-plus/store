@@ -71,6 +71,7 @@ suite('persistent original-payment refunds', () => {
         contactEmail: user?.email ?? 'guest@example.com',
         guestBrowserDigest: guest ? 'browser' : null,
         productName: 'Refund fixture',
+        listAmount: 6000,
         amount: 6000,
         balanceAmount: guest ? 0 : 4000,
         externalAmount: guest ? 6000 : 2000,

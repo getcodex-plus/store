@@ -2,12 +2,12 @@ import Link from 'next/link'
 import { cache } from 'react'
 import { notFound } from 'next/navigation'
 import { products } from '../../../server/services'
-import { money } from '../../../lib'
 import { pageMetadata, siteOrigin } from '../../../seo'
 import { planBuyingAdvice, refundSummary } from '../../../product-copy'
 import { Support } from '../../../components/Support'
 import { JsonLd } from '../../../components/JsonLd'
 import { FunnelView } from '../../../components/FunnelView'
+import { PlanPrice } from '../../../components/PlanPrice'
 
 export const dynamic = 'force-dynamic'
 const getProduct = cache(async (id: string) => (await products()).find((p) => p.id === id))
@@ -71,14 +71,7 @@ export default async function Plan({ params }: { params: Promise<{ id: string }>
         {product.upgrade ? '：升级条件与报价' : '充值：价格与服务说明'}
       </h1>
       <p className="lead">{product.description}</p>
-      <div className="detail-price">
-        {product.upgrade
-          ? '验证账号后报价'
-          : product.priceStatus === 'pending'
-            ? '价格更新中'
-            : money(product.price)}{' '}
-        <span>{product.upgrade ? '确认本次总价后再付款' : '/ 月'}</span>
-      </div>
+      <PlanPrice product={product} variant="detail" />
       <p>
         本站按订单一次性收款，不会自动从你的支付账户续扣。ChatGPT
         账号中的订阅续费设置，请在对应账号中确认。

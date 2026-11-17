@@ -40,6 +40,7 @@ import {
   MenuOutlined,
   LogoutOutlined,
   FileSearchOutlined,
+  TagOutlined,
 } from '@ant-design/icons'
 import { Brand } from './Site'
 import { UserAvatar } from './UserAvatar'
@@ -49,6 +50,7 @@ import { OrderResolutionDialog } from './OrderResolutionDialog'
 import { canResolveOrder } from '../order-resolution'
 import { InventoryImportDialog } from './InventoryImportDialog'
 import { InventoryManager } from './InventoryManager'
+import { CouponManager } from './CouponManager'
 import { ReferralTierEditor } from './ReferralTierEditor'
 import { useSite } from './Providers'
 import { api, channels, dateTime, money, orderStatusLabel } from '../lib'
@@ -85,6 +87,7 @@ const pages = [
   { key: 'overview', label: '运营概览', icon: <DashboardOutlined /> },
   { key: 'orders', label: '订单管理', icon: <UnorderedListOutlined /> },
   { key: 'products', label: '商品管理', icon: <ShoppingOutlined /> },
+  { key: 'coupons', label: '优惠码管理', icon: <TagOutlined /> },
   { key: 'inventory', label: '兑换码管理', icon: <DatabaseOutlined /> },
   { key: 'batches', label: '导入批次', icon: <DatabaseOutlined /> },
   { key: 'users', label: '用户管理', icon: <TeamOutlined /> },
@@ -102,7 +105,7 @@ const navigationGroups = [
     key: 'commerce',
     label: '商品与兑换',
     icon: <ShoppingOutlined />,
-    pages: ['products', 'inventory', 'batches', 'orders'],
+    pages: ['products', 'coupons', 'inventory', 'batches', 'orders'],
   },
   {
     key: 'funds',
@@ -207,6 +210,7 @@ function AdminContent() {
   const [editProduct, setEditProduct] = useState<Product | null>(null)
   const [productOpen, setProductOpen] = useState(false)
   const [stockOpen, setStockOpen] = useState(false)
+  const [couponCreateSignal, setCouponCreateSignal] = useState(0)
   const [editIntegration, setEditIntegration] = useState<IntegrationKind | null>(null)
   const [withdrawal, setWithdrawal] = useState<Withdrawal | null>(null)
   const [refundOrderId, setRefundOrderId] = useState<string | null>(null)
@@ -234,6 +238,7 @@ function AdminContent() {
             'epay_v1' | 'epay_v2') ?? 'epay_v1'))
   const recordSection = [
     'orders',
+    'coupons',
     'wallet',
     'users',
     'referral',
@@ -517,7 +522,23 @@ function AdminContent() {
         <span className="mono wrap-anywhere">{value || '未记录'}</span>
       ),
     },
-    { title: '订单金额', dataIndex: 'amount', width: 110, render: money },
+    {
+      title: '订单金额',
+      dataIndex: 'amount',
+      width: 150,
+      render: (amount: number, o: Order) => (
+        <div>
+          <div>{money(amount)}</div>
+          {(o.discountAmount ?? 0) > 0 && (
+            <div className="tiny muted">
+              <del>{money(o.listAmount ?? amount + (o.discountAmount ?? 0))}</del> · -
+              {money(o.discountAmount ?? 0)}
+              {o.couponCode ? ` (${o.couponCode})` : ''}
+            </div>
+          )}
+        </div>
+      ),
+    },
     { title: '余额抵扣', dataIndex: 'balanceAmount', width: 110, render: money },
     { title: '渠道金额', dataIndex: 'externalAmount', width: 110, render: money },
     {
@@ -650,13 +671,15 @@ function AdminContent() {
               <p>
                 {page === 'overview'
                   ? '看看网站的经营情况，以及需要处理的事情。'
-                  : page === 'batches'
-                    ? '各批次独立启用或停用，可同时供货；已有订单保留原库存关系。'
-                    : page === 'inventory'
-                      ? '按商品和批次管理兑换码；已占用或已使用的码保留原订单关系。'
-                      : page === 'integrations'
-                        ? '集中管理收款渠道、兑换服务和邮件服务。'
-                        : '管理记录与配置，所有关键操作均保留审计记录。'}
+                  : page === 'coupons'
+                    ? '管理立减与折扣优惠码、推广员专属券、名额锁与分享链接。'
+                    : page === 'batches'
+                      ? '各批次独立启用或停用，可同时供货；已有订单保留原库存关系。'
+                      : page === 'inventory'
+                        ? '按商品和批次管理兑换码；已占用或已使用的码保留原订单关系。'
+                        : page === 'integrations'
+                          ? '集中管理收款渠道、兑换服务和邮件服务。'
+                          : '管理记录与配置，所有关键操作均保留审计记录。'}
               </p>
             </div>
             <Space>
@@ -666,6 +689,15 @@ function AdminContent() {
               {page === 'products' && can('products:write') && (
                 <Button type="primary" icon={<PlusOutlined />} onClick={() => openProduct()}>
                   新增商品
+                </Button>
+              )}
+              {page === 'coupons' && can('coupons:write') && (
+                <Button
+                  type="primary"
+                  icon={<PlusOutlined />}
+                  onClick={() => setCouponCreateSignal((v) => v + 1)}
+                >
+                  新增优惠码
                 </Button>
               )}
               {['inventory', 'batches'].includes(page) && can('products:write') && (
@@ -882,7 +914,7 @@ function AdminContent() {
                   <div className="table-toolbar">
                     <h3>全部订单</h3>
                     <Input.Search
-                      placeholder="搜索订单 / 邮箱 / 套餐 / IP"
+                      placeholder="搜索订单 / 邮箱 / 套餐 / 优惠码 / IP"
                       value={search}
                       aria-label="搜索订单、联系邮箱、充值账号、套餐或 IP"
                       onChange={(e) => updateSearch(e.target.value)}
@@ -899,6 +931,22 @@ function AdminContent() {
                     pagination={pagination}
                   />
                 </Card>
+              )}
+              {page === 'coupons' && (
+                <CouponManager
+                  coupons={data.coupons ?? []}
+                  products={data.products}
+                  canWrite={can('coupons:write')}
+                  loading={loading}
+                  search={search}
+                  onSearchChange={updateSearch}
+                  pagination={pagination}
+                  createSignal={couponCreateSignal}
+                  onChanged={async () => {
+                    await load()
+                    await refresh()
+                  }}
+                />
               )}
               {page === 'products' && (
                 <>

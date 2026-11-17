@@ -150,6 +150,8 @@ export async function seedDatabase(client: DbClient) {
           'orders:write',
           'products:read',
           'products:write',
+          'coupons:read',
+          'coupons:write',
           'referral:read',
           'users:read',
         ],

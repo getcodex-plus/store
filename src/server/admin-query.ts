@@ -5,6 +5,7 @@ export const adminQuerySchema = z.object({
     .enum([
       'overview',
       'orders',
+      'coupons',
       'wallet',
       'users',
       'roles',

@@ -225,6 +225,12 @@ function OrderContent({ id }: { id: string }) {
             <div className="payment-area">
               <h2>应付 {money(order.externalAmount)}</h2>
               <p className="muted">已选择 {channels[order.channel]}</p>
+              {(order.discountAmount ?? 0) > 0 && (
+                <p className="muted">
+                  原价 {money(order.listAmount ?? order.amount + (order.discountAmount ?? 0))} ·
+                  优惠码 {order.couponCode || ''} 已减 {money(order.discountAmount ?? 0)}
+                </p>
+              )}
               {order.balanceAmount > 0 && (
                 <p className="muted">
                   订单总价 {money(order.amount)}，已抵扣余额 {money(order.balanceAmount)}
@@ -358,7 +364,32 @@ function OrderContent({ id }: { id: string }) {
               { key: 'p', label: '服务', children: order.productName },
               { key: 'e', label: '充值账号', children: order.email },
               { key: 'contact', label: '联系邮箱', children: order.contactEmail },
-              { key: 'm', label: '金额', children: money(order.amount) },
+              ...((order.discountAmount ?? 0) > 0
+                ? [
+                    {
+                      key: 'list',
+                      label: '套餐原价',
+                      children: money(
+                        order.listAmount ?? order.amount + (order.discountAmount ?? 0),
+                      ),
+                    },
+                    {
+                      key: 'discount',
+                      label: '优惠减免',
+                      children: (
+                        <span className="coupon-saving-text">
+                          −{money(order.discountAmount ?? 0)}
+                          {order.couponCode ? `（${order.couponCode}）` : ''}
+                        </span>
+                      ),
+                    },
+                  ]
+                : []),
+              {
+                key: 'm',
+                label: (order.discountAmount ?? 0) > 0 ? '折后总价' : '金额',
+                children: money(order.amount),
+              },
               { key: 'balance', label: '余额抵扣', children: money(order.balanceAmount) },
               { key: 'external', label: '渠道金额', children: money(order.externalAmount) },
               { key: 't', label: '创建时间', children: dateTime(order.createdAt) },

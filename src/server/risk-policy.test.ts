@@ -26,6 +26,8 @@ describe('ZEN risk policy', () => {
       ['withdrawal-fx-refresh', 'user', 'withdrawal-fx-refresh', 12, 60],
       ['withdrawal-request', 'user', 'withdrawal-request', 10, 600],
       ['withdrawal-request', 'ip', 'withdrawal-request', 10, 600],
+      ['coupon-preview', 'browser', 'coupon-preview', 30, 60],
+      ['coupon-preview', 'ip', 'coupon-preview', 60, 60],
     ]
     const actual = []
     for (const scene of riskScenes.filter((scene) => !scene.startsWith('auth-'))) {

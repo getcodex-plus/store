@@ -1,9 +1,9 @@
 import Link from 'next/link'
 import { products } from '../../server/services'
-import { money } from '../../lib'
 import { planComparisons } from '../../plan-comparison'
 import { pageMetadata } from '../../seo'
 import { Support } from '../../components/Support'
+import { PlanPrice } from '../../components/PlanPrice'
 
 export const dynamic = 'force-dynamic'
 export const metadata = pageMetadata(
@@ -63,9 +63,7 @@ export default async function Compare() {
                     </ul>
                   </td>
                   <td className="comparison-price">
-                    <strong>
-                      {p.priceStatus === 'pending' ? '价格更新中' : `${money(p.price)} / 月`}
-                    </strong>
+                    <PlanPrice product={p} variant="table" />
                     <Link href={`/plans/${p.id}`} aria-label={`查看${p.name}详情`}>
                       查看详情 →
                     </Link>

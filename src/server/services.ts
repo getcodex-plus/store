@@ -47,6 +47,16 @@ import {
 } from './database-sql'
 import { ApiError, demo } from './config'
 import { adminPageSize, adminQuerySchema, type AdminQuery } from './admin-query'
+import { normalizeCouponCode, type UpgradeSnapshotLike } from '../coupons'
+import {
+  adminCouponsList,
+  affiliateCouponsForUser,
+  confirmCouponOrderPaid,
+  markCouponOrderRedeemed,
+  precheckCouponForOrder,
+  releaseCouponOrder,
+  reserveCouponInTransaction,
+} from './coupons'
 import { decrypt, encrypt, hash, id, secretHash } from './crypto'
 import { openCredential, sealCredential } from './credential-storage'
 import { publicPlan } from './safe-errors'
@@ -353,6 +363,7 @@ export async function newOrder(
     contactEmail?: string
     balanceAmount?: number
     referralCode?: string
+    couponCode?: string
     session?: string
   },
   ipAddress?: string,
@@ -360,6 +371,10 @@ export async function newOrder(
   if (!user && (!input.quoteId || input.channel === 'balance' || (input.balanceAmount ?? 0) > 0))
     throw new ApiError(401, '钱包功能需要先登录')
   if (!user && !input.contactEmail) throw new ApiError(400, '请填写联系邮箱以接收订单通知')
+  const normalizedCouponCode = input.couponCode?.trim()
+    ? normalizeCouponCode(input.couponCode)
+    : undefined
+  if (!input.quoteId && normalizedCouponCode) throw new ApiError(400, '钱包充值不支持使用优惠码')
   const contactEmail = user?.email || input.contactEmail!
   const conf = await settings()
   if (!input.quoteId && (input.channel === 'balance' || (input.balanceAmount ?? 0) > 0))
@@ -370,30 +385,64 @@ export async function newOrder(
       : input.channel === 'balance'
         ? 'balance'
         : conf.fiatProvider
-  // Resolve configuration before acquiring locks or opening the transaction.
+  const orderId = `o_${hash(`${user?.id || browser}:${input.requestKey}`).slice(0, 32)}`
+  const requestHash = hash(
+    JSON.stringify({
+      quoteId: input.quoteId ?? null,
+      amount: input.amount ?? null,
+      channel: input.channel,
+      contactEmail,
+      balanceAmount: input.balanceAmount ?? 0,
+      referralCode: input.referralCode ?? null,
+      ...(normalizedCouponCode ? { couponCode: normalizedCouponCode } : {}),
+    }),
+  )
+  // Resolve configuration and precheck coupon before acquiring locks or calling preflight.
   let binding: AicdkBinding | undefined
-  if (!demo && input.quoteId) {
-    const q = await db.quote.findFirst({
-      where: { id: input.quoteId, browserDigest: browser },
-      select: { aicdkIntegrationId: true },
+  let precheckedCoupon: Awaited<ReturnType<typeof precheckCouponForOrder>> | undefined
+  if (input.quoteId) {
+    const existingById = await db.order.findUnique({
+      where: { id: orderId },
+      select: { id: true },
     })
-    if (!q?.aicdkIntegrationId) throw new ApiError(409, '请重新检查账号后创建订单')
-    binding = await resolveAicdk(q.aicdkIntegrationId)
+    if (!demo) {
+      const q = await db.quote.findFirst({
+        where: { id: input.quoteId, browserDigest: browser },
+        select: { aicdkIntegrationId: true },
+      })
+      if (!q?.aicdkIntegrationId && !existingById)
+        throw new ApiError(409, '请重新检查账号后创建订单')
+      if (q?.aicdkIntegrationId) binding = await resolveAicdk(q.aicdkIntegrationId)
+    }
+    if (normalizedCouponCode && !existingById) {
+      const storedQuote = await db.quote.findFirst({
+        where: { id: input.quoteId, browserDigest: browser },
+      })
+      const existingByQuote = storedQuote
+        ? await db.order.findUnique({ where: { quoteId: storedQuote.id }, select: { id: true } })
+        : null
+      if (storedQuote && !existingByQuote) {
+        const qView = quoteView(storedQuote)
+        const prod = await db.product.findFirst({
+          where: { id: qView.productId, enabled: true },
+          select: { id: true, upgrade: true },
+        })
+        if (prod) {
+          precheckedCoupon = await precheckCouponForOrder(normalizedCouponCode, {
+            user,
+            contactEmail,
+            targetEmail: qView.email,
+            product: prod,
+            listAmount: qView.amount,
+            pricingSnapshot: qView.pricingSnapshot as UpgradeSnapshotLike | undefined,
+          })
+        }
+      }
+    }
   }
   const outcome = await transaction(async (client) => {
     if (user) await lockRow(client, 'users', user.id)
     else await advisoryLock(client, `guest:${browser}`)
-    const orderId = `o_${hash(`${user?.id || browser}:${input.requestKey}`).slice(0, 32)}`
-    const requestHash = hash(
-      JSON.stringify({
-        quoteId: input.quoteId ?? null,
-        amount: input.amount ?? null,
-        channel: input.channel,
-        contactEmail,
-        balanceAmount: input.balanceAmount ?? 0,
-        referralCode: input.referralCode ?? null,
-      }),
-    )
     const existing = await client.order.findUnique({ where: { id: orderId } })
     if (existing) {
       if (existing.requestHash !== requestHash)
@@ -401,6 +450,7 @@ export async function newOrder(
       return orderView(existing)
     }
     let quoteRecord: StoredQuote | undefined
+    let productRecord: { id: string; name: string; plan: string; upgrade: boolean } | undefined
     let name = '钱包充值'
     if (input.quoteId) {
       await lockRow(client, 'quotes', input.quoteId)
@@ -427,21 +477,27 @@ export async function newOrder(
       if (!product) throw new ApiError(409, '商品已下架，请重新选择')
       if (quoteRecord.targetPlan && quoteRecord.targetPlan !== product.plan)
         throw new ApiError(409, '目标套餐已变更，请重新验证账号')
+      productRecord = product
       name = product.name
     }
-    const amount = quoteRecord?.amount ?? input.amount!
-    const balanceAmount = input.channel === 'balance' ? amount : (input.balanceAmount ?? 0)
-    if (!Number.isSafeInteger(balanceAmount) || balanceAmount < 0 || balanceAmount > amount)
+    const baseListAmount = quoteRecord?.amount ?? input.amount!
+    const preliminaryAmount = precheckedCoupon
+      ? precheckedCoupon.evaluated.finalAmount
+      : baseListAmount
+    const preliminaryBalance =
+      input.channel === 'balance' ? preliminaryAmount : (input.balanceAmount ?? 0)
+    if (
+      !Number.isSafeInteger(preliminaryBalance) ||
+      preliminaryBalance < 0 ||
+      preliminaryBalance > preliminaryAmount
+    )
       throw new ApiError(400, '余额抵扣金额无效')
-    const externalAmount = amount - balanceAmount
-    if (externalAmount > 0 && input.channel !== 'balance' && !conf[input.channel])
+    const preliminaryExternal = preliminaryAmount - preliminaryBalance
+    if (preliminaryExternal > 0 && input.channel !== 'balance' && !conf[input.channel])
       throw new ApiError(409, '此支付方式暂未开放')
-    const revision =
-      demo || externalAmount === 0 || provider === 'balance'
-        ? null
-        : (await integration(provider, undefined, client)).id
-    const limitError = paymentLimitError(conf, input.channel, externalAmount)
-    if (limitError) throw new ApiError(409, limitError)
+    const preliminaryLimitError = paymentLimitError(conf, input.channel, preliminaryExternal)
+    if (preliminaryLimitError) throw new ApiError(409, preliminaryLimitError)
+    let liveProviderQuote: { amount_minor: number; currency_decimals?: number } | undefined
     if (!demo && quoteRecord) {
       if (!input.session) throw new ApiError(400, '账号信息已清除，请重新检查账号')
       let session: ReturnType<typeof parseSession>
@@ -452,9 +508,9 @@ export async function newOrder(
       }
       if (session.user.email.toLowerCase() !== quoteRecord.email)
         throw new ApiError(409, '请使用本次报价对应的充值账号')
-      if (balanceAmount > 0) {
+      if (preliminaryBalance > 0) {
         const wallet = await client.wallet.findUnique({ where: { userId: user!.id } })
-        if (!wallet || wallet.balance < balanceAmount)
+        if (!wallet || wallet.balance < preliminaryBalance)
           throw new ApiError(409, '钱包余额不足，请先充值或选择其他支付方式')
       }
       const discounted = await reservePlusDiscount(
@@ -480,6 +536,12 @@ export async function newOrder(
       if (checked.status !== 'ready')
         throw new UpstreamError('PRICE_REFRESH_PENDING', checked.retry_after ?? 2, false)
       validateFulfillment(checked, quoteRecord)
+      if (productRecord?.upgrade) {
+        liveProviderQuote = {
+          amount_minor: checked.quote.amount_minor,
+          currency_decimals: checked.quote.currency_decimals,
+        }
+      }
       if (Date.parse(quoteRecord.expiresAt) <= Date.now())
         throw new ApiError(409, '报价已过期，请重新检查账号')
       await client.quote.update({
@@ -492,55 +554,135 @@ export async function newOrder(
         },
       })
     }
+    let reservedCoupon: Awaited<ReturnType<typeof reserveCouponInTransaction>> | undefined
+    if (normalizedCouponCode && quoteRecord && productRecord) {
+      const targetCoupon =
+        precheckedCoupon?.coupon ??
+        (await client.coupon.findUnique({
+          where: { code: normalizedCouponCode },
+          select: { id: true },
+        }))
+      if (!targetCoupon) throw new ApiError(409, '优惠码不存在或已停用')
+      reservedCoupon = await reserveCouponInTransaction(
+        client,
+        targetCoupon.id,
+        normalizedCouponCode,
+        orderId,
+        {
+          user,
+          contactEmail,
+          targetEmail: quoteRecord.email,
+          product: { id: productRecord.id, upgrade: productRecord.upgrade },
+          listAmount: baseListAmount,
+          pricingSnapshot: quoteRecord.pricingSnapshot as UpgradeSnapshotLike | undefined,
+          liveProviderQuote,
+        },
+      )
+    }
+    const listAmount = reservedCoupon ? reservedCoupon.listAmount : baseListAmount
+    const discountAmount = reservedCoupon ? reservedCoupon.discountAmount : 0
+    const amount = reservedCoupon ? reservedCoupon.finalAmount : baseListAmount
+    const balanceAmount = input.channel === 'balance' ? amount : (input.balanceAmount ?? 0)
+    if (!Number.isSafeInteger(balanceAmount) || balanceAmount < 0 || balanceAmount > amount)
+      throw new ApiError(400, '余额抵扣金额无效')
+    const externalAmount = amount - balanceAmount
+    if (externalAmount > 0 && input.channel !== 'balance' && !conf[input.channel])
+      throw new ApiError(409, '此支付方式暂未开放')
+    const revision =
+      demo || externalAmount === 0 || provider === 'balance'
+        ? null
+        : (await integration(provider, undefined, client)).id
+    const limitError = paymentLimitError(conf, input.channel, externalAmount)
+    if (limitError) throw new ApiError(409, limitError)
     const buyerKey = quoteRecord ? hash(`buyer:${quoteRecord.email.toLowerCase()}`) : null
     let inviterId: string | null = null
+    let referralRate = conf.rateBps
     if (quoteRecord) {
-      const buyer = await client.user.findUnique({
-        where: { email: contactEmail },
-        select: { invitedBy: true },
-      })
-      const inviter =
-        buyer?.invitedBy || input.referralCode
-          ? await client.user.findFirst({
-              where: {
-                disabled: false,
-                ...(buyer?.invitedBy
-                  ? { id: buyer.invitedBy }
-                  : { referralCode: input.referralCode! }),
-              },
-              select: { id: true, email: true },
+      if (reservedCoupon?.coupon.affiliateUserId) {
+        const affiliate = reservedCoupon.affiliateUser
+        if (affiliate && !affiliate.disabled) {
+          const decision = await assessRisk(
+            'referral-binding',
+            {
+              kind: 'referral',
+              self:
+                affiliate.id === user?.id ||
+                [contactEmail, quoteRecord.email].includes(affiliate.email),
+              firstOrderOnly: false,
+              previous: false,
+            },
+            { user: user?.id, email: contactEmail, target: quoteRecord.email },
+            orderId,
+            client,
+          )
+          if (decision.action === 'allow') {
+            inviterId = affiliate.id
+            referralRate =
+              reservedCoupon.coupon.affiliateRateBps !== null
+                ? reservedCoupon.coupon.affiliateRateBps
+                : referralProgress(
+                    await qualifiedInvites(affiliate.id, client),
+                    conf,
+                    affiliate.referralTierId,
+                  ).current.rateBps
+          } else {
+            referralRate = 0
+          }
+        } else {
+          referralRate = 0
+        }
+      } else if (reservedCoupon && !reservedCoupon.coupon.allowReferral) {
+        inviterId = null
+        referralRate = 0
+      } else {
+        const buyer = await client.user.findUnique({
+          where: { email: contactEmail },
+          select: { invitedBy: true },
+        })
+        const inviter =
+          buyer?.invitedBy || input.referralCode
+            ? await client.user.findFirst({
+                where: {
+                  disabled: false,
+                  ...(buyer?.invitedBy
+                    ? { id: buyer.invitedBy }
+                    : { referralCode: input.referralCode! }),
+                },
+                select: { id: true, email: true },
+              })
+            : null
+        if (inviter) {
+          const decision = await assessRisk(
+            'referral-binding',
+            {
+              kind: 'referral',
+              self:
+                inviter.id === user?.id ||
+                [contactEmail, quoteRecord.email].includes(inviter.email),
+              firstOrderOnly: false,
+              previous: false,
+            },
+            { user: user?.id, email: contactEmail, target: quoteRecord.email },
+            orderId,
+            client,
+          )
+          if (decision.action === 'allow') inviterId = inviter.id
+        }
+        const referralOwner = inviterId
+          ? await client.user.findUniqueOrThrow({
+              where: { id: inviterId },
+              select: { referralTierId: true },
             })
           : null
-      if (inviter) {
-        const decision = await assessRisk(
-          'referral-binding',
-          {
-            kind: 'referral',
-            self:
-              inviter.id === user?.id || [contactEmail, quoteRecord.email].includes(inviter.email),
-            firstOrderOnly: false,
-            previous: false,
-          },
-          { user: user?.id, email: contactEmail, target: quoteRecord.email },
-          orderId,
-          client,
-        )
-        if (decision.action === 'allow') inviterId = inviter.id
+        referralRate = inviterId
+          ? referralProgress(
+              await qualifiedInvites(inviterId, client),
+              conf,
+              referralOwner?.referralTierId,
+            ).current.rateBps
+          : conf.rateBps
       }
     }
-    const referralOwner = inviterId
-      ? await client.user.findUniqueOrThrow({
-          where: { id: inviterId },
-          select: { referralTierId: true },
-        })
-      : null
-    const referralRate = inviterId
-      ? referralProgress(
-          await qualifiedInvites(inviterId, client),
-          conf,
-          referralOwner?.referralTierId,
-        ).current.rateBps
-      : conf.rateBps
     const order = orderView(
       await client.order.create({
         data: {
@@ -550,7 +692,12 @@ export async function newOrder(
           productId: quoteRecord?.productId ?? null,
           productName: name,
           email: quoteRecord?.email ?? user!.email,
+          listAmount,
+          discountAmount,
           amount,
+          couponId: reservedCoupon?.coupon.id ?? null,
+          couponCode: reservedCoupon?.coupon.code ?? null,
+          couponSnapshot: reservedCoupon ? reservedCoupon.snapshot : Prisma.DbNull,
           status: externalAmount === 0 ? 'processing' : 'unpaid',
           channel: externalAmount === 0 ? 'balance' : input.channel,
           rateBps: referralRate,
@@ -571,6 +718,9 @@ export async function newOrder(
         },
       }),
     )
+    if (reservedCoupon) {
+      await reservedCoupon.createRedemption(externalAmount > 0)
+    }
     // Remote work and order foreign-key locks are finished. Serialize the final
     // check and commit; the new row is still invisible to other transactions.
     // Rejecting here rolls back the order, outbox, inventory and quote together.
@@ -651,6 +801,7 @@ export async function cancelOrder(user: User | null, browser: string, orderId: s
         data: { preflightToken: null },
       })
     }
+    await releaseCouponOrder(client, order.id)
     return { cancelled: true }
   })
 }
@@ -671,6 +822,7 @@ export async function paymentInfo(
   })
   if (!claimed.count)
     throw new ApiError(409, '支付单正在创建或结果待核对，请保留原订单并联系支持，不要重复付款')
+  await confirmCouponOrderPaid(db, order.id)
   if (demo) return { demo: true }
   const payment = await createPayment(order, clientIP)
   await savePaymentLocation(order.id, payment.paymentId, payment.paymentUrl)
@@ -726,6 +878,7 @@ export async function acceptPayment(provider: string, revision: string | null, r
         where: { id: order.id },
         data: { status: 'processing', paymentId: receipt.transactionId },
       })
+      await confirmCouponOrderPaid(client, order.id)
       await client.job.createMany({
         data: [{ id: id('job_'), orderId: order.id }],
         skipDuplicates: true,
@@ -760,6 +913,7 @@ export async function completeOrderInTransaction(client: DbClient, record: Order
     where: { id: order.id },
     data: { status: 'completed', completedAt: await databaseNow(client) },
   })
+  await markCouponOrderRedeemed(client, order.id)
   if (order.quoteId) {
     await client.inventory.updateMany({
       where: { quotes: { some: { id: order.quoteId } } },
@@ -864,6 +1018,7 @@ export async function account(user: User): Promise<AccountData> {
         where: { id: user.id },
         select: { referralTierId: true },
       })
+      const affiliateCoupons = await affiliateCouponsForUser(client, user.id)
       return {
         orders,
         commissions,
@@ -873,6 +1028,7 @@ export async function account(user: User): Promise<AccountData> {
         ...referralFunds(commissions, withdrawals),
         balance: wallet?.balance ?? 0,
         ledger,
+        affiliateCoupons,
       }
     },
     { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
@@ -1136,9 +1292,11 @@ export async function adminData(
       ? {
           AND: [
             {
-              OR: ['id', 'email', 'contactEmail', 'productName', 'ipAddress'].map((field) => ({
-                [field]: { contains: query.search, mode: 'insensitive' },
-              })),
+              OR: ['id', 'email', 'contactEmail', 'productName', 'ipAddress', 'couponCode'].map(
+                (field) => ({
+                  [field]: { contains: query.search, mode: 'insensitive' },
+                }),
+              ),
             },
           ],
         }
@@ -1148,20 +1306,30 @@ export async function adminData(
     ['users', 'roles'].includes(section) && query.search
       ? { email: { contains: query.search, mode: 'insensitive' } }
       : {}
+  const couponWindow = window(section === 'coupons', 200)
+  const couponResult = can('coupons:read')
+    ? await adminCouponsList({
+        search: section === 'coupons' ? query.search : '',
+        take: couponWindow.take,
+        skip: couponWindow.skip,
+      })
+    : { rows: [], total: 0 }
   const total =
     section === 'orders' || section === 'wallet'
       ? await db.order.count({ where: orderWhere })
-      : section === 'users' || section === 'roles'
-        ? await db.user.count({ where: userWhere })
-        : section === 'referral'
-          ? await db.commission.count()
-          : section === 'withdrawals'
-            ? await db.withdrawal.count()
-            : section === 'audit'
-              ? await db.audit.count()
-              : section === 'risk'
-                ? await db.riskEvent.count()
-                : 0
+      : section === 'coupons'
+        ? couponResult.total
+        : section === 'users' || section === 'roles'
+          ? await db.user.count({ where: userWhere })
+          : section === 'referral'
+            ? await db.commission.count()
+            : section === 'withdrawals'
+              ? await db.withdrawal.count()
+              : section === 'audit'
+                ? await db.audit.count()
+                : section === 'risk'
+                  ? await db.riskEvent.count()
+                  : 0
   const [users, allProducts, orders, commissions, withdrawals, conf, log, stock, integrations] =
     await Promise.all([
       db.user
@@ -1281,6 +1449,7 @@ export async function adminData(
               (o.status === 'refunded' && o.refund?.destination === 'wallet'),
           )
         : [],
+    coupons: can('coupons:read') ? couponResult.rows : [],
     commissions: can('referral:read') ? commissions : [],
     withdrawals: can('withdrawals:read') ? withdrawals.map(withdrawalView) : [],
     settings: can('settings:read') ? conf : publicSettings,
@@ -1326,6 +1495,7 @@ async function completeRefund(client: DbClient, order: OrderRecord, actor: strin
     })
   await client.job.updateMany({ where: { orderId: order.id }, data: { done: true } })
   await client.commission.updateMany({ where: { orderId: order.id }, data: { status: 'reversed' } })
+  await releaseCouponOrder(client, order.id)
   await audit(
     actor,
     order.refundDestination === 'wallet' ? '失败订单退回钱包' : '确认订单原路退款完成',

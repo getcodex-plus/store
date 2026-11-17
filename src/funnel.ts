@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-export const sources = ['direct', 'google', 'bing', 'baidu', 'referral', 'other'] as const
+export const sources = ['direct', 'google', 'bing', 'baidu', 'referral', 'coupon', 'other'] as const
 export type FunnelSource = (typeof sources)[number]
 export const clientEvents = ['plan_view', 'checkout_view', 'verify_started'] as const
 export type ClientEvent = (typeof clientEvents)[number]
@@ -28,6 +28,7 @@ export const sourceLabels: Record<FunnelSource, string> = {
   bing: 'Bing',
   baidu: '百度',
   referral: '邀请链接',
+  coupon: '优惠链接',
   other: '其他来源',
 }
 export interface FunnelRow {
@@ -39,9 +40,12 @@ export interface FunnelRow {
 
 export function classifySource(search: string, referrer: string, origin: string): FunnelSource {
   const params = new URLSearchParams(search)
+  const promo = (params.get('coupon') || params.get('promo') || '').trim().toUpperCase()
+  if (/^[A-Z0-9_-]{3,32}$/.test(promo)) return 'coupon'
   if (/^[a-z\d]{10,12}$/.test(params.get('ref') || '')) return 'referral'
   const utm = params.get('utm_source')?.toLowerCase()
-  if (utm) return ['google', 'bing', 'baidu'].includes(utm) ? (utm as FunnelSource) : 'other'
+  if (utm)
+    return ['google', 'bing', 'baidu', 'coupon'].includes(utm) ? (utm as FunnelSource) : 'other'
   if (!referrer) return 'direct'
   try {
     const url = new URL(referrer)

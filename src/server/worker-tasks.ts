@@ -4,6 +4,7 @@ import { safeUpstreamError } from './safe-errors'
 import { UpstreamError } from './integrations/aicdk'
 import { fulfillOrder } from './fulfillment'
 import { deliverOrderEmail } from './notifications'
+import { releaseExpiredCouponOrders } from './coupons'
 import { claimJob, databaseNow } from './database-sql'
 
 let lastAnalyticsCleanup = 0
@@ -22,6 +23,7 @@ export async function tick() {
     lastAnalyticsCleanup = Date.now()
   }
   await deliverOrderEmail()
+  await releaseExpiredCouponOrders()
   await db.commission.updateMany({
     where: { status: 'pending', availableAt: { lte: now } },
     data: { status: 'available' },

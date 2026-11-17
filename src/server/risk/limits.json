@@ -382,6 +382,30 @@
             "required": "true"
           },
           {
+            "_id": "coupon-preview-browser",
+            "scene": "\"coupon-preview\"",
+            "demo": "",
+            "dimension": "\"browser\"",
+            "prefix": "\"coupon-preview\"",
+            "limit": "30",
+            "seconds": "60",
+            "reason": "\"COUPON_PREVIEW_BROWSER_RATE\"",
+            "mode": "\"enforce\"",
+            "required": "true"
+          },
+          {
+            "_id": "coupon-preview-ip",
+            "scene": "\"coupon-preview\"",
+            "demo": "",
+            "dimension": "\"ip\"",
+            "prefix": "\"coupon-preview\"",
+            "limit": "60",
+            "seconds": "60",
+            "reason": "\"COUPON_PREVIEW_IP_RATE\"",
+            "mode": "\"enforce\"",
+            "required": "false"
+          },
+          {
             "_id": "auth-demo-primary-global",
             "scene": "\"auth-demo-primary\"",
             "demo": "",

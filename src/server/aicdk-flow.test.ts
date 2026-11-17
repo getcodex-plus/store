@@ -287,7 +287,11 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
     const order = await buy()
     expect(order.amount).toBe(q.amount)
     expect(preflights).toEqual(['jp'])
-    expect(JSON.stringify(order)).not.toMatch(/discount|billing_country|approved-/i)
+    const { discountAmount, ...orderWithoutCouponFields } = order
+    expect(discountAmount).toBe(0)
+    expect(JSON.stringify(orderWithoutCouponFields)).not.toMatch(
+      /discount|billing_country|approved-/i,
+    )
     const stored = await db.quote.findUniqueOrThrow({
       where: { id: q.id },
       include: { inventory: true },
@@ -522,6 +526,7 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
         userId: request.buyer.id,
         email: request.buyer.email,
         contactEmail: request.buyer.email,
+        listAmount: 1000,
         amount: 1000,
         externalAmount: 1000,
         status: 'unpaid',
@@ -676,6 +681,7 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
       data: {
         ...original,
         fulfillmentResolution: original.fulfillmentResolution ?? Prisma.DbNull,
+        couponSnapshot: original.couponSnapshot ?? Prisma.DbNull,
         id: id('o_'),
         userId: b.buyer.id,
         quoteId: b.q.id,

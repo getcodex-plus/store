@@ -30,6 +30,7 @@ export const riskScenes = [
   'withdrawal-fx-refresh',
   'withdrawal-request',
   'quote-target',
+  'coupon-preview',
   'auth-default',
   'auth-opaque',
   'auth-otp',

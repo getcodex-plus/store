@@ -13,6 +13,7 @@ import {
   Result,
   Skeleton,
   Select,
+  Space,
   Steps,
   Tag,
 } from 'antd'
@@ -21,6 +22,7 @@ import {
   ArrowRightOutlined,
   CheckCircleFilled,
   SafetyCertificateOutlined,
+  TagOutlined,
 } from '@ant-design/icons'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useBotCheck } from './BotCheck'
@@ -31,6 +33,7 @@ import { PaymentOptions, usePaymentChannel } from './PaymentOptions'
 import { paymentLimitError, planNames } from '../pricing'
 import { FunnelView } from './FunnelView'
 import { trackFunnel, attributionSource, analyticsAllowed } from '../funnel-client'
+import { normalizeCouponCode, productCouponPreview } from '../coupons'
 
 export function Checkout() {
   const productId = useSearchParams().get('product')
@@ -38,7 +41,7 @@ export function Checkout() {
 }
 
 function CheckoutContent({ productId }: { productId: string | null }) {
-  const { data, openLogin } = useSite()
+  const { data, openLogin, coupon, couponBusy, applyCoupon, clearCoupon } = useSite()
   const bot = useBotCheck('purchase')
   const router = useRouter()
   const { message } = App.useApp()
@@ -66,6 +69,13 @@ function CheckoutContent({ productId }: { productId: string | null }) {
   const [walletBalance, setWalletBalance] = useState<number | null>(null)
   const [balanceAmount, setBalanceAmount] = useState(0)
   const [clock, setClock] = useState(Date.now())
+  const [couponOpen, setCouponOpen] = useState(false)
+  const [couponInput, setCouponInput] = useState('')
+  const [couponFeedback, setCouponFeedback] = useState<{
+    type: 'error' | 'warning'
+    text: string
+  } | null>(null)
+
   useEffect(() => {
     if (sessionCollapsed) sessionPreview.current?.focus()
   }, [sessionCollapsed])
@@ -106,15 +116,49 @@ function CheckoutContent({ productId }: { productId: string | null }) {
   useEffect(() => {
     if (error) document.getElementById('checkout-error')?.focus()
   }, [error])
+
+  // Keep quote-level coupon preview synced when quote or user session changes.
+  useEffect(() => {
+    if (!quote || !coupon?.valid || !coupon.code) return
+    if (coupon.quote?.quoteId === quote.id) return
+    void applyCoupon(coupon.code, { quoteId: quote.id, silent: true })
+  }, [quote, coupon?.valid, coupon?.code, coupon?.quote?.quoteId, data?.user?.id, applyCoupon])
+
   const requestedProduct = data?.products.find((p) => p.id === productId)
   const product = requestedProduct?.upgrade
     ? data?.products.find((p) => p.id === upgradeId && p.upgrade) || requestedProduct
     : requestedProduct
-  const walletUsed = balanceAmount
-  const externalAmount = Math.max(0, (quote?.amount ?? 0) - walletUsed)
+
+  const itemPreview = product ? productCouponPreview(product, coupon) : null
+  const quoteCoupon =
+    quote && coupon?.valid && coupon.quote?.quoteId === quote.id ? coupon.quote : null
+  const discountAmount = quote
+    ? quoteCoupon?.eligible
+      ? quoteCoupon.discountAmount
+      : 0
+    : !product?.upgrade && itemPreview?.eligible
+      ? itemPreview.discountAmount
+      : 0
+  const payableAmount = quote
+    ? quoteCoupon?.eligible
+      ? quoteCoupon.finalAmount
+      : quote.amount
+    : !product?.upgrade && itemPreview?.eligible
+      ? itemPreview.finalAmount
+      : (product?.price ?? 0)
+
+  useEffect(() => {
+    if (quote && balanceAmount > payableAmount) {
+      setBalanceAmount(payableAmount)
+    }
+  }, [quote, balanceAmount, payableAmount])
+
+  const walletUsed = Math.min(balanceAmount, walletBalance ?? balanceAmount, payableAmount)
+  const externalAmount = Math.max(0, (quote ? payableAmount : 0) - walletUsed)
   const expired = quote ? clock >= new Date(quote.expiresAt).getTime() : false
   const limitError = data && quote ? paymentLimitError(data.settings, channel, externalAmount) : ''
   const paymentUnavailable = externalAmount > 0 && !paymentAvailable
+
   if (!data)
     return (
       <div className="container page-content">
@@ -129,6 +173,40 @@ function CheckoutContent({ productId }: { productId: string | null }) {
         extra={<Link href="/#plans">返回套餐列表</Link>}
       />
     )
+
+  async function handleApplyCoupon() {
+    const normalized = normalizeCouponCode(couponInput)
+    if (!normalized) {
+      setCouponFeedback({ type: 'error', text: '请输入优惠码' })
+      return
+    }
+    setCouponFeedback(null)
+    const preview = await applyCoupon(normalized, { quoteId: quote?.id, silent: true })
+    if (!preview.valid) {
+      setCouponFeedback({ type: 'error', text: preview.reason || '优惠码无效或已过期' })
+      return
+    }
+    setCouponInput('')
+    setCouponOpen(false)
+    if (quote) setRequestKey(crypto.randomUUID())
+    if (quote && preview.quote && !preview.quote.eligible) {
+      setCouponFeedback({
+        type: 'warning',
+        text: `${preview.quote.reason || '当前订单不满足此优惠码条件'}（将按原价结算）`,
+      })
+    } else {
+      message.success(`已启用优惠码 ${preview.code}`)
+    }
+  }
+
+  function handleClearCoupon() {
+    clearCoupon()
+    setCouponFeedback(null)
+    setCouponInput('')
+    setCouponOpen(false)
+    if (quote) setRequestKey(crypto.randomUUID())
+  }
+
   async function verify() {
     if (!product || !consent) return
     if (!data?.user && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail.trim())) {
@@ -148,12 +226,16 @@ function CheckoutContent({ productId }: { productId: string | null }) {
         source: attributionSource(),
         analytics: analyticsAllowed(),
       })
+      if (coupon?.valid && coupon.code) {
+        await applyCoupon(coupon.code, { quoteId: result.id, silent: true })
+      }
       verifiedSession.current = { quoteId: result.id, value: submittedSession }
       setQuote(result)
       setBalanceAmount(0)
       setClock(Date.now())
       setSession('')
       setSessionCollapsed(false)
+      setCouponFeedback(null)
       setRequestKey(crypto.randomUUID())
       message.success('账号检查已完成')
     } catch (e) {
@@ -163,6 +245,7 @@ function CheckoutContent({ productId }: { productId: string | null }) {
       setBusy(false)
     }
   }
+
   async function purchase() {
     if (!data?.user && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail.trim())) {
       setError('请填写有效的联系邮箱，用于接收订单通知')
@@ -192,6 +275,7 @@ function CheckoutContent({ productId }: { productId: string | null }) {
         const referral = JSON.parse(localStorage.getItem('getgpt_referral') || 'null')
         if (referral?.expires > Date.now()) referralCode = referral.code
       } catch {}
+      const appliedCouponCode = coupon?.valid && quoteCoupon?.eligible ? coupon.code : undefined
       const order = await api<Order>('/orders', {
         quoteId: quote.id,
         turnstileToken: bot.token(),
@@ -200,18 +284,157 @@ function CheckoutContent({ productId }: { productId: string | null }) {
         contactEmail: contactEmail.trim().toLowerCase() || undefined,
         balanceAmount: walletUsed,
         referralCode,
+        couponCode: appliedCouponCode,
         session:
           verifiedSession.current?.quoteId === quote.id ? verifiedSession.current.value : undefined,
       })
       verifiedSession.current = null
       router.push(`/orders/${order.id}`)
     } catch (e) {
-      setError((e as Error).message)
+      const msg = (e as Error).message
+      setError(msg)
+      if (msg.includes('优惠码')) {
+        setRequestKey(crypto.randomUUID())
+      }
     } finally {
       bot.reset()
       setBusy(false)
     }
   }
+
+  const couponSection = (
+    <div className="checkout-coupon-box">
+      {coupon?.valid && !couponOpen ? (
+        <div className="checkout-coupon-active">
+          <div className="checkout-coupon-info">
+            <div className="checkout-coupon-title">
+              <TagOutlined />
+              <code className="coupon-code-chip">{coupon.code}</code>
+              <span>{coupon.summary}</span>
+            </div>
+            {quote ? (
+              quoteCoupon ? (
+                quoteCoupon.eligible ? (
+                  <small className="coupon-saving-text">
+                    本单已减 {money(quoteCoupon.discountAmount)}，折后{' '}
+                    {money(quoteCoupon.finalAmount)}
+                    {quoteCoupon.costFloorCapped ? '（已按升级成本保护规则折算最大减免）' : ''}
+                  </small>
+                ) : (
+                  <small className="coupon-ineligible-text">
+                    {quoteCoupon.reason || '当前订单不可用此优惠码'}（将按原价结算）
+                    {coupon.requireLogin && !data.user && (
+                      <>
+                        {' · '}
+                        <button
+                          type="button"
+                          className="inline-link-btn"
+                          onClick={() => openLogin(true)}
+                        >
+                          立即登录
+                        </button>
+                      </>
+                    )}
+                  </small>
+                )
+              ) : (
+                <small className="muted">正在计算本单优惠金额…</small>
+              )
+            ) : product.upgrade ? (
+              <small className="muted">
+                {itemPreview?.eligible
+                  ? '验证账号获取升级总价后，将自动计算立减差价'
+                  : itemPreview?.reason || '此优惠码不适用于升级服务'}
+              </small>
+            ) : itemPreview?.eligible ? (
+              <small className="coupon-saving-text">
+                预计立省 {money(itemPreview.discountAmount)}，券后 {money(itemPreview.finalAmount)}
+              </small>
+            ) : (
+              <small className="coupon-ineligible-text">
+                {itemPreview?.reason || '当前套餐不满足此优惠码条件'}
+              </small>
+            )}
+          </div>
+          <div className="checkout-coupon-actions">
+            <Button
+              type="link"
+              size="small"
+              disabled={busy || couponBusy}
+              onClick={() => {
+                setCouponInput(coupon.code)
+                setCouponFeedback(null)
+                setCouponOpen(true)
+              }}
+            >
+              更换
+            </Button>
+            <Button
+              type="link"
+              size="small"
+              disabled={busy || couponBusy}
+              onClick={handleClearCoupon}
+            >
+              不使用
+            </Button>
+          </div>
+        </div>
+      ) : couponOpen ? (
+        <div className="checkout-coupon-editor">
+          <Space.Compact block>
+            <Input
+              aria-label="优惠码"
+              placeholder="输入优惠码，例如 PLUS20"
+              value={couponInput}
+              disabled={busy || couponBusy}
+              maxLength={32}
+              onChange={(e) => {
+                setCouponInput(e.target.value.toUpperCase())
+                if (couponFeedback) setCouponFeedback(null)
+              }}
+              onPressEnter={(e) => {
+                e.preventDefault()
+                void handleApplyCoupon()
+              }}
+            />
+            <Button
+              type="primary"
+              loading={couponBusy}
+              disabled={busy || !couponInput.trim()}
+              onClick={() => void handleApplyCoupon()}
+            >
+              应用
+            </Button>
+            <Button
+              disabled={busy || couponBusy}
+              onClick={() => {
+                setCouponOpen(false)
+                setCouponFeedback(null)
+              }}
+            >
+              取消
+            </Button>
+          </Space.Compact>
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="checkout-coupon-trigger"
+          disabled={busy}
+          onClick={() => {
+            setCouponFeedback(null)
+            setCouponOpen(true)
+          }}
+        >
+          <TagOutlined /> 有优惠码？点击输入立享差价
+        </button>
+      )}
+      {couponFeedback && (
+        <Alert className="mt-12" type={couponFeedback.type} showIcon title={couponFeedback.text} />
+      )}
+    </div>
+  )
+
   return (
     <main className="container checkout-page">
       <FunnelView event="checkout_view" productId={product.id} />
@@ -384,6 +607,7 @@ function CheckoutContent({ productId }: { productId: string | null }) {
                   我确认有权使用该账号，知晓会话信息是敏感登录凭证，并同意用于本次验证与充值。
                 </Checkbox>
               </Form>
+              {couponSection}
               <Button
                 type="primary"
                 size="large"
@@ -425,7 +649,11 @@ function CheckoutContent({ productId }: { productId: string | null }) {
                   type="info"
                   showIcon
                   title={`${planNames[quote.currentPlan || ''] || quote.currentPlan || '当前套餐'} → ${planNames[quote.targetPlan || product.plan] || product.name}`}
-                  description={`本次升级总价 ${money(quote.amount)}，已包含服务费用。${data.mode === 'demo' ? '当前为演示报价。' : ''}`}
+                  description={
+                    discountAmount > 0
+                      ? `本次升级原价 ${money(quote.amount)}，使用优惠码立减 ${money(discountAmount)}，折后应付 ${money(payableAmount)}。${data.mode === 'demo' ? '当前为演示报价。' : ''}`
+                      : `本次升级总价 ${money(quote.amount)}，已包含服务费用。${data.mode === 'demo' ? '当前为演示报价。' : ''}`
+                  }
                 />
               )}
               <p className="tiny muted mt-20">
@@ -443,6 +671,7 @@ function CheckoutContent({ productId }: { productId: string | null }) {
                   重新验证
                 </Button>
               </p>
+              {couponSection}
               <h3 className="mt-24">{externalAmount === 0 ? '使用余额完成付款' : '支付方式'}</h3>
               {externalAmount > 0 && (
                 <PaymentOptions
@@ -455,26 +684,26 @@ function CheckoutContent({ productId }: { productId: string | null }) {
               {data.user && (
                 <div className="mt-24">
                   <Checkbox
-                    checked={balanceAmount > 0}
+                    checked={walletUsed > 0}
                     disabled={busy || !walletBalance}
                     onChange={(e) =>
                       setBalanceAmount(
-                        e.target.checked ? Math.min(walletBalance ?? 0, quote.amount) : 0,
+                        e.target.checked ? Math.min(walletBalance ?? 0, payableAmount) : 0,
                       )
                     }
                   >
                     使用账户余额抵扣（
                     {walletBalance === null ? '余额暂未加载' : `可用 ${money(walletBalance)}`}）
                   </Checkbox>
-                  {balanceAmount > 0 && (
+                  {walletUsed > 0 && (
                     <Form.Item label="本次抵扣（元）" className="mt-20">
                       <InputNumber
                         disabled={busy}
                         aria-label="本次余额抵扣"
                         min={0}
-                        max={Math.min(walletBalance ?? 0, quote.amount) / 100}
+                        max={Math.min(walletBalance ?? 0, payableAmount) / 100}
                         precision={2}
-                        value={balanceAmount / 100}
+                        value={walletUsed / 100}
                         onChange={(v) => setBalanceAmount(Math.round((v ?? 0) * 100))}
                       />
                     </Form.Item>
@@ -482,10 +711,27 @@ function CheckoutContent({ productId }: { productId: string | null }) {
                 </div>
               )}
               <div className="payment-breakdown">
-                <div>
-                  <span>订单总价</span>
-                  <span>{money(quote.amount)}</span>
-                </div>
+                {discountAmount > 0 ? (
+                  <>
+                    <div>
+                      <span>套餐原价</span>
+                      <span className="muted">{money(quote.amount)}</span>
+                    </div>
+                    <div>
+                      <span>优惠码（{coupon?.code}）</span>
+                      <span className="coupon-saving-text">−{money(discountAmount)}</span>
+                    </div>
+                    <div>
+                      <span>折后总价</span>
+                      <span>{money(payableAmount)}</span>
+                    </div>
+                  </>
+                ) : (
+                  <div>
+                    <span>订单总价</span>
+                    <span>{money(quote.amount)}</span>
+                  </div>
+                )}
                 <div>
                   <span>余额抵扣</span>
                   <span>−{money(walletUsed)}</span>
@@ -508,9 +754,9 @@ function CheckoutContent({ productId }: { productId: string | null }) {
                 block
                 loading={busy}
                 onClick={purchase}
-                disabled={expired || !!limitError || paymentUnavailable}
+                disabled={expired || !!limitError || paymentUnavailable || couponBusy}
               >
-                {`确认订单 · ${money(quote.amount)}`} <ArrowRightOutlined />
+                {`确认订单 · ${money(payableAmount)}`} <ArrowRightOutlined />
               </Button>
               <p className="tiny muted">
                 本站不自动续扣。提交前请阅读{' '}
@@ -537,12 +783,38 @@ function CheckoutContent({ productId }: { productId: string | null }) {
             <h2>{product.name}</h2>
             <p className="muted">{product.subtitle}</p>
             <p className="tiny muted">本站按本次订单收费，不自动续扣。</p>
-            <div className="summary-price">
-              {!quote && product.upgrade
-                ? '验证账号后报价'
-                : !quote && product.priceStatus === 'pending'
-                  ? '价格更新中'
-                  : money(quote?.amount ?? product.price)}
+            <div className="summary-price" aria-live="polite" aria-atomic="true">
+              {!quote && product.upgrade ? (
+                <>
+                  验证账号后报价
+                  {itemPreview?.eligible && coupon?.summary && (
+                    <div className="summary-coupon-meta">
+                      <span className="coupon-diff-badge">
+                        券码 {coupon.code} · 核价后享 {coupon.summary}
+                      </span>
+                    </div>
+                  )}
+                </>
+              ) : !quote && product.priceStatus === 'pending' ? (
+                '价格更新中'
+              ) : discountAmount > 0 ? (
+                <>
+                  <div>
+                    {money(payableAmount)}{' '}
+                    <del className="price-original summary">
+                      {money(quote ? quote.amount : product.price)}
+                    </del>
+                  </div>
+                  <div className="summary-coupon-meta">
+                    <span className="coupon-diff-badge">
+                      已省 {money(discountAmount)}
+                      {coupon?.code ? ` · ${coupon.code}` : ''}
+                    </span>
+                  </div>
+                </>
+              ) : (
+                money(quote?.amount ?? product.price)
+              )}
             </div>
             <details className="summary-details">
               <summary>查看套餐内容</summary>

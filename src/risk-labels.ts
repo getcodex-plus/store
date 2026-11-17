@@ -18,6 +18,7 @@ export const riskSceneLabels: Record<string, string> = {
   'referral-settlement': '返佣资格',
   'challenge:login': '登录安全验证',
   'challenge:purchase': '购买安全验证',
+  'coupon-preview': '优惠码试算',
 }
 
 export const riskReasonLabels: Record<string, string> = {
@@ -49,4 +50,6 @@ export const riskReasonLabels: Record<string, string> = {
   WITHDRAWAL_REQUEST_IP_RATE: '同一网络来源申请提现过频',
   WITHDRAWAL_REQUEST_USER_RATE: '同一用户申请提现过频',
   QUOTE_TARGET_TARGET_RATE: '同一充值目标报价过频',
+  COUPON_PREVIEW_BROWSER_RATE: '当前浏览器查询优惠码过频',
+  COUPON_PREVIEW_IP_RATE: '同一网络来源查询优惠码过频',
 }

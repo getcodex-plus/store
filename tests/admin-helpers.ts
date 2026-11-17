@@ -4,6 +4,7 @@ export async function openAdminPage(page: Page, label: string) {
   const group = (
     {
       商品管理: '商品与兑换',
+      优惠码管理: '商品与兑换',
       兑换码管理: '商品与兑换',
       导入批次: '商品与兑换',
       订单管理: '商品与兑换',

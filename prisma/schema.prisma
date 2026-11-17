@@ -129,6 +129,58 @@ model Commission {
   @@map("commissions")
 }
 
+model Coupon {
+  id                String             @id
+  code              String             @unique
+  name              String
+  note              String             @default("")
+  discountKind      String             @map("discount_kind")
+  discountValue     Int                @map("discount_value")
+  maxDiscountAmount Int?               @map("max_discount_amount")
+  minAmount         Int                @default(0) @map("min_amount")
+  scopeMode         String             @default("all") @map("scope_mode")
+  productIds        Json               @default("[]") @map("product_ids")
+  upgradeProtection String             @default("cost") @map("upgrade_protection")
+  firstOrderOnly    Boolean            @default(false) @map("first_order_only")
+  requireLogin      Boolean            @default(false) @map("require_login")
+  maxRedemptions    Int?               @map("max_redemptions")
+  perBuyerLimit     Int?               @default(1) @map("per_buyer_limit")
+  startsAt          DateTime?          @map("starts_at") @db.Timestamptz(6)
+  expiresAt         DateTime?          @map("expires_at") @db.Timestamptz(6)
+  allowReferral     Boolean            @default(true) @map("allow_referral")
+  affiliateUserId   String?            @map("affiliate_user_id")
+  affiliateRateBps  Int?               @map("affiliate_rate_bps")
+  enabled           Boolean            @default(true)
+  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime           @default(now()) @map("updated_at") @db.Timestamptz(6)
+  affiliateUser     User?              @relation("coupons_affiliate_user_idTousers", fields: [affiliateUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  orders            Order[]
+  redemptions       CouponRedemption[]
+
+  @@index([createdAt(sort: Desc), id(sort: Desc)], map: "coupons_created_idx")
+  @@map("coupons")
+}
+
+model CouponRedemption {
+  id             String    @id
+  couponId       String    @map("coupon_id")
+  orderId        String    @unique @map("order_id")
+  status         String    @default("reserved")
+  userId         String?   @map("user_id")
+  buyerKey       String    @map("buyer_key")
+  contactKey     String    @map("contact_key")
+  discountAmount Int       @map("discount_amount")
+  expiresAt      DateTime? @map("expires_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  coupon         Coupon    @relation(fields: [couponId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  order          Order     @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user           User?     @relation("coupon_redemptions_user_idTousers", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([couponId, status], map: "coupon_redemptions_coupon_status_idx")
+  @@map("coupon_redemptions")
+}
+
 model DemoMailbox {
   browserDigest String   @map("browser_digest")
   email         String
@@ -276,55 +328,62 @@ model Order {
   requestHash         String         @default("") @map("request_hash")
   productId           String?        @map("product_id")
   productName         String         @map("product_name")
-  email               String
-  amount              Int
-  status              String
-  channel             String
-  createdAt           DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
-  completedAt         DateTime?      @map("completed_at") @db.Timestamptz(6)
-  rateBps             Int            @map("rate_bps")
-  settlementDays      Int            @map("settlement_days")
-  firstOrderOnly      Boolean        @map("first_order_only")
-  provider            String
-  integrationId       String?        @map("integration_id")
-  paymentId           String?        @map("payment_id")
-  paymentUrl          String?        @map("payment_url")
-  paymentAttempted    Boolean        @default(false) @map("payment_attempted")
-  redemptionId        String?        @map("redemption_id")
-  fulfillmentAttempt  Int            @default(0) @map("fulfillment_attempt")
-  failureReason       String?        @map("failure_reason")
-  contactEmail        String?        @map("contact_email")
-  guestBrowserDigest  String?        @map("guest_browser_digest")
-  ipAddress           String?        @map("ip_address")
-  aicdkIntegrationId  String?        @map("aicdk_integration_id")
-  balanceAmount       Int            @default(0) @map("balance_amount")
-  externalAmount      Int            @map("external_amount")
-  inviterId           String?        @map("inviter_id")
-  buyerKey            String?        @map("buyer_key")
-  fulfillmentStatus   String?        @map("fulfillment_status")
-  redemptionVersion   Int            @default(0) @map("redemption_version")
-  submissionAttempted Boolean        @default(false) @map("submission_attempted")
-  fulfillmentResolution Json?        @map("fulfillment_resolution")
-  refundDestination   String?        @map("refund_destination")
-  refundStatus        String?        @map("refund_status")
-  refundAutomatic     Boolean        @default(false) @map("refund_automatic")
-  refundNote          String         @default("") @map("refund_note")
-  refundActor         String?        @map("refund_actor")
-  refundRequestedAt   DateTime?      @map("refund_requested_at") @db.Timestamptz(6)
-  refundCompletedAt   DateTime?      @map("refund_completed_at") @db.Timestamptz(6)
-  refundResolutionNote String        @default("") @map("refund_resolution_note")
-  refundResolvedBy    String?        @map("refund_resolved_by")
-  commission          Commission?
-  emailOutbox         EmailOutbox[]
-  job                 Job?
-  aicdkIntegration    Integration?   @relation("orders_aicdk_integration_idTointegrations", fields: [aicdkIntegrationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  paymentIntegration  Integration?   @relation("orders_integration_idTointegrations", fields: [integrationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  inviter             User?          @relation("orders_inviter_idTousers", fields: [inviterId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  product             Product?       @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  quote               Quote?         @relation(fields: [quoteId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  user                User?          @relation("orders_user_idTousers", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  paymentEvents       PaymentEvent[]
-  walletEntries       WalletEntry[]
+  email                 String
+  listAmount            Int               @map("list_amount")
+  discountAmount        Int               @default(0) @map("discount_amount")
+  amount                Int
+  couponId              String?           @map("coupon_id")
+  couponCode            String?           @map("coupon_code")
+  couponSnapshot        Json?             @map("coupon_snapshot")
+  status                String
+  channel               String
+  createdAt             DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  completedAt           DateTime?         @map("completed_at") @db.Timestamptz(6)
+  rateBps               Int               @map("rate_bps")
+  settlementDays        Int               @map("settlement_days")
+  firstOrderOnly        Boolean           @map("first_order_only")
+  provider              String
+  integrationId         String?           @map("integration_id")
+  paymentId             String?           @map("payment_id")
+  paymentUrl            String?           @map("payment_url")
+  paymentAttempted      Boolean           @default(false) @map("payment_attempted")
+  redemptionId          String?           @map("redemption_id")
+  fulfillmentAttempt    Int               @default(0) @map("fulfillment_attempt")
+  failureReason         String?           @map("failure_reason")
+  contactEmail          String?           @map("contact_email")
+  guestBrowserDigest    String?           @map("guest_browser_digest")
+  ipAddress             String?           @map("ip_address")
+  aicdkIntegrationId    String?           @map("aicdk_integration_id")
+  balanceAmount         Int               @default(0) @map("balance_amount")
+  externalAmount        Int               @map("external_amount")
+  inviterId             String?           @map("inviter_id")
+  buyerKey              String?           @map("buyer_key")
+  fulfillmentStatus     String?           @map("fulfillment_status")
+  redemptionVersion     Int               @default(0) @map("redemption_version")
+  submissionAttempted   Boolean           @default(false) @map("submission_attempted")
+  fulfillmentResolution Json?             @map("fulfillment_resolution")
+  refundDestination     String?           @map("refund_destination")
+  refundStatus          String?           @map("refund_status")
+  refundAutomatic       Boolean           @default(false) @map("refund_automatic")
+  refundNote            String            @default("") @map("refund_note")
+  refundActor           String?           @map("refund_actor")
+  refundRequestedAt     DateTime?         @map("refund_requested_at") @db.Timestamptz(6)
+  refundCompletedAt     DateTime?         @map("refund_completed_at") @db.Timestamptz(6)
+  refundResolutionNote  String            @default("") @map("refund_resolution_note")
+  refundResolvedBy      String?           @map("refund_resolved_by")
+  commission            Commission?
+  coupon                Coupon?           @relation(fields: [couponId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  couponRedemption      CouponRedemption?
+  emailOutbox           EmailOutbox[]
+  job                   Job?
+  aicdkIntegration      Integration?      @relation("orders_aicdk_integration_idTointegrations", fields: [aicdkIntegrationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  paymentIntegration    Integration?      @relation("orders_integration_idTointegrations", fields: [integrationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  inviter               User?             @relation("orders_inviter_idTousers", fields: [inviterId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  product               Product?          @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  quote                 Quote?            @relation(fields: [quoteId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user                  User?             @relation("orders_user_idTousers", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  paymentEvents         PaymentEvent[]
+  walletEntries         WalletEntry[]
 
   @@index([userId, createdAt(sort: Desc)], map: "orders_user")
   @@map("orders")
@@ -457,16 +516,18 @@ model User {
   passkeys            AuthPasskey[]
   sessions            AuthSession[]
   commissions         Commission[]
-  invitedOrders       Order[]       @relation("orders_inviter_idTousers")
-  orders              Order[]       @relation("orders_user_idTousers")
+  affiliateCoupons    Coupon[]           @relation("coupons_affiliate_user_idTousers")
+  couponRedemptions   CouponRedemption[] @relation("coupon_redemptions_user_idTousers")
+  invitedOrders       Order[]            @relation("orders_inviter_idTousers")
+  orders              Order[]            @relation("orders_user_idTousers")
   twoFactors          TwoFactor[]
   userRoles           UserRole[]
-  inviter             User?         @relation("usersTousers", fields: [invitedBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  invitees            User[]        @relation("usersTousers")
+  inviter             User?              @relation("usersTousers", fields: [invitedBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  invitees            User[]             @relation("usersTousers")
   walletEntries       WalletEntry[]
   wallet              Wallet?
-  reviewedWithdrawals Withdrawal[]  @relation("withdrawals_reviewer_idTousers")
-  withdrawals         Withdrawal[]  @relation("withdrawals_user_idTousers")
+  reviewedWithdrawals Withdrawal[]       @relation("withdrawals_reviewer_idTousers")
+  withdrawals         Withdrawal[]       @relation("withdrawals_user_idTousers")
 
   @@map("users")
 }

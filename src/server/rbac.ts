@@ -9,6 +9,8 @@ export const permissions = [
   'orders:write',
   'products:read',
   'products:write',
+  'coupons:read',
+  'coupons:write',
   'users:read',
   'users:write',
   'wallet:read',

@@ -449,7 +449,16 @@ function LoginDialogContent() {
   )
 }
 export function SiteHeader() {
-  const { data, error, openLogin, refresh } = useSite()
+  const {
+    data,
+    error,
+    openLogin,
+    refresh,
+    coupon,
+    couponNotice,
+    clearCoupon,
+    dismissCouponNotice,
+  } = useSite()
   const path = usePathname()
   const { message } = App.useApp()
   const admin = path.startsWith('/admin')
@@ -533,6 +542,49 @@ export function SiteHeader() {
       {data?.mode === 'demo' && !admin && (
         <div className="demo-banner">
           <span className="status-dot" /> 本地演示 · 套餐价格为示例，不会真实扣款或充值
+        </div>
+      )}
+      {coupon?.valid && !admin && (
+        <div className="coupon-banner" role="status" aria-live="polite">
+          <div className="coupon-banner-inner">
+            <span className="status-dot amber" />
+            <span>
+              已启用优惠码 <code className="coupon-code-chip">{coupon.code}</code>
+              {coupon.summary ? ` · ${coupon.summary}` : ''}
+              {coupon.scopeLabel ? ` · ${coupon.scopeLabel}` : ''}
+              {coupon.firstOrderOnly ? ' · 仅限首单' : ''}
+              {coupon.requireLogin && !data?.user ? ' · 需登录使用' : ''}
+            </span>
+            <span className="coupon-banner-actions">
+              {coupon.requireLogin && !data?.user && (
+                <button type="button" className="coupon-banner-btn" onClick={() => openLogin(true)}>
+                  立即登录
+                </button>
+              )}
+              <button
+                type="button"
+                className="coupon-banner-btn"
+                onClick={() => {
+                  clearCoupon()
+                  message.info('已移除当前优惠码')
+                }}
+              >
+                移除优惠码
+              </button>
+            </span>
+          </div>
+        </div>
+      )}
+      {couponNotice && !admin && (
+        <div className="coupon-banner invalid" role="alert">
+          <div className="coupon-banner-inner">
+            <span>{couponNotice}</span>
+            <span className="coupon-banner-actions">
+              <button type="button" className="coupon-banner-btn" onClick={dismissCouponNotice}>
+                知道了
+              </button>
+            </span>
+          </div>
         </div>
       )}
       {error && !admin && (

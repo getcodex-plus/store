@@ -10,6 +10,8 @@ export const managedTables = [
   'auth_session',
   'auth_verification',
   'commissions',
+  'coupon_redemptions',
+  'coupons',
   'demo_mailbox',
   'email_outbox',
   'exchange_rates',

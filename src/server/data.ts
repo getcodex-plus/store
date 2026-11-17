@@ -7,6 +7,7 @@ import type {
   Order as OrderRecord,
   Quote as QuoteRecord,
   User as UserRecord,
+  Coupon as CouponRecord,
   Commission as CommissionRecord,
   Withdrawal as WithdrawalRecord,
   WalletEntry as WalletRecord,
@@ -17,6 +18,7 @@ import type {
   Product,
   Order,
   User,
+  Coupon,
   Commission,
   Withdrawal,
   WalletEntry,
@@ -85,6 +87,34 @@ export function productView(record: ProductRecord): Product {
   }
 }
 
+export function couponView(record: CouponRecord): Coupon {
+  return {
+    id: record.id,
+    code: record.code,
+    name: record.name,
+    note: record.note,
+    discountKind: z.enum(['fixed', 'percent']).parse(record.discountKind),
+    discountValue: record.discountValue,
+    maxDiscountAmount: record.maxDiscountAmount,
+    minAmount: record.minAmount,
+    scopeMode: z.enum(['all', 'recharge_only', 'upgrade_only', 'products']).parse(record.scopeMode),
+    productIds: strings.parse(record.productIds),
+    upgradeProtection: z.enum(['cost', 'min_profit', 'none']).parse(record.upgradeProtection),
+    firstOrderOnly: record.firstOrderOnly,
+    requireLogin: record.requireLogin,
+    maxRedemptions: record.maxRedemptions,
+    perBuyerLimit: record.perBuyerLimit,
+    startsAt: record.startsAt?.toISOString() ?? null,
+    expiresAt: record.expiresAt?.toISOString() ?? null,
+    allowReferral: record.allowReferral,
+    affiliateUserId: record.affiliateUserId,
+    affiliateRateBps: record.affiliateRateBps,
+    enabled: record.enabled,
+    createdAt: record.createdAt.toISOString(),
+    updatedAt: record.updatedAt.toISOString(),
+  }
+}
+
 export function orderView(record: OrderRecord): Order {
   return {
     id: record.id,
@@ -94,6 +124,9 @@ export function orderView(record: OrderRecord): Order {
     productName: record.productName,
     email: record.email,
     kind: z.enum(['purchase', 'topup']).parse(record.kind),
+    listAmount: record.listAmount,
+    discountAmount: record.discountAmount,
+    couponCode: record.couponCode,
     amount: record.amount,
     balanceAmount: record.balanceAmount,
     externalAmount: record.externalAmount,
