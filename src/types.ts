@@ -14,6 +14,8 @@ export interface OrderRefund {
 export interface AdminOrder extends Order {
   ipAddress: string | null
   provider: PaymentProvider
+  resolutionRevision: string
+  fulfillmentResolution: import('./order-resolution').OrderResolution | null
   refundRecord: {
     note: string
     actor: string | null

@@ -30,6 +30,7 @@ bun run dev
 - `db:init` 只接受空 schema，并在事务内完成初始化；已有表时直接拒绝，不清空数据。
 - `db:seed` 补充商品、配置、角色等默认记录；`db:verify` 检查结构。
 - 调整数据库结构时同步更新模型、初始化 SQL 和 `prisma/database-contract.json`，运行 `db:generate` 后在空的测试 schema 中验证。
+- 已有数据库启用人工兑换处理功能前，在应用 schema 执行 `prisma/updates/add-fulfillment-resolution.sql`，再运行 `db:verify`；该脚本只补充处理记录字段，不清空订单。全新数据库已由 `db:init` 包含此字段。
 
 ## 站点配置
 

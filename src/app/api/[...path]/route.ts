@@ -52,6 +52,7 @@ import { withdrawalChannels } from '../../../withdrawals'
 import { updateAdminUser } from '../../../server/admin-users'
 import { adminQuerySchema } from '../../../server/admin-query'
 import { accountHistory, accountHistoryQuery } from '../../../server/account-history'
+import { resolveOrder } from '../../../server/order-resolution'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -270,6 +271,7 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
         'admin/withdrawals/estimate': 'withdrawals:write',
         'admin/orders/retry': 'orders:write',
         'admin/orders/refund': 'orders:write',
+        'admin/orders/resolve': 'orders:write',
         'admin/roles': 'roles:write',
         'admin/user-roles': 'roles:write',
       }
@@ -340,6 +342,9 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
           await audit(admin.email, '分配用户角色', input.userId, client)
         })
         result = { saved: true }
+      } else if (path === 'admin/orders/resolve' && method === 'POST') {
+        await requireRecent(admin)
+        result = await resolveOrder(z.object({ id: z.string() }).parse(data).id, admin.email, data)
       } else if (path === 'admin/orders/refund' && method === 'POST') {
         await requireRecent(admin)
         result = await refundFailedOrder(

@@ -733,86 +733,97 @@ export async function acceptPayment(provider: string, revision: string | null, r
     }
   })
 }
+// Keep buyer, user and order locks in the same order for automatic and manual completion.
+export async function lockOrderForCompletion(client: DbClient, orderId: string) {
+  const record = await client.order.findUnique({ where: { id: orderId } })
+  if (!record) return null
+  const initial = paymentOrderView(record)
+  for (const key of [
+    ...new Set([
+      initial.buyerKey || hash(`buyer:${initial.email.toLowerCase()}`),
+      hash(`contact:${initial.contactEmail.toLowerCase()}`),
+    ]),
+  ].sort())
+    await advisoryLock(client, key)
+  await lockRow(client, 'users', initial.userId)
+  await lockRow(client, 'orders', orderId)
+  return client.order.findUniqueOrThrow({ where: { id: orderId } })
+}
+
+// The caller holds lockOrderForCompletion and commits all related changes together.
+export async function completeOrderInTransaction(client: DbClient, record: OrderRecord) {
+  const order = paymentOrderView(record)
+  if (order.status === 'completed') return
+  if (!['processing', 'needs_session'].includes(order.status) || order.kind !== 'purchase')
+    throw new ApiError(409, '订单状态不允许完成')
+  await client.order.update({
+    where: { id: order.id },
+    data: { status: 'completed', completedAt: await databaseNow(client) },
+  })
+  if (order.quoteId) {
+    await client.inventory.updateMany({
+      where: { quotes: { some: { id: order.quoteId } } },
+      data: { status: 'consumed', reservedUntil: null },
+    })
+    await client.quote.updateMany({
+      where: { id: order.quoteId },
+      data: { preflightToken: null },
+    })
+  }
+  const user = order.userId ? await client.user.findUnique({ where: { id: order.userId } }) : null
+  const inviterId = order.inviterId || (order.buyerKey ? null : user?.invitedBy)
+  if (inviterId && order.rateBps > 0) {
+    const previous = await client.order.findFirst({
+      where: {
+        id: { not: order.id },
+        status: 'completed',
+        kind: 'purchase',
+        OR: [
+          { email: order.email },
+          ...(order.userId ? [{ userId: order.userId }] : []),
+          { contactEmail: order.contactEmail },
+        ],
+      },
+      select: { id: true },
+    })
+    const decision = await assessRisk(
+      'referral-settlement',
+      {
+        kind: 'referral',
+        self: inviterId === order.userId,
+        firstOrderOnly: order.firstOrderOnly,
+        previous: Boolean(previous),
+      },
+      { user: order.userId || undefined, email: order.contactEmail, target: order.email },
+      order.id,
+      client,
+    )
+    if (decision.action === 'allow') {
+      const amount = Math.floor((order.amount * order.rateBps) / 10000)
+      if (amount > 0)
+        await client.commission.createMany({
+          data: [
+            {
+              id: id('c_'),
+              userId: inviterId,
+              orderId: order.id,
+              amount,
+              status: 'pending',
+              availableAt: new Date(
+                (await databaseNow(client)).getTime() + order.settlementDays * 86400_000,
+              ),
+            },
+          ],
+          skipDuplicates: true,
+        })
+    }
+  }
+}
+
 export async function completeOrder(orderId: string) {
   await transaction(async (client) => {
-    const record = await client.order.findUnique({ where: { id: orderId } })
-    if (!record) return
-    const initial = paymentOrderView(record)
-    for (const key of [
-      ...new Set([
-        initial.buyerKey || hash(`buyer:${initial.email.toLowerCase()}`),
-        hash(`contact:${initial.contactEmail.toLowerCase()}`),
-      ]),
-    ].sort())
-      await advisoryLock(client, key)
-    await lockRow(client, 'users', initial.userId)
-    await lockRow(client, 'orders', orderId)
-    const order = paymentOrderView(await client.order.findUniqueOrThrow({ where: { id: orderId } }))
-    if (order.status === 'completed') return
-    if (!['processing', 'needs_session'].includes(order.status) || order.kind !== 'purchase')
-      throw new ApiError(409, '订单状态不允许完成')
-    await client.order.update({
-      where: { id: order.id },
-      data: { status: 'completed', completedAt: await databaseNow(client) },
-    })
-    if (order.quoteId) {
-      await client.inventory.updateMany({
-        where: { quotes: { some: { id: order.quoteId } } },
-        data: { status: 'consumed', reservedUntil: null },
-      })
-      await client.quote.updateMany({
-        where: { id: order.quoteId },
-        data: { preflightToken: null },
-      })
-    }
-    const user = order.userId ? await client.user.findUnique({ where: { id: order.userId } }) : null
-    const inviterId = initial.inviterId || (initial.buyerKey ? null : user?.invitedBy)
-    if (inviterId && order.rateBps > 0) {
-      const previous = await client.order.findFirst({
-        where: {
-          id: { not: order.id },
-          status: 'completed',
-          kind: 'purchase',
-          OR: [
-            { email: order.email },
-            ...(order.userId ? [{ userId: order.userId }] : []),
-            { contactEmail: order.contactEmail },
-          ],
-        },
-        select: { id: true },
-      })
-      const decision = await assessRisk(
-        'referral-settlement',
-        {
-          kind: 'referral',
-          self: inviterId === order.userId,
-          firstOrderOnly: order.firstOrderOnly,
-          previous: Boolean(previous),
-        },
-        { user: order.userId || undefined, email: order.contactEmail, target: order.email },
-        order.id,
-        client,
-      )
-      if (decision.action === 'allow') {
-        const amount = Math.floor((order.amount * order.rateBps) / 10000)
-        if (amount > 0)
-          await client.commission.createMany({
-            data: [
-              {
-                id: id('c_'),
-                userId: inviterId,
-                orderId: order.id,
-                amount,
-                status: 'pending',
-                availableAt: new Date(
-                  (await databaseNow(client)).getTime() + order.settlementDays * 86400_000,
-                ),
-              },
-            ],
-            skipDuplicates: true,
-          })
-      }
-    }
+    const record = await lockOrderForCompletion(client, orderId)
+    if (record) await completeOrderInTransaction(client, record)
   })
 }
 export async function account(user: User): Promise<AccountData> {
@@ -1230,6 +1241,7 @@ export async function adminData(
               where: {
                 OR: [
                   { status: { in: ['failed', 'needs_session'] } },
+                  { fulfillmentResolution: { path: ['conflict'], not: Prisma.AnyNull } },
                   {
                     status: 'processing',
                     fulfillmentStatus: { in: ['requires_action', 'uncertain'] },

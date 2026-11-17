@@ -12,7 +12,7 @@ vi.hoisted(() => {
   }
 })
 import { db, Prisma, transaction } from './db'
-import { userView, paymentOrderView } from './data'
+import { userView, paymentOrderView, adminOrderView } from './data'
 import { id, hash } from './crypto'
 import {
   importInventory,
@@ -23,6 +23,7 @@ import {
 import { quote, newOrder, cancelOrder, confirmSession, adminData, account } from './services'
 import { lockRow, reserveInventory } from './database-sql'
 import { fulfillOrder } from './fulfillment'
+import { resolveOrder } from './order-resolution'
 import { saveIntegration } from './integrations/config'
 import { permissions } from './rbac'
 import type { User } from '../types'
@@ -674,6 +675,7 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
     const conflicting = await db.order.create({
       data: {
         ...original,
+        fulfillmentResolution: original.fulfillmentResolution ?? Prisma.DbNull,
         id: id('o_'),
         userId: b.buyer.id,
         quoteId: b.q.id,
@@ -949,6 +951,125 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
       code: 'UPSTREAM_INVALID_RESPONSE',
     })
     expect((await internal(order.id)).status).toBe('processing')
+  })
+  it.each(['completed', 'failed'] as const)(
+    'preserves manual %s and records an opposite terminal response already in flight',
+    async (outcome) => {
+      const { order } = await purchase()
+      let release!: () => void
+      let entered!: () => void
+      const started = new Promise<void>((resolve) => {
+        entered = resolve
+      })
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => {
+          entered()
+          await new Promise<void>((resolve) => {
+            release = resolve
+          })
+          return ok([remote(order.id, outcome === 'completed' ? 'failed' : 'completed', 2)])
+        }),
+      )
+      const running = fulfillOrder(order.id)
+      await started
+      try {
+        const current = adminOrderView(
+          await db.order.findUniqueOrThrow({ where: { id: order.id } }),
+        )
+        await resolveOrder(order.id, 'operator', {
+          outcome,
+          note: '已核实上游和账号',
+          confirmed: true,
+          expectedRevision: current.resolutionRevision,
+        })
+      } finally {
+        release()
+      }
+      expect(await running).toBe(true)
+      const stored = adminOrderView(await db.order.findUniqueOrThrow({ where: { id: order.id } }))
+      expect(stored.status).toBe(outcome)
+      expect(stored.fulfillmentResolution?.conflict?.status).toBe(
+        outcome === 'completed' ? 'failed' : 'completed',
+      )
+      expect(
+        await db.audit.count({
+          where: { target: order.id, action: '上游结果与人工结论冲突，待核对' },
+        }),
+      ).toBe(1)
+      expect(await fulfillOrder(order.id)).toBe(true)
+    },
+  )
+  it('never submits after a manual decision wins while recovery is in flight', async () => {
+    const { order } = await purchase()
+    let release!: () => void
+    let entered!: () => void
+    const started = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    const fetcher = vi.fn(async () => {
+      entered()
+      await new Promise<void>((resolve) => {
+        release = resolve
+      })
+      return ok([])
+    })
+    vi.stubGlobal('fetch', fetcher)
+    const running = fulfillOrder(order.id)
+    await started
+    try {
+      const current = adminOrderView(await db.order.findUniqueOrThrow({ where: { id: order.id } }))
+      await resolveOrder(order.id, 'operator', {
+        outcome: 'failed',
+        note: '上游确认未受理且已停用',
+        confirmed: true,
+        expectedRevision: current.resolutionRevision,
+      })
+    } finally {
+      release()
+    }
+    await running
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    expect((await internal(order.id)).status).toBe('failed')
+    expect(await db.job.findUnique({ where: { orderId: order.id } })).toMatchObject({
+      done: true,
+      lease: null,
+    })
+  })
+  it('serializes a manual decision with an in-flight submission and rejects a stale decision', async () => {
+    const { order } = await purchase()
+    let release!: () => void
+    let entered!: () => void
+    const started = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    const fetcher = vi.fn(async (url: string) => {
+      if (url.includes('/redemptions?')) return ok([])
+      entered()
+      await new Promise<void>((resolve) => {
+        release = resolve
+      })
+      return ok(remote(order.id, 'completed', 1))
+    })
+    vi.stubGlobal('fetch', fetcher)
+    const running = fulfillOrder(order.id)
+    await started
+    const current = adminOrderView(await db.order.findUniqueOrThrow({ where: { id: order.id } }))
+    const resolving = resolveOrder(order.id, 'operator', {
+      outcome: 'failed',
+      note: '原状态尚未确认',
+      confirmed: true,
+      expectedRevision: current.resolutionRevision,
+    })
+    const rejected = expect(resolving).rejects.toThrow('仅处理中')
+    release()
+    await running
+    await rejected
+    expect((await internal(order.id)).status).toBe('completed')
+    expect(
+      (await db.order.findUniqueOrThrow({ where: { id: order.id } })).fulfillmentResolution,
+    ).toBeNull()
+    expect(fetcher).toHaveBeenCalledTimes(2)
   })
   it('binds credentials to their row and purpose and keeps imports idempotent', async () => {
     const code = 'ABCDEF0123456789ABCD'

@@ -45,6 +45,8 @@ import { Brand } from './Site'
 import { UserAvatar } from './UserAvatar'
 import { WithdrawalEstimate } from './WithdrawalEstimate'
 import { RefundDialog } from './RefundDialog'
+import { OrderResolutionDialog } from './OrderResolutionDialog'
+import { canResolveOrder } from '../order-resolution'
 import { InventoryImportDialog } from './InventoryImportDialog'
 import { InventoryManager } from './InventoryManager'
 import { ReferralTierEditor } from './ReferralTierEditor'
@@ -208,6 +210,7 @@ function AdminContent() {
   const [editIntegration, setEditIntegration] = useState<IntegrationKind | null>(null)
   const [withdrawal, setWithdrawal] = useState<Withdrawal | null>(null)
   const [refundOrderId, setRefundOrderId] = useState<string | null>(null)
+  const [resolutionOrderId, setResolutionOrderId] = useState<string | null>(null)
   const [roleOpen, setRoleOpen] = useState(false)
   const [roleForm] = Form.useForm()
   const [productForm] = Form.useForm(),
@@ -527,38 +530,67 @@ function AdminContent() {
       title: '状态',
       width: 120,
       dataIndex: 'status',
-      render: (_: Order['status'], order: Order) => {
+      render: (_: Order['status'], order: AdminOrder) => {
         const status = orderStatusLabel(order)
-        return <Tag color={status.color}>{status.text}</Tag>
+        return (
+          <Space orientation="vertical" size={4}>
+            <Tag color={status.color}>{status.text}</Tag>
+            {order.fulfillmentResolution && (
+              <Tag color={order.fulfillmentResolution.conflict ? 'error' : 'default'}>
+                {order.fulfillmentResolution.conflict ? '结果冲突待核对' : '人工确认'}
+              </Tag>
+            )}
+          </Space>
+        )
       },
     },
     { title: '创建时间', dataIndex: 'createdAt', width: 130, render: dateTime },
     {
       title: '操作',
-      width: 160,
+      width: 220,
       key: 'action',
-      render: (_: unknown, o: AdminOrder) =>
-        o.status === 'refunded' ? (
-          <Button type="link" onClick={() => setRefundOrderId(o.id)}>
-            退款记录
-          </Button>
-        ) : !can('orders:write') ? (
-          <span className="muted">只读</span>
-        ) : o.status === 'processing' ? (
-          <Button type="link" onClick={() => mutate('orders/retry', { id: o.id })}>
-            重新同步
-          </Button>
-        ) : o.status === 'failed' && o.kind === 'purchase' ? (
-          <Button type="link" onClick={() => setRefundOrderId(o.id)}>
-            {o.refund ? (refundNeedsReview(o.refund) ? '核实退款' : '查看退款进度') : '处理退款'}
-          </Button>
-        ) : (
-          <span className="muted">—</span>
-        ),
+      render: (_: unknown, o: AdminOrder) => (
+        <Space wrap size={0}>
+          {o.status === 'refunded' ? (
+            <Button type="link" onClick={() => setRefundOrderId(o.id)}>
+              退款记录
+            </Button>
+          ) : !can('orders:write') ? (
+            <span className="muted">只读</span>
+          ) : o.status === 'processing' ? (
+            <Button type="link" onClick={() => mutate('orders/retry', { id: o.id })}>
+              重新同步
+            </Button>
+          ) : o.status === 'failed' && o.kind === 'purchase' ? (
+            <Button type="link" onClick={() => setRefundOrderId(o.id)}>
+              {o.refund ? (refundNeedsReview(o.refund) ? '核实退款' : '查看退款进度') : '处理退款'}
+            </Button>
+          ) : !o.fulfillmentResolution && !canResolveOrder(o) ? (
+            <span className="muted">—</span>
+          ) : null}
+          {(o.fulfillmentResolution || (can('orders:write') && canResolveOrder(o))) && (
+            <Button type="link" onClick={() => setResolutionOrderId(o.id)}>
+              {o.fulfillmentResolution ? '处理记录' : '人工处理'}
+            </Button>
+          )}
+        </Space>
+      ),
     },
   ]
   return (
     <div className="admin-shell">
+      {resolutionOrderId && data?.orders.find((order) => order.id === resolutionOrderId) && (
+        <OrderResolutionDialog
+          key={resolutionOrderId}
+          order={data.orders.find((order) => order.id === resolutionOrderId)!}
+          canWrite={can('orders:write')}
+          onClose={() => setResolutionOrderId(null)}
+          onRefresh={async () => {
+            await load()
+            await refresh()
+          }}
+        />
+      )}
       {refundOrderId && data?.orders.find((order) => order.id === refundOrderId) && (
         <RefundDialog
           key={refundOrderId}

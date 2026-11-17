@@ -120,6 +120,15 @@ export function RefundDialog({
         <span>{order.contactEmail}</span>
       </div>
       {error && <Alert className="mb-24" type="error" showIcon title={error} />}
+      {order.fulfillmentResolution?.conflict && (
+        <Alert
+          className="mb-24"
+          type="error"
+          showIcon
+          title="兑换结果存在冲突，请先查看人工处理记录"
+          description="上游结果与人工结论不同，退款前需再次核对账号到账情况和上游记录。"
+        />
+      )}
       {started && !completed && (
         <Alert
           className="mb-24"

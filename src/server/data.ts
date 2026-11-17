@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import { tawkSettingsSchema } from '../tawk'
+import { orderResolutionSchema } from '../order-resolution'
 import type {
   Product as ProductRecord,
   Order as OrderRecord,
@@ -121,6 +122,10 @@ export function adminOrderView(record: OrderRecord): AdminOrder {
     ...orderView(record),
     ipAddress: record.ipAddress,
     provider: z.enum(['xorpay', 'gmpay', 'epay_v1', 'epay_v2', 'balance']).parse(record.provider),
+    resolutionRevision: orderResolutionRevision(record),
+    fulfillmentResolution: record.fulfillmentResolution
+      ? orderResolutionSchema.parse(record.fulfillmentResolution)
+      : null,
     refundRecord: record.refundStatus
       ? {
           note: record.refundNote,
@@ -130,6 +135,22 @@ export function adminOrderView(record: OrderRecord): AdminOrder {
         }
       : null,
   }
+}
+
+export function orderResolutionRevision(record: OrderRecord) {
+  return createHash('sha256')
+    .update(
+      JSON.stringify([
+        record.status,
+        record.fulfillmentStatus,
+        record.redemptionId,
+        record.redemptionVersion,
+        record.fulfillmentAttempt,
+        record.submissionAttempted,
+        record.fulfillmentResolution,
+      ]),
+    )
+    .digest('hex')
 }
 
 export function paymentOrderView(record: OrderRecord): PaymentOrder & {

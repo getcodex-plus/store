@@ -298,6 +298,7 @@ CREATE TABLE orders (
     fulfillment_status text,
     redemption_version integer DEFAULT 0 NOT NULL,
     submission_attempted boolean DEFAULT false NOT NULL,
+    fulfillment_resolution jsonb,
     refund_destination text,
     refund_status text,
     refund_automatic boolean DEFAULT false NOT NULL,

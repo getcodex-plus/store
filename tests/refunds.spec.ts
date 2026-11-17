@@ -1,6 +1,6 @@
 import { openAdminPage } from './admin-helpers'
 import { expect, test } from '@playwright/test'
-import { db } from '../src/server/db'
+import { db, Prisma } from '../src/server/db'
 import { id } from '../src/server/crypto'
 
 test.afterAll(async () => {
@@ -58,6 +58,7 @@ test('admin refunds enforce channel capabilities, required notes and split amoun
   const stale = await db.order.create({
     data: {
       ...orders[0],
+      fulfillmentResolution: orders[0].fulfillmentResolution ?? Prisma.DbNull,
       id: id(),
       paymentId: id(),
       productName: '退款 UI 待核实',

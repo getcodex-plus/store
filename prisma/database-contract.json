@@ -561,6 +561,10 @@
       "definition": "integer|true|0"
     },
     {
+      "key": "orders.fulfillment_resolution",
+      "definition": "jsonb|false|"
+    },
+    {
       "key": "orders.fulfillment_status",
       "definition": "text|false|"
     },
