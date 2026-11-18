@@ -14,7 +14,7 @@ const config: NextConfig = {
           { key: 'X-Frame-Options', value: 'DENY' },
           { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
           ...(process.env.APP_MODE === 'live'
-            ? [{ key: 'Strict-Transport-Security', value: 'max-age=31536000' }]
+            ? [{ key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' }]
             : []),
         ],
       },

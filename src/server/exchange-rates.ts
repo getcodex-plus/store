@@ -44,6 +44,8 @@ export function parseExchangeRate(
     typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)
       ? Date.parse(`${date}T00:00:00Z`)
       : NaN
+  const [minRate, maxRate] =
+    currency === 'USD' || currency === 'USDT' ? [4.5, 12] : [0, 100]
   if (
     !Number.isFinite(sourceTime) ||
     new Date(sourceTime).toISOString().slice(0, 10) !== date ||
@@ -52,7 +54,8 @@ export function parseExchangeRate(
     typeof rate !== 'number' ||
     !Number.isFinite(rate) ||
     rate <= 0 ||
-    rate > 100
+    rate < minRate ||
+    rate > maxRate
   )
     throw new Error('INVALID_EXCHANGE_RATE')
   // Preserve up to eight decimal places, rounding upward only beyond this precision.

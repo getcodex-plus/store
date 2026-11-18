@@ -6,6 +6,12 @@ x-app: &app
     args:
       NEXT_PUBLIC_GA_ID: '${NEXT_PUBLIC_GA_ID:-}'
   env_file: .env
+  environment:
+    APP_MODE: '${APP_MODE:-live}'
+    APP_URL: '${APP_URL:?Set APP_URL to your HTTPS origin}'
+    DATABASE_URL: '${DATABASE_URL:?Set DATABASE_URL}'
+    ENCRYPTION_KEY: '${ENCRYPTION_KEY:?Set ENCRYPTION_KEY}'
+    BETTER_AUTH_SECRET: '${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET}'
   tmpfs:
     - /tmp
     - /app/.next/cache:uid=1000,gid=1000

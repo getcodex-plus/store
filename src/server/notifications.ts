@@ -2,6 +2,7 @@ import { db } from './db'
 import { claimEmail, databaseNow } from './database-sql'
 import { appUrl, demo } from './config'
 import { sendEmail } from './integrations/email'
+import { checkRiskRate } from './risk'
 const labels: Record<string, string> = {
   cancelled: '订单已取消，已抵扣余额已退回',
   unpaid: '等待付款',
@@ -27,6 +28,7 @@ export async function deliverOrderEmail() {
       },
     })
     if (!demo && order?.contactEmail) {
+      await checkRiskRate('order-email', { email: order.contactEmail.trim().toLowerCase() })
       const couponLine =
         order.discountAmount > 0 && order.couponCode
           ? `\n优惠码：${order.couponCode}（原价 ¥${(order.listAmount / 100).toFixed(2)}，已省 ¥${(order.discountAmount / 100).toFixed(2)}）`

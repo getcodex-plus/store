@@ -24,6 +24,7 @@ export const riskScenes = [
   'preflight',
   'session-update',
   'email',
+  'order-email',
   'fx-refresh',
   'inventory-import',
   'withdrawal-estimate',

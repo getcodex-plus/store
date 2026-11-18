@@ -7,6 +7,7 @@ export const riskSceneLabels: Record<string, string> = {
   preflight: '上游兑换预检',
   'session-update': '更新账号信息',
   email: '发送验证码',
+  'order-email': '订单通知邮件',
   'fx-refresh': '刷新汇率',
   'inventory-import': '导入库存',
   'withdrawal-estimate': '提现估算',
@@ -37,6 +38,8 @@ export const riskReasonLabels: Record<string, string> = {
   SESSION_UPDATE_RATE: '当前浏览器更新账号信息过频',
   EMAIL_RECIPIENT_RATE: '同一邮箱发送验证码过频',
   EMAIL_GLOBAL_RATE: '验证码发送达到全站频率上限',
+  ORDER_EMAIL_RECIPIENT_RATE: '同一邮箱发送订单通知过频',
+  ORDER_EMAIL_GLOBAL_RATE: '订单通知邮件达到全站频率上限',
   FX_REFRESH_RATE: '管理员刷新汇率过频',
   INVENTORY_IMPORT_RATE: '管理员导入库存过频',
   WITHDRAWAL_ESTIMATE_RATE: '管理员提现估算过频',
@@ -52,4 +55,5 @@ export const riskReasonLabels: Record<string, string> = {
   QUOTE_TARGET_TARGET_RATE: '同一充值目标报价过频',
   COUPON_PREVIEW_BROWSER_RATE: '当前浏览器查询优惠码过频',
   COUPON_PREVIEW_IP_RATE: '同一网络来源查询优惠码过频',
+  COUPON_PREVIEW_GLOBAL_RATE: '优惠码试算达到全站频率上限',
 }

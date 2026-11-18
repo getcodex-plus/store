@@ -1,5 +1,5 @@
-import { ApiError, appUrl } from '../config'
-import { integration } from './config'
+import { ApiError, appUrl, demo } from '../config'
+import { integration, isDisallowedPaymentHost } from './config'
 import {
   decimalToMinor,
   epayV1Signature,
@@ -33,9 +33,37 @@ export interface Receipt {
   channel?: string
 }
 const origin = (value: string) => {
-  const url = value.replace(/\/$/, '')
-  if (!/^https?:\/\//i.test(url)) throw new ApiError(503, '支付网关地址需使用 HTTP 或 HTTPS')
-  return url
+  const trimmed = value.replace(/\/$/, '')
+  let parsed: URL
+  try {
+    parsed = new URL(trimmed)
+  } catch {
+    throw new ApiError(503, '支付网关地址格式不正确')
+  }
+  const live = process.env.APP_MODE === 'live' || !demo
+  const allowedProtocols = live ? ['https:'] : ['http:', 'https:']
+  if (
+    !allowedProtocols.includes(parsed.protocol) ||
+    parsed.username ||
+    parsed.password ||
+    parsed.search ||
+    parsed.hash
+  ) {
+    throw new ApiError(
+      503,
+      live ? '正式环境支付网关必须使用 HTTPS' : '支付网关地址需使用 HTTP 或 HTTPS',
+    )
+  }
+  if (live && isDisallowedPaymentHost(parsed.hostname)) {
+    throw new ApiError(503, '正式环境支付网关地址不允许指向本地或内网地址')
+  }
+  return trimmed
+}
+export async function precheckPaymentGateway(order: PaymentOrder) {
+  if (order.provider === 'balance') throw new ApiError(409, '余额订单无需创建渠道付款')
+  const config = await integration(order.provider, order.integrationId ?? undefined)
+  if (order.provider !== 'xorpay') origin(config.url)
+  return config
 }
 async function post(url: string, fields: Record<string, string>) {
   const response = await fetch(url, {
@@ -50,9 +78,14 @@ async function post(url: string, fields: Record<string, string>) {
   const body = await response.json()
   return typeof body === 'string' ? JSON.parse(body) : body
 }
-export async function createPayment(order: PaymentOrder, clientIP: string) {
+export async function createPayment(
+  order: PaymentOrder,
+  clientIP: string,
+  resolvedConfig?: Record<string, string>,
+) {
   if (order.provider === 'balance') throw new ApiError(409, '余额订单无需创建渠道付款')
-  const config = await integration(order.provider, order.integrationId ?? undefined)
+  const config =
+    resolvedConfig ?? (await integration(order.provider, order.integrationId ?? undefined))
   const amount = (order.externalAmount / 100).toFixed(2)
   const notify = `${appUrl}/api/payments/notify/${order.provider}/${config.id}`
   if (order.provider === 'xorpay') {
@@ -122,6 +155,12 @@ export async function createPayment(order: PaymentOrder, clientIP: string) {
   )
   if (response.code !== (v2 ? 0 : 1))
     throw new ApiError(502, '易支付暂未返回收款信息，请联系支持核对原订单')
+  if (
+    v2 &&
+    ((response.sign_type && response.sign_type !== 'RSA') ||
+      !epayV2Verify(response, config.publicKey))
+  )
+    throw new ApiError(502, '易支付返回签名校验失败，请联系管理员')
   const url = v2 ? response.pay_info : response.payurl || response.qrcode || response.urlscheme
   if (v2 && !['qrcode', 'jump', 'url'].includes(response.pay_type))
     throw new ApiError(502, '此易支付交互类型暂不支持，请联系管理员')

@@ -1,9 +1,80 @@
+import { isIP } from 'node:net'
 import { z } from 'zod'
 import { db, transaction, type DbClient } from '../db'
 import { stringRecord, jsonInput } from '../data'
 import { advisoryLock, lockIntegration, lockSettings } from '../database-sql'
-import { ApiError } from '../config'
+import { ApiError, demo } from '../config'
 import { decrypt, encrypt, id } from '../crypto'
+
+function isPrivateIPv4(octets: number[]) {
+  const [a, b] = octets
+  return (
+    a === 0 ||
+    a === 10 ||
+    a === 127 ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    a >= 224
+  )
+}
+
+export function isDisallowedPaymentHost(rawHostname: string) {
+  const host = rawHostname.replace(/^\[|\]$/g, '').toLowerCase()
+  if (
+    !host ||
+    host === 'localhost' ||
+    host.endsWith('.localhost') ||
+    host.endsWith('.local') ||
+    host.endsWith('.internal')
+  )
+    return true
+  const ipVersion = isIP(host)
+  if (ipVersion === 4) return isPrivateIPv4(host.split('.').map(Number))
+  if (ipVersion === 6) {
+    if (host === '::' || host === '::1') return true
+    if (/^(?:fc|fd)[0-9a-f]{0,2}:/.test(host) || /^fe[89ab][0-9a-f]?:/.test(host)) return true
+    const mappedHex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(host)
+    if (mappedHex) {
+      const hi = parseInt(mappedHex[1], 16)
+      const lo = parseInt(mappedHex[2], 16)
+      return isPrivateIPv4([hi >> 8, hi & 0xff, lo >> 8, lo & 0xff])
+    }
+    const mappedDot = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(host)
+    if (mappedDot) return isPrivateIPv4(mappedDot[1].split('.').map(Number))
+  }
+  return false
+}
+
+export function validatePaymentGatewayUrl(rawUrl: string, status = 400): string {
+  let url: URL
+  try {
+    url = new URL(rawUrl)
+  } catch {
+    throw new ApiError(status, '支付网关地址格式不正确')
+  }
+  const live = process.env.APP_MODE === 'live' || !demo
+  const allowedProtocols = live ? ['https:'] : ['http:', 'https:']
+  if (
+    !allowedProtocols.includes(url.protocol) ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash
+  ) {
+    throw new ApiError(
+      status,
+      live
+        ? '正式环境支付网关地址必须使用 HTTPS，且不含登录信息、查询参数或片段'
+        : '支付网关地址需为 HTTP 或 HTTPS，不含登录信息、查询参数或片段',
+    )
+  }
+  if (live && isDisallowedPaymentHost(url.hostname)) {
+    throw new ApiError(status, '正式环境支付网关地址不允许指向本地或内网地址')
+  }
+  return rawUrl.replace(/\/$/, '')
+}
 
 export const providers = [
   'xorpay',
@@ -104,26 +175,24 @@ export async function saveIntegration(input: z.infer<typeof integrationSchema>, 
     )
       throw new ApiError(400, '请选择需要开启安全验证的场景')
     if (fields.url) {
-      let url: URL
-      try {
-        url = new URL(fields.url)
-      } catch {
-        throw new ApiError(400, '服务地址格式不正确')
-      }
-      const protocols = ['http:', 'https:']
-      if (
-        !protocols.includes(url.protocol) ||
-        url.username ||
-        url.password ||
-        url.search ||
-        url.hash
-      ) {
-        throw new ApiError(
-          400,
-          input.provider === 'aicdk'
-            ? 'AICDK 地址需为 HTTP 或 HTTPS，不含登录信息、查询参数或片段'
-            : '支付网关地址需为 HTTP 或 HTTPS，不含登录信息、查询参数或片段',
-        )
+      if (input.provider === 'aicdk') {
+        let url: URL
+        try {
+          url = new URL(fields.url)
+        } catch {
+          throw new ApiError(400, '服务地址格式不正确')
+        }
+        if (
+          !['http:', 'https:'].includes(url.protocol) ||
+          url.username ||
+          url.password ||
+          url.search ||
+          url.hash
+        ) {
+          throw new ApiError(400, 'AICDK 地址需为 HTTP 或 HTTPS，不含登录信息、查询参数或片段')
+        }
+      } else {
+        validatePaymentGatewayUrl(fields.url, 400)
       }
     }
     if (

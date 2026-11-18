@@ -33,6 +33,7 @@ export function encrypt(value: string, purpose: string) {
 }
 export function decrypt(value: string, purpose: string) {
   const input = Buffer.from(value, 'base64')
+  if (input.length < 28) throw new Error('Invalid ciphertext')
   const cipher = createDecipheriv('aes-256-gcm', key(), input.subarray(0, 12))
   cipher.setAAD(Buffer.from(purpose))
   cipher.setAuthTag(input.subarray(12, 28))
