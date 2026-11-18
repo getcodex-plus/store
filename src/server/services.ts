@@ -47,7 +47,7 @@ import {
 } from './database-sql'
 import { ApiError, demo } from './config'
 import { adminPageSize, adminQuerySchema, type AdminQuery } from './admin-query'
-import { normalizeCouponCode, type UpgradeSnapshotLike } from '../coupons'
+import { normalizeCouponCode } from '../coupons'
 import {
   adminCouponsList,
   affiliateCouponsForUser,
@@ -74,7 +74,6 @@ import {
 } from './integrations/aicdk'
 import {
   fulfillmentBusiness,
-  priceReference,
   validateFulfillment,
   type PricingSnapshot,
 } from './fulfillment-policy'
@@ -83,7 +82,7 @@ import { createPayment, refundXorpay, type Receipt } from './integrations/paymen
 import { refundInputSchema, refundReviewDelayMs } from '../refunds'
 import type { Order as OrderRecord } from '../generated/prisma/client'
 import { money, parseSession } from '../lib'
-import { paymentLimitError, costBasedPrice, convertedSubscriptionPrice } from '../pricing'
+import { paymentLimitError, convertedSubscriptionPrice } from '../pricing'
 import {
   exchangeRate,
   exchangeRateStatus,
@@ -140,7 +139,7 @@ export async function products(all = false): Promise<Product[]> {
   const rank: Record<string, number> = { go: 0, plus: 1, pro5: 2, pro20: 3 }
   const catalog = (
     await db.product.findMany({
-      where: all ? {} : { enabled: true },
+      where: { upgrade: false, ...(all ? {} : { enabled: true }) },
       include: { _count: { select: { inventoryBatches: { where: { enabled: true } } } } },
     })
   )
@@ -148,18 +147,10 @@ export async function products(all = false): Promise<Product[]> {
       ...productView(record),
       ...(all ? { enabledBatchCount: record._count?.inventoryBatches ?? 0 } : {}),
     }))
-    .sort(
-      (a, b) =>
-        Number(a.upgrade) - Number(b.upgrade) ||
-        (rank[a.plan] ?? 4) - (rank[b.plan] ?? 4) ||
-        a.price - b.price,
-    )
+    .sort((a, b) => (rank[a.plan] ?? 4) - (rank[b.plan] ?? 4) || a.price - b.price)
   if (all) return catalog
-  const rate = catalog.some((p) => !p.upgrade && p.priceCurrency === 'USD')
-    ? await exchangeRate()
-    : undefined
+  const rate = catalog.some((p) => p.priceCurrency === 'USD') ? await exchangeRate() : undefined
   return catalog.map((product) => {
-    if (product.upgrade) return { ...product, price: 0, priceCurrency: 'CNY' }
     if (product.priceCurrency === 'CNY') return product
     let price = 0
     if (rate) {
@@ -190,52 +181,25 @@ export async function quote(
   } catch (error) {
     throw new ApiError(400, (error as Error).message)
   }
-  const record = await db.product.findFirst({ where: { id: productId, enabled: true } })
+  const record = await db.product.findFirst({
+    where: { id: productId, enabled: true, upgrade: false },
+  })
   if (!record) throw new ApiError(404, '商品已下架')
   const product = productView(record)
   let amount = product.price
   let currentPlan: string | undefined
   let pricingSnapshot: unknown = { mode: 'fixed', price: product.price }
   let rate: ExchangeRate | undefined
-  const configuredPricing = (await settings()).upgradePricing
-  const pricing = product.upgrade
-    ? configuredPricing
-      ? { ...configuredPricing, ...configuredPricing.targets?.[product.plan] }
-      : undefined
-    : undefined
-  if (
-    product.upgrade &&
-    (!pricing ||
-      product.plan === 'go' ||
-      (!demo && (!configuredPricing?.configured || !configuredPricing.targets?.[product.plan])))
-  )
-    throw new ApiError(409, '升级定价尚未配置或目标套餐不支持升级')
-  if (!product.upgrade && product.pricingMode !== 'fixed')
-    throw new ApiError(409, '此商品尚未配置固定售价')
-  if (
-    (!product.upgrade && product.priceCurrency === 'USD') ||
-    (demo && product.upgrade && (configuredPricing?.fxMode ?? 'auto') === 'auto')
-  ) {
+  if (product.pricingMode !== 'fixed') throw new ApiError(409, '此商品尚未配置固定售价')
+  if (product.priceCurrency === 'USD') {
     rate = await exchangeRate(true)
-  }
-  if (!product.upgrade && product.priceCurrency === 'USD') {
-    amount = convertedSubscriptionPrice(product.price, rate!.rateE8, product.roundingStep)
+    if (!rate) throw new ApiError(503, '汇率暂不可用，请稍后重试')
+    amount = convertedSubscriptionPrice(product.price, rate.rateE8, product.roundingStep)
     pricingSnapshot = {
       mode: 'fixed',
       currency: 'USD',
       price: product.price,
       roundingStep: product.roundingStep,
-      exchangeRate: rate,
-    }
-  }
-  if (demo && product.upgrade) {
-    amount = costBasedPrice(1000, pricing!, rate?.rateE8)
-    currentPlan = product.upgrade ? 'plus' : 'free'
-    pricingSnapshot = {
-      mode: 'markup',
-      source: 'demo',
-      usdCents: 1000,
-      ...pricing,
       exchangeRate: rate,
     }
   }
@@ -247,15 +211,13 @@ export async function quote(
       throw new ApiError(409, '检查结果与提交账号不匹配')
     if (check.account_status !== 'active')
       throw new ApiError(409, '此账号当前无法充值，请检查账号状态')
-    const group = check.subscription[product.upgrade ? 'upgrade' : 'purchase']
+    const group = check.subscription.purchase
     const matches = group.plans.filter((p) => p.id === aicdkPlan(product.plan))
     const target = matches[0]
     const standardEligible =
       group.eligible === true && matches.length === 1 && target.eligible === true
     const offer =
-      !product.upgrade && product.plan === 'plus'
-        ? check.subscription.offers?.plus_50_percent_discount
-        : undefined
+      product.plan === 'plus' ? check.subscription.offers?.plus_50_percent_discount : undefined
     const discountQuotes = offer?.eligible === true ? offer.quotes : undefined
     const discountAvailable =
       discountQuotes &&
@@ -273,17 +235,6 @@ export async function quote(
       }
     }
     currentPlan = publicPlan(check.current_plan)
-    if (product.upgrade) {
-      if (!target.quote) throw new ApiError(503, '暂未取得有效升级报价，请稍后重试')
-      const priced = await priceReference(
-        target.quote,
-        pricing!,
-        configuredPricing?.fxMode ?? 'auto',
-      )
-      amount = priced.amount
-      pricingSnapshot = priced.snapshot
-      rate = priced.rate
-    }
   }
   if (rate && Date.parse(rate.expiresAt) <= Date.now())
     throw new ApiError(409, '汇率已过期，请重新验证账号')
@@ -424,7 +375,7 @@ export async function newOrder(
       if (storedQuote && !existingByQuote) {
         const qView = quoteView(storedQuote)
         const prod = await db.product.findFirst({
-          where: { id: qView.productId, enabled: true },
+          where: { id: qView.productId, enabled: true, upgrade: false },
           select: { id: true, upgrade: true },
         })
         if (prod) {
@@ -434,7 +385,6 @@ export async function newOrder(
             targetEmail: qView.email,
             product: prod,
             listAmount: qView.amount,
-            pricingSnapshot: qView.pricingSnapshot as UpgradeSnapshotLike | undefined,
           })
         }
       }
@@ -472,9 +422,10 @@ export async function newOrder(
       if (Date.parse(quoteRecord.expiresAt) < Date.now())
         throw new ApiError(409, '验证结果已过期，请重新验证账号')
       const product = await client.product.findFirst({
-        where: { id: quoteRecord.productId, enabled: true },
+        where: { id: quoteRecord.productId, enabled: true, upgrade: false },
       })
-      if (!product) throw new ApiError(409, '商品已下架，请重新选择')
+      if (!product || quoteRecord.pricingSnapshot?.mode === 'markup')
+        throw new ApiError(409, '商品已下架，请重新选择')
       if (quoteRecord.targetPlan && quoteRecord.targetPlan !== product.plan)
         throw new ApiError(409, '目标套餐已变更，请重新验证账号')
       productRecord = product
@@ -497,7 +448,6 @@ export async function newOrder(
       throw new ApiError(409, '此支付方式暂未开放')
     const preliminaryLimitError = paymentLimitError(conf, input.channel, preliminaryExternal)
     if (preliminaryLimitError) throw new ApiError(409, preliminaryLimitError)
-    let liveProviderQuote: { amount_minor: number; currency_decimals?: number } | undefined
     if (!demo && quoteRecord) {
       if (!input.session) throw new ApiError(400, '账号信息已清除，请重新检查账号')
       let session: ReturnType<typeof parseSession>
@@ -536,12 +486,6 @@ export async function newOrder(
       if (checked.status !== 'ready')
         throw new UpstreamError('PRICE_REFRESH_PENDING', checked.retry_after ?? 2, false)
       validateFulfillment(checked, quoteRecord)
-      if (productRecord?.upgrade) {
-        liveProviderQuote = {
-          amount_minor: checked.quote.amount_minor,
-          currency_decimals: checked.quote.currency_decimals,
-        }
-      }
       if (Date.parse(quoteRecord.expiresAt) <= Date.now())
         throw new ApiError(409, '报价已过期，请重新检查账号')
       await client.quote.update({
@@ -574,8 +518,6 @@ export async function newOrder(
           targetEmail: quoteRecord.email,
           product: { id: productRecord.id, upgrade: productRecord.upgrade },
           listAmount: baseListAmount,
-          pricingSnapshot: quoteRecord.pricingSnapshot as UpgradeSnapshotLike | undefined,
-          liveProviderQuote,
         },
       )
     }

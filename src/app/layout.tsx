@@ -12,8 +12,8 @@ import { TawkChat } from '../components/TawkChat'
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteOrigin()),
-  title: { default: 'ChatGPT 充值与升级 · GetCodex Plus', template: '%s · GetCodex Plus' },
-  description: '为自己的 GPT 账号充值与升级。先确认账号与价格，再付款，随时查看订单进度。',
+  title: { default: 'ChatGPT 充值 · GetCodex Plus', template: '%s · GetCodex Plus' },
+  description: '为自己的 GPT 账号充值。先确认账号与价格，再付款，随时查看订单进度。',
   applicationName: 'GetCodex Plus',
   icons: {
     icon: [

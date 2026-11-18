@@ -354,19 +354,12 @@ export function CouponManager({
                   c.scopeMode === 'products'
                     ? products.filter((p) => c.productIds.includes(p.id)).map((p) => p.name)
                     : undefined
-                const protectionLabel =
-                  c.upgradeProtection === 'cost'
-                    ? '升级保成本'
-                    : c.upgradeProtection === 'min_profit'
-                      ? '升级保毛利'
-                      : '升级不限底线'
                 return (
                   <div>
                     <div>{formatCouponScope({ scopeMode: c.scopeMode }, productNames)}</div>
                     <Space wrap size={[4, 4]} style={{ marginTop: 6 }}>
                       {c.firstOrderOnly && <Tag>仅首单</Tag>}
                       {c.requireLogin && <Tag>需登录</Tag>}
-                      {c.scopeMode !== 'recharge_only' && <Tag>{protectionLabel}</Tag>}
                       {!c.allowReferral && !c.affiliateEmail && <Tag>不叠邀请返现</Tag>}
                     </Space>
                   </div>
@@ -624,23 +617,9 @@ export function CouponManager({
             <Form.Item name="scopeMode" label="适用套餐范围" rules={[{ required: true }]}>
               <Select
                 options={[
-                  { value: 'all', label: '全站套餐通用（直充 + 升级）' },
+                  { value: 'all', label: '全站充值套餐通用' },
                   { value: 'recharge_only', label: '仅普通直充套餐' },
-                  { value: 'upgrade_only', label: '仅订阅升级服务' },
                   { value: 'products', label: '指定具体套餐' },
-                ]}
-              />
-            </Form.Item>
-            <Form.Item
-              name="upgradeProtection"
-              label="动态升级利润保护"
-              extra="防止大额立减券击穿实时升级上游成本"
-            >
-              <Select
-                options={[
-                  { value: 'cost', label: '保本底线（折后 ≥ 上游成本）' },
-                  { value: 'min_profit', label: '保毛利底线（折后 ≥ 成本+最低毛利）' },
-                  { value: 'none', label: '不限成本底线（仅保底 ¥0.01）' },
                 ]}
               />
             </Form.Item>
@@ -657,7 +636,7 @@ export function CouponManager({
                 placeholder="选择一个或多个套餐"
                 options={products.map((p) => ({
                   value: p.id,
-                  label: `${p.name}${p.upgrade ? '（升级）' : ''}`,
+                  label: p.name,
                 }))}
               />
             </Form.Item>

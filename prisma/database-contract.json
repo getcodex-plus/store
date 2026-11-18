@@ -1061,6 +1061,78 @@
       "definition": "integer|true|"
     },
     {
+      "key": "stock_mappings.integration_id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "stock_mappings.product_id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "stock_mappings.sku_id",
+      "definition": "integer|true|"
+    },
+    {
+      "key": "stock_mappings.upstream_product_id",
+      "definition": "integer|true|"
+    },
+    {
+      "key": "stock_purchases.actor",
+      "definition": "text|true|"
+    },
+    {
+      "key": "stock_purchases.attempts",
+      "definition": "integer|true|0"
+    },
+    {
+      "key": "stock_purchases.batch_id",
+      "definition": "text|false|"
+    },
+    {
+      "key": "stock_purchases.created_at",
+      "definition": "timestamp with time zone|true|now()"
+    },
+    {
+      "key": "stock_purchases.id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "stock_purchases.integration_id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "stock_purchases.last_error",
+      "definition": "text|false|"
+    },
+    {
+      "key": "stock_purchases.next_run_at",
+      "definition": "timestamp with time zone|true|now()"
+    },
+    {
+      "key": "stock_purchases.product_id",
+      "definition": "text|true|"
+    },
+    {
+      "key": "stock_purchases.quantity",
+      "definition": "integer|true|"
+    },
+    {
+      "key": "stock_purchases.sku_id",
+      "definition": "integer|true|"
+    },
+    {
+      "key": "stock_purchases.state",
+      "definition": "text|true|'queued'::text"
+    },
+    {
+      "key": "stock_purchases.upstream_order_id",
+      "definition": "integer|false|"
+    },
+    {
+      "key": "stock_purchases.upstream_product_id",
+      "definition": "integer|true|"
+    },
+    {
       "key": "twoFactor.backupCodes",
       "definition": "text|true|"
     },
@@ -2435,6 +2507,126 @@
       "definition": "PRIMARY KEY (id)"
     },
     {
+      "key": "stock_mappings.stock_mappings_integration_id_fkey",
+      "definition": "FOREIGN KEY (integration_id) REFERENCES integrations(id)"
+    },
+    {
+      "key": "stock_mappings.stock_mappings_integration_id_not_null",
+      "definition": "NOT NULL integration_id"
+    },
+    {
+      "key": "stock_mappings.stock_mappings_integration_id_sku_id_key",
+      "definition": "UNIQUE (integration_id, sku_id)"
+    },
+    {
+      "key": "stock_mappings.stock_mappings_pkey",
+      "definition": "PRIMARY KEY (product_id)"
+    },
+    {
+      "key": "stock_mappings.stock_mappings_product_id_fkey",
+      "definition": "FOREIGN KEY (product_id) REFERENCES products(id)"
+    },
+    {
+      "key": "stock_mappings.stock_mappings_product_id_not_null",
+      "definition": "NOT NULL product_id"
+    },
+    {
+      "key": "stock_mappings.stock_mappings_sku_id_check",
+      "definition": "CHECK ((sku_id > 0))"
+    },
+    {
+      "key": "stock_mappings.stock_mappings_sku_id_not_null",
+      "definition": "NOT NULL sku_id"
+    },
+    {
+      "key": "stock_mappings.stock_mappings_upstream_product_id_check",
+      "definition": "CHECK ((upstream_product_id > 0))"
+    },
+    {
+      "key": "stock_mappings.stock_mappings_upstream_product_id_not_null",
+      "definition": "NOT NULL upstream_product_id"
+    },
+    {
+      "key": "stock_purchases.stock_purchases_actor_not_null",
+      "definition": "NOT NULL actor"
+    },
+    {
+      "key": "stock_purchases.stock_purchases_attempts_not_null",
+      "definition": "NOT NULL attempts"
+    },
+    {
+      "key": "stock_purchases.stock_purchases_batch_id_fkey",
+      "definition": "FOREIGN KEY (batch_id) REFERENCES inventory_batches(id)"
+    },
+    {
+      "key": "stock_purchases.stock_purchases_batch_id_key",
+      "definition": "UNIQUE (batch_id)"
+    },
+    {
+      "key": "stock_purchases.stock_purchases_created_at_not_null",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "key": "stock_purchases.stock_purchases_id_not_null",
+      "definition": "NOT NULL id"
+    },
+    {
+      "key": "stock_purchases.stock_purchases_integration_id_fkey",
+      "definition": "FOREIGN KEY (integration_id) REFERENCES integrations(id)"
+    },
+    {
+      "key": "stock_purchases.stock_purchases_integration_id_not_null",
+      "definition": "NOT NULL integration_id"
+    },
+    {
+      "key": "stock_purchases.stock_purchases_next_run_at_not_null",
+      "definition": "NOT NULL next_run_at"
+    },
+    {
+      "key": "stock_purchases.stock_purchases_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "key": "stock_purchases.stock_purchases_product_id_fkey",
+      "definition": "FOREIGN KEY (product_id) REFERENCES products(id)"
+    },
+    {
+      "key": "stock_purchases.stock_purchases_product_id_not_null",
+      "definition": "NOT NULL product_id"
+    },
+    {
+      "key": "stock_purchases.stock_purchases_quantity_check",
+      "definition": "CHECK (((quantity >= 1) AND (quantity <= 500)))"
+    },
+    {
+      "key": "stock_purchases.stock_purchases_quantity_not_null",
+      "definition": "NOT NULL quantity"
+    },
+    {
+      "key": "stock_purchases.stock_purchases_sku_id_check",
+      "definition": "CHECK ((sku_id > 0))"
+    },
+    {
+      "key": "stock_purchases.stock_purchases_sku_id_not_null",
+      "definition": "NOT NULL sku_id"
+    },
+    {
+      "key": "stock_purchases.stock_purchases_state_check",
+      "definition": "CHECK ((state = ANY (ARRAY['queued'::text, 'polling'::text, 'received'::text, 'rejected'::text, 'review'::text])))"
+    },
+    {
+      "key": "stock_purchases.stock_purchases_state_not_null",
+      "definition": "NOT NULL state"
+    },
+    {
+      "key": "stock_purchases.stock_purchases_upstream_product_id_check",
+      "definition": "CHECK ((upstream_product_id > 0))"
+    },
+    {
+      "key": "stock_purchases.stock_purchases_upstream_product_id_not_null",
+      "definition": "NOT NULL upstream_product_id"
+    },
+    {
       "key": "twoFactor.twoFactor_backupCodes_not_null",
       "definition": "NOT NULL \"backupCodes\""
     },
@@ -2971,6 +3163,26 @@
     {
       "key": "settings.settings_pkey",
       "definition": "CREATE UNIQUE INDEX settings_pkey ON settings USING btree (id)"
+    },
+    {
+      "key": "stock_mappings.stock_mappings_integration_id_sku_id_key",
+      "definition": "CREATE UNIQUE INDEX stock_mappings_integration_id_sku_id_key ON stock_mappings USING btree (integration_id, sku_id)"
+    },
+    {
+      "key": "stock_mappings.stock_mappings_pkey",
+      "definition": "CREATE UNIQUE INDEX stock_mappings_pkey ON stock_mappings USING btree (product_id)"
+    },
+    {
+      "key": "stock_purchases.stock_purchases_batch_id_key",
+      "definition": "CREATE UNIQUE INDEX stock_purchases_batch_id_key ON stock_purchases USING btree (batch_id)"
+    },
+    {
+      "key": "stock_purchases.stock_purchases_pkey",
+      "definition": "CREATE UNIQUE INDEX stock_purchases_pkey ON stock_purchases USING btree (id)"
+    },
+    {
+      "key": "stock_purchases.stock_purchases_state_next_run_at_idx",
+      "definition": "CREATE INDEX stock_purchases_state_next_run_at_idx ON stock_purchases USING btree (state, next_run_at)"
     },
     {
       "key": "twoFactor.twoFactor_pkey",

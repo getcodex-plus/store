@@ -97,14 +97,13 @@ test('SSR storefront, responsive layout, wallet topup and balance purchase', asy
   expect(html).toContain('更省心的 ChatGPT')
   expect(html).toContain('ChatGPT Plus')
   await page.goto('/')
-  await expect(page.getByRole('heading', { name: /更省心的 ChatGPT.*充值与升级。/ })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /更省心的 ChatGPT.*账号充值。/ })).toBeVisible()
   await expect(page.getByRole('link', { name: '开始充值', exact: true })).toHaveAttribute(
     'href',
     '/checkout?product=plus',
   )
   await expect(page.locator('.entry-price')).toContainText('¥135.00')
-  await page.getByRole('link', { name: /已有订阅，想升级/ }).click()
-  await expect(page).toHaveURL(/#upgrade$/)
+  await expect(page.getByRole('link', { name: /已有订阅，想升级/ })).toHaveCount(0)
   for (const width of [320, 375, 768, 1440]) {
     await page.setViewportSize({ width, height: 812 })
     expect(
@@ -140,9 +139,7 @@ test('SSR storefront, responsive layout, wallet topup and balance purchase', asy
   await page.goto('/admin')
   await expect(page.getByText('无权访问管理后台')).toBeVisible()
 })
-test('all tiers, upgrade quotation and partial wallet payment are visible to buyers', async ({
-  page,
-}) => {
+test('all recharge tiers and partial wallet payment are visible to buyers', async ({ page }) => {
   await page.goto('/')
   for (const name of ['ChatGPT Go', 'ChatGPT Plus', 'ChatGPT Pro']) {
     await expect(page.getByRole('heading', { name, exact: true })).toBeVisible()
@@ -208,30 +205,10 @@ test('all tiers, upgrade quotation and partial wallet payment are visible to buy
   await page.getByRole('button', { name: '模拟付款成功' }).click()
   await expect(page.getByRole('heading', { name: '充值完成，开始使用吧。' })).toBeVisible()
   await page.goto('/')
-  await expect(page.getByRole('link', { name: /查看我的升级报价/ })).toHaveCount(1)
-  await page.getByRole('link', { name: /查看我的升级报价/ }).click()
-  await page.getByRole('combobox', { name: '目标升级套餐' }).click()
-  await page.getByText('ChatGPT Pro 500', { exact: true }).last().click()
-  await expect(page.locator('.ant-select-dropdown')).toBeHidden()
-  await expect(page.locator('.summary-price')).toHaveText('验证账号后报价')
-  await page.getByRole('checkbox', { name: /我确认有权使用该账号/ }).check()
-  const quoted = page.waitForResponse(
-    (response) => new URL(response.url()).pathname === '/api/quotes' && response.ok(),
-  )
-  await page.getByRole('button', { name: /验证账号并确认价格/ }).click()
-  const upgradeQuote = await (await quoted).json()
-  await expect(page.getByText('ChatGPT Plus → ChatGPT Pro 500', { exact: true })).toBeVisible()
-  await expect(page.getByText(/当前为演示报价/)).toBeVisible()
-  await expect(page.locator('.summary-price')).toHaveText(
-    `¥${(upgradeQuote.amount / 100).toFixed(2)}`,
-  )
+  await expect(page.getByRole('link', { name: /查看我的升级报价/ })).toHaveCount(0)
   const publicData = await (await page.request.get('/api/bootstrap')).json()
   expect(publicData.settings.upgradePricing).toBeUndefined()
-  await page.setViewportSize({ width: 375, height: 812 })
-  await expect
-    .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
-    .toBe(true)
-  await page.screenshot({ path: 'test-results/upgrade-mobile.png', fullPage: true })
+  expect(publicData.products.every((product: { upgrade: boolean }) => !product.upgrade)).toBe(true)
 })
 test('guest referral is credited before signup and channel limits save and reject invalid orders', async ({
   browser,
@@ -334,7 +311,7 @@ test('guest referral is credited before signup and channel limits save and rejec
     await admin.close()
   }
 })
-test('admin sets fixed base prices, cached currency conversion and upgrade rounding', async ({
+test('admin sets fixed base prices and cached currency conversion but cannot sell upgrades', async ({
   page,
 }) => {
   await page.goto('/')
@@ -406,69 +383,17 @@ test('admin sets fixed base prices, cached currency conversion and upgrade round
     await page.goto('/admin')
     await openAdminPage(page, '网站设置')
     await expect(page.getByRole('button', { name: '请求刷新汇率' })).toBeVisible()
-    await page.getByLabel('升级汇率来源').click()
-    await page.getByText('手动换算率', { exact: true }).last().click()
-    await page.getByLabel('成本美元兑人民币换算率').fill('7')
-    await page.getByLabel('售价取整').last().click()
-    await page.getByText('向上取整到十元', { exact: true }).last().click()
-    await expect(page.getByRole('button', { name: /保存设置/ })).not.toHaveClass(/ant-btn-loading/)
-    await page.getByRole('button', { name: /保存设置/ }).click()
-    await expect
-      .poll(
-        async () =>
-          (await (await page.request.get('/api/admin')).json()).settings.upgradePricing.targets
-            .promax.roundingStep,
-      )
-      .toBe(1000)
-    const upgrade = await (
-      await page.request.post('/api/quotes', {
-        headers,
-        data: { productId: 'upgrade-pro500', session: demoSession('rounding@example.com') },
-      })
-    ).json()
-    const originalTarget = original.settings.upgradePricing.targets.promax
-    expect(upgrade.amount).toBe(
-      Math.ceil(
-        Math.max(
-          Math.ceil(7000 * (1 + originalTarget.markupBps / 10000)) + originalTarget.serviceFee,
-          7000 + originalTarget.minimumProfit,
-          original.settings.upgradePricing.minimum,
-        ) / 1000,
-      ) * 1000,
-    )
+    await expect(page.getByLabel('升级汇率来源')).toHaveCount(0)
+    const upgrade = await page.request.post('/api/quotes', {
+      headers,
+      data: { productId: 'upgrade-pro500', session: demoSession('rounding@example.com') },
+    })
+    expect(upgrade.status()).toBe(404)
     const invalidUpgrade = await page.request.post('/api/admin/products', {
       headers,
       data: { ...product, upgrade: true, plan: 'plus', pricingMode: 'fixed' },
     })
     expect(invalidUpgrade.status()).toBe(400)
-    await page.getByLabel('升级汇率来源').click()
-    await page.getByText('自动汇率（后台缓存）', { exact: true }).last().click()
-    await expect(page.getByLabel('成本美元兑人民币换算率')).toHaveCount(0)
-    await expect(page.getByRole('button', { name: /保存设置/ })).not.toHaveClass(/ant-btn-loading/)
-    await page.getByRole('button', { name: /保存设置/ }).click()
-    await expect
-      .poll(
-        async () =>
-          (await (await page.request.get('/api/admin')).json()).settings.upgradePricing.fxMode,
-      )
-      .toBe('auto')
-    const autoUpgrade = await (
-      await page.request.post('/api/quotes', {
-        headers,
-        data: { productId: 'upgrade-pro500', session: demoSession('rounding@example.com') },
-      })
-    ).json()
-    const rules = original.settings.upgradePricing
-    const target = rules.targets.promax
-    const expectedUpgrade =
-      Math.ceil(
-        Math.max(
-          Math.ceil(1000 * fx.rate * (1 + target.markupBps / 10000)) + target.serviceFee,
-          Math.ceil(1000 * fx.rate) + target.minimumProfit,
-          rules.minimum,
-        ) / 1000,
-      ) * 1000
-    expect(autoUpgrade.amount).toBe(expectedUpgrade)
   } finally {
     expect((await page.request.post('/api/admin/products', { headers, data: product })).ok()).toBe(
       true,
@@ -477,6 +402,33 @@ test('admin sets fixed base prices, cached currency conversion and upgrade round
       (await page.request.post('/api/admin/settings', { headers, data: original.settings })).ok(),
     ).toBe(true)
   }
+})
+test('procurement requires an admin, defaults off and never charges a supplier in demo', async ({
+  page,
+}) => {
+  const headers = { origin: testOrigin, 'X-GetGPT-Request': '1' }
+  expect((await page.request.get('/api/admin/procurement')).status()).toBe(401)
+  expect((await page.request.post('/api/aicdk/webhook', { data: {} })).status()).toBe(404)
+  await page.goto('/')
+  await login(page, 'admin@example.com')
+  await page.goto('/admin')
+  await openAdminPage(page, '商品管理')
+  await page.getByRole('button', { name: '读取上游目录' }).click()
+  await expect(page.getByText('该服务尚未启用，请联系管理员')).toBeVisible()
+  const purchase = await page.request.post('/api/admin/procurement/orders', {
+    headers,
+    data: {
+      requestKey: crypto.randomUUID(),
+      integrationId: 'absent',
+      productId: 'plus',
+      upstreamProductId: 1,
+      skuId: 2,
+      quantity: 1,
+    },
+  })
+  expect(purchase.status()).toBe(409)
+  expect((await purchase.json()).error).toContain('演示模式')
+  expect((await (await page.request.get('/api/admin/procurement')).json()).purchases).toEqual([])
 })
 test('EPay has one entry and selects protocol-specific fields inside configuration', async ({
   page,

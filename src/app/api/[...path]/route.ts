@@ -38,6 +38,13 @@ import {
   inventoryQuerySchema,
 } from '../../../server/inventory'
 import { integrationSchema, saveIntegration } from '../../../server/integrations/config'
+import {
+  procurementOverview,
+  supplierCatalog,
+  saveStockMapping,
+  removeStockMapping,
+  queueStockPurchase,
+} from '../../../server/procurement'
 import type { Product } from '../../../types'
 import { authorize, mayGrant, permissions, type Permission } from '../../../server/rbac'
 import { turnstilePublic } from '../../../server/turnstile'
@@ -64,29 +71,21 @@ const emailSchema = z
 const roundingSchema = z
   .union([z.literal(1), z.literal(10), z.literal(100), z.literal(1000)])
   .default(100)
-const productSchema = z
-  .object({
-    id: z.string().regex(/^[a-z\d_-]{1,64}$/),
-    name: z.string().min(1).max(80),
-    subtitle: z.string().max(100),
-    description: z.string().max(500),
-    price: z.number().int().min(1).max(100000000),
-    features: z.array(z.string().min(1).max(100)).min(1).max(8),
-    plan: z.enum(['go', 'plus', 'pro5', 'pro20', 'promax']),
-    enabled: z.boolean(),
-    featured: z.boolean(),
-    upgrade: z.boolean(),
-    pricingMode: z.enum(['fixed', 'markup']),
-    priceCurrency: z.enum(['CNY', 'USD']).default('CNY'),
-    roundingStep: roundingSchema,
-  })
-  .refine((p) => !(p.upgrade && p.plan === 'go'), { message: 'Go 不支持作为升级目标' })
-  .refine((p) => !p.upgrade || p.pricingMode === 'markup', {
-    message: '升级商品必须按成本加价报价',
-  })
-  .refine((p) => p.upgrade || p.pricingMode === 'fixed', {
-    message: '订阅充值仅支持固定售价',
-  })
+const productSchema = z.object({
+  id: z.string().regex(/^[a-z\d_-]{1,64}$/),
+  name: z.string().min(1).max(80),
+  subtitle: z.string().max(100),
+  description: z.string().max(500),
+  price: z.number().int().min(1).max(100000000),
+  features: z.array(z.string().min(1).max(100)).min(1).max(8),
+  plan: z.enum(['go', 'plus', 'pro5', 'pro20', 'promax']),
+  enabled: z.boolean(),
+  featured: z.boolean(),
+  upgrade: z.literal(false).default(false),
+  pricingMode: z.literal('fixed').default('fixed'),
+  priceCurrency: z.enum(['CNY', 'USD']).default('CNY'),
+  roundingStep: roundingSchema,
+})
 const limitSchema = z
   .object({
     min: z.number().int().min(1).max(100000000),
@@ -274,6 +273,9 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
       const admin = await requireUser(true)
       const permissionMap: Record<string, Permission> = {
         'admin/integrations': 'integrations:write',
+        'admin/procurement/mapping': 'integrations:write',
+        'admin/procurement/unmap': 'integrations:write',
+        'admin/procurement/orders': 'integrations:write',
         'admin/products': 'products:write',
         'admin/coupons': 'coupons:write',
         'admin/inventory': 'products:write',
@@ -296,11 +298,32 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
         if (['integrations:write', 'roles:write', 'withdrawals:write'].includes(required))
           await requireRecent(admin)
       }
+      if (path === 'admin/procurement' || path.startsWith('admin/procurement/')) {
+        authorize(admin, method === 'POST' ? 'products:write' : 'products:read')
+        authorize(admin, 'integrations:read')
+      }
       if (path === 'admin' && method === 'GET')
         result = await adminData(
           admin,
           adminQuerySchema.parse(Object.fromEntries(request.nextUrl.searchParams)),
         )
+      else if (path === 'admin/procurement' && method === 'GET')
+        result = await procurementOverview()
+      else if (path === 'admin/procurement/catalog' && method === 'GET')
+        result = await supplierCatalog(
+          z.coerce
+            .number()
+            .int()
+            .min(1)
+            .max(10000)
+            .parse(request.nextUrl.searchParams.get('page') ?? 1),
+        )
+      else if (path === 'admin/procurement/mapping' && method === 'POST')
+        result = await saveStockMapping(data, admin.email)
+      else if (path === 'admin/procurement/unmap' && method === 'POST')
+        result = await removeStockMapping(data, admin.email)
+      else if (path === 'admin/procurement/orders' && method === 'POST')
+        result = await queueStockPurchase(data, admin.email)
       else if (path === 'admin/coupons' && method === 'POST')
         result = await saveAdminCoupon(admin.email, data, audit)
       else if (path === 'admin/integrations' && method === 'POST')
@@ -376,6 +399,8 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
       } else if (path === 'admin/products' && method === 'POST') {
         const p: Product = productSchema.parse(data)
         await transaction(async (client) => {
+          if ((await client.product.findUnique({ where: { id: p.id } }))?.upgrade)
+            throw new ApiError(409, '历史升级商品不能重新上架')
           const record = { ...p, pricing: Prisma.DbNull }
           await client.product.upsert({ where: { id: p.id }, create: record, update: record })
           await audit(admin.email, '更新商品', p.id, client)
@@ -417,25 +442,6 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
               alipay: limitSchema,
               wechat: limitSchema,
               crypto: limitSchema,
-            }),
-            upgradePricing: z.object({
-              fxMode: z.enum(['manual', 'auto']).default('auto'),
-              fxRateBps: z.number().int().min(1).max(1000000),
-              markupBps: z.number().int().min(0).max(100000),
-              serviceFee: z.number().int().min(0).max(100000000),
-              minimum: z.number().int().min(1).max(100000000),
-              configured: z.boolean().default(false),
-              targets: z
-                .record(
-                  z.enum(['plus', 'pro5', 'pro20', 'promax']),
-                  z.object({
-                    markupBps: z.number().int().min(0).max(100000),
-                    serviceFee: z.number().int().min(0).max(100000000),
-                    minimumProfit: z.number().int().min(1).max(100000000),
-                    roundingStep: roundingSchema,
-                  }),
-                )
-                .optional(),
             }),
           })
           .parse(data)

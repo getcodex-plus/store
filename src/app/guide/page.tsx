@@ -14,8 +14,8 @@ export default function Guide() {
       <p className="lead">先确认账号，再付款。每一步都可以在订单中继续。</p>
       <h2>1. 选择套餐</h2>
       <p>
-        在<Link href="/compare">套餐对比页</Link>查看套餐内容、适合的用户与价格。已有订阅时先阅读
-        <Link href="/upgrade">升级说明</Link>，确认是否需要变更套餐。
+        在<Link href="/compare">套餐对比页</Link>
+        查看充值内容、适合的用户与价格。已有订阅时，请先确认账号适用性，不要重复购买。
       </p>
       <h2 id="account-info">2. 准备账号信息</h2>
       <p>

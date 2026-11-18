@@ -7,7 +7,6 @@ export function googleAnalyticsId(value: string | undefined) {
 const pages: Record<string, string> = {
   '/': '首页',
   '/compare': '套餐对比',
-  '/upgrade': '升级说明',
   '/guide': '购买指南',
   '/help/payment': '支付帮助',
   '/checkout': '结算',

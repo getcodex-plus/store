@@ -475,7 +475,7 @@ export function SiteHeader() {
             <Brand />
             <nav aria-label="主导航">
               <Link className={path === '/' ? 'active' : ''} href="/#plans">
-                套餐与升级
+                充值套餐
               </Link>
               <Link className={path === '/guide' ? 'active' : ''} href="/guide">
                 新手指南
@@ -616,7 +616,6 @@ export function SiteFooter({ supportEmail }: { supportEmail: string }) {
         </div>
         <div className="footer-links">
           <Link href="/compare">套餐对比</Link>
-          <Link href="/upgrade">订阅升级</Link>
           <Link href="/guide">使用指南</Link>
           <Link href="/help/payment">到账与退款</Link>
           {email && <a href={`mailto:${email}`}>联系支持</a>}

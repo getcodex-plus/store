@@ -6,7 +6,6 @@ import {
   formatCouponBenefit,
   formatCouponScope,
   normalizeCouponCode,
-  type UpgradeSnapshotLike,
 } from '../coupons'
 import type {
   AdminCoupon,
@@ -184,7 +183,7 @@ export async function previewCoupon(
       },
     },
   })
-  if (!record || !record.enabled) {
+  if (!record || !record.enabled || record.scopeMode === 'upgrade_only') {
     return { valid: false, code, reason: '优惠码不存在或已停用', items: {} }
   }
   await releaseExpiredCouponOrders(record.id)
@@ -248,7 +247,7 @@ export async function previewCoupon(
       productId: product.id,
       ...evaluateCouponPrice(coupon, {
         product,
-        listAmount: product.upgrade ? 0 : product.price,
+        listAmount: product.price,
       }),
     }
   }
@@ -262,7 +261,9 @@ export async function previewCoupon(
       const quote = quoteView(storedQuote)
       const targetProduct =
         catalog.find((p) => p.id === quote.productId) ??
-        (await db.product.findUnique({ where: { id: quote.productId } }))
+        (await db.product.findFirst({
+          where: { id: quote.productId, enabled: true, upgrade: false },
+        }))
       if (targetProduct) {
         const { buyerKey, contactKey } = buyerHashes(user?.email ?? quote.email, quote.email)
         let blockedReason = ''
@@ -311,7 +312,6 @@ export async function previewCoupon(
           const evaluated = evaluateCouponPrice(coupon, {
             product: { id: targetProduct.id, upgrade: targetProduct.upgrade },
             listAmount: quote.amount,
-            pricingSnapshot: quote.pricingSnapshot as UpgradeSnapshotLike | undefined,
           })
           quotePreview = {
             quoteId: quote.id,
@@ -339,7 +339,6 @@ export async function previewCoupon(
     minAmount: coupon.minAmount,
     scopeMode: coupon.scopeMode,
     productIds: coupon.productIds,
-    upgradeProtection: coupon.upgradeProtection,
     firstOrderOnly: coupon.firstOrderOnly,
     requireLogin: coupon.requireLogin,
     allowReferral: coupon.allowReferral,
@@ -359,8 +358,6 @@ export interface CouponValidationContext {
   targetEmail: string
   product: Pick<Product, 'id' | 'upgrade'>
   listAmount: number
-  pricingSnapshot?: UpgradeSnapshotLike
-  liveProviderQuote?: { amount_minor: number; currency_decimals?: number }
 }
 
 async function assertCouponEligible(client: DbClient, code: string, ctx: CouponValidationContext) {
@@ -436,8 +433,6 @@ async function assertCouponEligible(client: DbClient, code: string, ctx: CouponV
   const evaluated = evaluateCouponPrice(coupon, {
     product: ctx.product,
     listAmount: ctx.listAmount,
-    pricingSnapshot: ctx.pricingSnapshot,
-    liveProviderQuote: ctx.liveProviderQuote,
   })
   if (!evaluated.eligible || evaluated.discountAmount <= 0) {
     throw new ApiError(409, evaluated.reason || '当前订单不满足此优惠码的使用条件')

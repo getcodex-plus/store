@@ -1,28 +1,25 @@
 import Link from 'next/link'
 import { products } from '../server/services'
 import { PlanCard } from '../components/PlanCard'
-import { PlanPrice, UpgradeCouponHint } from '../components/PlanPrice'
+import { PlanPrice } from '../components/PlanPrice'
 import { ProPlanCard } from '../components/ProPlanCard'
 import { Support } from '../components/Support'
 import { JsonLd } from '../components/JsonLd'
 import { pageMetadata, siteOrigin } from '../seo'
 export const dynamic = 'force-dynamic'
 export const metadata = pageMetadata(
-  'ChatGPT Plus / Pro 充值与升级｜套餐价格',
-  '查看 ChatGPT 充值套餐、服务说明与升级流程。为自己的账号充值，游客无需注册，先检查账号和最终价格，再付款并跟踪订单。',
+  'ChatGPT Plus / Pro 充值｜套餐价格',
+  '查看 ChatGPT 充值套餐与服务说明。为自己的账号充值，游客无需注册，先检查账号和价格，再付款并跟踪订单。',
   '/',
 )
 export default async function Home() {
   const catalog = await products()
   const proVariants = ['pro5', 'pro20', 'promax'].flatMap((plan) => {
-    const product = catalog.find((p) => !p.upgrade && p.plan === plan)
+    const product = catalog.find((p) => p.plan === plan)
     return product ? [product] : []
   })
   const proIds = new Set(proVariants.map((p) => p.id))
-  const upgradeOffer =
-    catalog.find((p) => p.upgrade && p.plan === 'pro20') || catalog.find((p) => p.upgrade)
-  const subscriptions = catalog.filter((p) => !p.upgrade)
-  const recommended = subscriptions.find((p) => p.featured) || subscriptions[0]
+  const recommended = catalog.find((p) => p.featured) || catalog[0]
   return (
     <main className="storefront">
       <JsonLd
@@ -32,16 +29,16 @@ export default async function Home() {
           name: 'GetCodex Plus',
           url: siteOrigin(),
           inLanguage: 'zh-CN',
-          description: '独立 ChatGPT 充值与升级服务，与 OpenAI 无隶属关系。',
+          description: '独立 ChatGPT 充值服务，与 OpenAI 无隶属关系。',
         }}
       />
       <section className="hero container">
         <div className="hero-copy">
-          <div className="eyebrow">从 Plus 开始，按需升级</div>
+          <div className="eyebrow">Go、Plus 与 Pro 充值套餐</div>
           <h1>
             更省心的 ChatGPT
             <br />
-            <span>充值与升级。</span>
+            <span>账号充值。</span>
           </h1>
           <p>
             学习、创作和编程，选适合自己的套餐。
@@ -86,15 +83,6 @@ export default async function Home() {
               </Link>
             </div>
           )}
-          {upgradeOffer && (
-            <Link href="#upgrade" className="entry-upgrade">
-              <span>
-                <strong>已有订阅，想升级？</strong>
-                <small>按账号情况报价，确认后再付款</small>
-              </span>
-              <span aria-hidden="true">↗</span>
-            </Link>
-          )}
         </aside>
       </section>
       <section id="plans" className="plans-section">
@@ -112,33 +100,13 @@ export default async function Home() {
           <div className="catalog-group">
             <div className="plan-grid">
               {catalog
-                .filter((p) => !p.upgrade && !proIds.has(p.id))
+                .filter((p) => !proIds.has(p.id))
                 .map((product) => (
                   <PlanCard key={product.id} product={product} />
                 ))}
               {proVariants.length > 0 && <ProPlanCard products={proVariants} />}
             </div>
           </div>
-          {upgradeOffer && (
-            <article id="upgrade" className="upgrade-offer">
-              <div>
-                <div className="eyebrow">
-                  已有订阅 <UpgradeCouponHint product={upgradeOffer} />
-                </div>
-                <h3>升级现有订阅</h3>
-                <p>选择想升级的套餐，检查账号后获取本次总价。确认报价，再付款。</p>
-                <span className="tiny muted">支持 Plus / Pro 100 / Pro 200 / Pro 500</span>
-              </div>
-              <div className="upgrade-actions">
-                <Link href={`/checkout?product=${upgradeOffer.id}`} className="secondary-link">
-                  查看我的升级报价 <span aria-hidden="true">↗</span>
-                </Link>
-                <Link href="/upgrade" className="text-link">
-                  先了解升级条件 →
-                </Link>
-              </div>
-            </article>
-          )}
         </div>
       </section>
       <section className="container steps-section">
@@ -153,7 +121,7 @@ export default async function Home() {
         </div>
         <div className="how-grid">
           {[
-            ['01', '选一个适合的套餐', '按使用需求选择，升级前先检查账号。'],
+            ['01', '选一个适合的套餐', '按使用需求选择充值档位。'],
             ['02', '检查账号，核对价格', '按指引提交账号信息，检查通过后再决定是否付款。'],
             ['03', '付款后，随时查看进度', '保留订单页；更换设备时，用联系邮箱登录查单。'],
           ].map(([n, title, desc]) => (
@@ -179,10 +147,6 @@ export default async function Home() {
             [
               '需要提供账号密码吗？',
               '不需要提供密码。充值需要完整的账号会话信息，它属于敏感登录凭证。请仅在确认服务方与用途后提交，并避免发送给无关人员。',
-            ],
-            [
-              '已经有订阅，还能升级吗？',
-              '可以先选择升级套餐并验证账号。是否支持本次升级，以账号检查结果为准；检查通过后再付款。',
             ],
             [
               '付款后在哪里查看进度？',

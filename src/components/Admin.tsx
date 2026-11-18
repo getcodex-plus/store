@@ -50,17 +50,13 @@ import { OrderResolutionDialog } from './OrderResolutionDialog'
 import { canResolveOrder } from '../order-resolution'
 import { InventoryImportDialog } from './InventoryImportDialog'
 import { InventoryManager } from './InventoryManager'
+import { StockProcurement } from './StockProcurement'
 import { CouponManager } from './CouponManager'
 import { ReferralTierEditor } from './ReferralTierEditor'
 import { useSite } from './Providers'
 import { api, channels, dateTime, money, orderStatusLabel } from '../lib'
 import { refundNeedsReview } from '../refunds'
-import {
-  defaultPaymentLimits,
-  defaultUpgradeMarkupBps,
-  planNames,
-  roundingOptions,
-} from '../pricing'
+import { defaultPaymentLimits, roundingOptions } from '../pricing'
 import type {
   AdminData,
   AdminOrder,
@@ -127,6 +123,7 @@ const providerNames: Record<IntegrationKind, string> = {
   epay_v1: '易支付 v1',
   epay_v2: '易支付 v2',
   aicdk: 'AICDK 兑换服务',
+  'dujiao-next': 'Dujiao-Next 进货',
   smtp: 'SMTP 邮件',
   resend: 'Resend 邮件',
   sendflare: 'Sendflare 邮件',
@@ -137,7 +134,8 @@ const providerDetails: Record<IntegrationKind, { icon: string; description: stri
   gmpay: { icon: '₮', description: '加密货币收款。' },
   epay_v1: { icon: '易', description: '支付宝和微信收款。当前协议 v1（MD5）。' },
   epay_v2: { icon: '易', description: '支付宝和微信收款。当前协议 v2（RSA-SHA256）。' },
-  aicdk: { icon: 'A', description: '账号检查、充值与升级。' },
+  aicdk: { icon: 'A', description: '账号检查与充值。订单进度由 worker 主动查询。' },
+  'dujiao-next': { icon: 'D', description: '连接 getcodex.plus，按上游 SKU 采购充值码。' },
   smtp: { icon: '@', description: '发送登录验证码和订单通知。' },
   resend: { icon: '@', description: '发送登录验证码和订单通知。' },
   sendflare: { icon: '@', description: '发送登录验证码和订单通知。' },
@@ -158,6 +156,7 @@ const publicFields: Record<IntegrationKind, [string, string, string][]> = {
     ['pid', '商户 PID', '商户号'],
   ],
   aicdk: [['url', 'AICDK 地址', 'http://aicdk:8080']],
+  'dujiao-next': [['url', '上游站点地址', 'https://getcodex.plus']],
   smtp: [
     ['host', 'SMTP 主机', 'smtp.example.com'],
     ['port', 'SMTP 端口', '465'],
@@ -177,6 +176,10 @@ const secretFields: Record<IntegrationKind, [string, string][]> = {
     ['publicKey', '平台公钥（PEM）'],
   ],
   aicdk: [['apiKey', '开放 API Key']],
+  'dujiao-next': [
+    ['apiKey', 'API Key'],
+    ['apiSecret', 'API Secret'],
+  ],
   smtp: [['password', 'SMTP 密码 / 授权码']],
   resend: [['apiKey', 'Resend API Key']],
   sendflare: [['apiKey', 'Sendflare API Key']],
@@ -221,9 +224,7 @@ function AdminContent() {
     [integrationForm] = Form.useForm(),
     [settingsForm] = Form.useForm(),
     [withdrawalForm] = Form.useForm()
-  const productUpgrade = Form.useWatch('upgrade', productForm)
   const productCurrency = Form.useWatch('priceCurrency', productForm)
-  const upgradeFxMode = Form.useWatch('upgradeFxMode', settingsForm)
   const usdtWithdrawalEnabled = Form.useWatch(['withdrawalChannels', 'usdt'], settingsForm)
   const withdrawalResult = Form.useWatch('status', withdrawalForm)
   const epayVersion: 'epay_v1' | 'epay_v2' =
@@ -309,29 +310,6 @@ function AdminContent() {
             return [channel, { min: limit.min / 100, max: limit.max / 100 }]
           }),
         ),
-        upgradeConfigured: data.settings.upgradePricing?.configured ?? false,
-        upgradeFxMode: data.settings.upgradePricing?.fxMode ?? 'auto',
-        upgradeTargets: Object.fromEntries(
-          ['plus', 'pro5', 'pro20', 'promax'].map((plan) => {
-            const rules = data.settings.upgradePricing?.targets?.[plan]
-            return [
-              plan,
-              {
-                markup:
-                  (rules?.markupBps ??
-                    data.settings.upgradePricing?.markupBps ??
-                    defaultUpgradeMarkupBps) / 100,
-                fee: (rules?.serviceFee ?? data.settings.upgradePricing?.serviceFee ?? 0) / 100,
-                profit: (rules?.minimumProfit ?? 1000) / 100,
-                roundingStep: rules?.roundingStep ?? 100,
-              },
-            ]
-          }),
-        ),
-        upgradeFx: (data.settings.upgradePricing?.fxRateBps ?? 70000) / 10000,
-        upgradeMarkup: (data.settings.upgradePricing?.markupBps ?? defaultUpgradeMarkupBps) / 100,
-        upgradeFee: (data.settings.upgradePricing?.serviceFee ?? 0) / 100,
-        upgradeMinimum: (data.settings.upgradePricing?.minimum ?? 100) / 100,
       })
   }, [data, settingsForm, page])
   async function mutate(path: string, body: unknown, done?: () => void) {
@@ -375,7 +353,10 @@ function AdminContent() {
     const current = data?.integrations.find((i) => i.provider === provider)
     integrationForm.setFieldsValue({
       enabled: current?.enabled ?? false,
-      public: current?.public ?? shared ?? {},
+      public:
+        current?.public ??
+        shared ??
+        (provider === 'dujiao-next' ? { url: 'https://getcodex.plus' } : {}),
       secrets: {},
     })
     setEditIntegration(provider)
@@ -986,16 +967,9 @@ function AdminContent() {
                           title: '定价',
                           dataIndex: 'price',
                           render: (_: number, p: Product) =>
-                            p.upgrade
-                              ? '升级 · 账号实时报价'
-                              : p.priceCurrency === 'USD'
-                                ? `$${(p.price / 100).toFixed(2)} · 自动换算人民币`
-                                : money(p.price),
-                        },
-                        {
-                          title: '类型',
-                          dataIndex: 'upgrade',
-                          render: (u: boolean) => <Tag>{u ? '升级' : '充值'}</Tag>,
+                            p.priceCurrency === 'USD'
+                              ? `$${(p.price / 100).toFixed(2)} · 自动换算人民币`
+                              : money(p.price),
                         },
                         {
                           title: '可用库存',
@@ -1041,6 +1015,13 @@ function AdminContent() {
                   <p className="tiny muted">
                     价格按人民币分存储。每笔订单保存购买时的价格与返现规则，后续修改不影响已有订单。
                   </p>
+                  {can('integrations:read') && (
+                    <StockProcurement
+                      products={data.products}
+                      demo={site?.mode === 'demo'}
+                      canWrite={can('products:write') && can('integrations:write')}
+                    />
+                  )}
                 </>
               )}
               {(page === 'inventory' || page === 'batches') && (
@@ -1343,17 +1324,7 @@ function AdminContent() {
                         message.error('开启 USDT 提现时，请至少开启一个收款网络')
                         return
                       }
-                      const {
-                        tierRules,
-                        withdrawalRules,
-                        channelLimits,
-                        upgradeFx,
-                        upgradeFxMode,
-                        upgradeConfigured,
-                        upgradeTargets,
-                        upgradeMinimum,
-                        ...rest
-                      } = values
+                      const { tierRules, withdrawalRules, channelLimits, ...rest } = values
                       const rules = Object.fromEntries(
                         Object.entries(withdrawalRules).map(([key, value]) => {
                           const rule = value as {
@@ -1392,37 +1363,6 @@ function AdminContent() {
                             ]
                           }),
                         ),
-                        upgradePricing: {
-                          fxMode: upgradeFxMode,
-                          configured: upgradeConfigured,
-                          targets: Object.fromEntries(
-                            Object.entries(upgradeTargets).map(([plan, value]) => {
-                              const rules = value as {
-                                markup: number
-                                fee: number
-                                profit: number
-                                roundingStep: number
-                              }
-                              return [
-                                plan,
-                                {
-                                  markupBps: Math.round(rules.markup * 100),
-                                  serviceFee: Math.round(rules.fee * 100),
-                                  minimumProfit: Math.round(rules.profit * 100),
-                                  roundingStep: rules.roundingStep,
-                                },
-                              ]
-                            }),
-                          ),
-                          fxRateBps:
-                            upgradeFxMode === 'auto'
-                              ? (data.settings.upgradePricing?.fxRateBps ?? 70000)
-                              : Math.round(upgradeFx * 10000),
-                          markupBps:
-                            data.settings.upgradePricing?.markupBps ?? defaultUpgradeMarkupBps,
-                          serviceFee: 0,
-                          minimum: Math.round(upgradeMinimum * 100),
-                        },
                         referralTiers: tierRules.map(
                           (tier: {
                             id: string
@@ -1649,104 +1589,6 @@ function AdminContent() {
                       请求刷新汇率
                     </Button>
                     <p className="tiny muted">后台每小时获取汇率，订单以确认时的人民币价格为准。</p>
-                    <h3>升级利润定价</h3>
-                    <Alert
-                      className="mb-24"
-                      type="info"
-                      showIcon
-                      title="上游报价是成本，不会直接作为用户售价"
-                      description="用户总价取以下最大值：成本 ×（1 + 加价比例）+ 服务费、成本 + 最低毛利、最低售价。最低毛利尚未扣除渠道手续费与邀请返现，请将这些费用计入经营定价。"
-                    />
-                    <div className="form-two">
-                      <Form.Item
-                        name="upgradeFxMode"
-                        label="升级汇率来源"
-                        rules={[{ required: true }]}
-                      >
-                        <Select
-                          options={[
-                            { value: 'manual', label: '手动换算率' },
-                            { value: 'auto', label: '自动汇率（后台缓存）' },
-                          ]}
-                        />
-                      </Form.Item>
-                      {upgradeFxMode !== 'auto' && (
-                        <Form.Item
-                          name="upgradeFx"
-                          label="成本美元兑人民币换算率"
-                          rules={[{ required: true }]}
-                        >
-                          <InputNumber min={0.0001} max={100} precision={4} />
-                        </Form.Item>
-                      )}
-                      <Form.Item
-                        name="upgradeMinimum"
-                        label="升级最低售价（元）"
-                        rules={[{ required: true }]}
-                      >
-                        <InputNumber min={0.01} max={1000000} precision={2} />
-                      </Form.Item>
-                    </div>
-                    {['plus', 'pro5', 'pro20', 'promax'].map((plan) => (
-                      <div key={plan}>
-                        <h4>{planNames[plan]}</h4>
-                        <div className="form-three">
-                          <Form.Item
-                            name={['upgradeTargets', plan, 'markup']}
-                            label="成本加价（%）"
-                            rules={[{ required: true }]}
-                          >
-                            <InputNumber
-                              min={0}
-                              max={1000}
-                              precision={2}
-                              style={{ width: '100%' }}
-                            />
-                          </Form.Item>
-                          <Form.Item
-                            name={['upgradeTargets', plan, 'fee']}
-                            label="服务费（元）"
-                            rules={[{ required: true }]}
-                          >
-                            <InputNumber
-                              min={0}
-                              max={1000000}
-                              precision={2}
-                              style={{ width: '100%' }}
-                            />
-                          </Form.Item>
-                          <Form.Item
-                            name={['upgradeTargets', plan, 'profit']}
-                            label="最低毛利（元）"
-                            rules={[{ required: true }]}
-                          >
-                            <InputNumber
-                              min={0.01}
-                              max={1000000}
-                              precision={2}
-                              style={{ width: '100%' }}
-                            />
-                          </Form.Item>
-                        </div>
-                        <Form.Item
-                          name={['upgradeTargets', plan, 'roundingStep']}
-                          label="售价取整"
-                          rules={[{ required: true }]}
-                        >
-                          <Select options={roundingOptions} />
-                        </Form.Item>
-                      </div>
-                    ))}
-                    <Form.Item
-                      name="upgradeConfigured"
-                      label="已确认利润规则，允许真实升级报价"
-                      valuePropName="checked"
-                    >
-                      <Switch />
-                    </Form.Item>
-                    <p className="tiny muted">
-                      演示默认值仅用于预览。正式模式未开启此项时拒绝升级报价；成本、换算率、利润规则只对有权限的后台用户展示。
-                    </p>
                     <h3>服务联系</h3>
                     <Form.Item name="supportEmail" label="支持邮箱">
                       <Input type="email" placeholder="support@example.com" />
@@ -2054,8 +1896,7 @@ function AdminContent() {
               'products',
               {
                 ...rest,
-                pricingMode: rest.upgrade ? 'markup' : 'fixed',
-                price: rest.upgrade ? (editProduct?.price ?? 1) : Math.round(priceYuan * 100),
+                price: Math.round(priceYuan * 100),
                 features: featureText
                   .split('\n')
                   .map((s: string) => s.trim())
@@ -2084,26 +1925,22 @@ function AdminContent() {
             <Input.TextArea rows={2} />
           </Form.Item>
           <div className="form-two">
-            {!productUpgrade && (
-              <Form.Item
-                name="priceYuan"
-                label={productCurrency === 'USD' ? '固定售价（美元）' : '固定售价（元）'}
-                rules={[{ required: true }]}
-              >
-                <InputNumber min={0.01} max={1000000} precision={2} style={{ width: '100%' }} />
-              </Form.Item>
-            )}
-            {!productUpgrade && (
-              <Form.Item name="priceCurrency" label="基础售价币种" rules={[{ required: true }]}>
-                <Select
-                  options={[
-                    { value: 'CNY', label: '人民币（固定售价）' },
-                    { value: 'USD', label: '美元（自动换算人民币）' },
-                  ]}
-                />
-              </Form.Item>
-            )}
-            {!productUpgrade && productCurrency === 'USD' && (
+            <Form.Item
+              name="priceYuan"
+              label={productCurrency === 'USD' ? '固定售价（美元）' : '固定售价（元）'}
+              rules={[{ required: true }]}
+            >
+              <InputNumber min={0.01} max={1000000} precision={2} style={{ width: '100%' }} />
+            </Form.Item>
+            <Form.Item name="priceCurrency" label="基础售价币种" rules={[{ required: true }]}>
+              <Select
+                options={[
+                  { value: 'CNY', label: '人民币（固定售价）' },
+                  { value: 'USD', label: '美元（自动换算人民币）' },
+                ]}
+              />
+            </Form.Item>
+            {productCurrency === 'USD' && (
               <Form.Item name="roundingStep" label="人民币售价取整" rules={[{ required: true }]}>
                 <Select options={roundingOptions} />
               </Form.Item>
@@ -2120,14 +1957,6 @@ function AdminContent() {
               />
             </Form.Item>
           </div>
-          {productUpgrade && (
-            <Alert
-              className="mb-24"
-              type="info"
-              title="升级按目标套餐的成本加价规则报价"
-              description="在网站设置的升级利润定价中配置加价比例、最低毛利及取整规则。"
-            />
-          )}
           <Form.Item name="featureText" label="套餐说明（每行一条）" rules={[{ required: true }]}>
             <Input.TextArea rows={3} />
           </Form.Item>
@@ -2136,9 +1965,6 @@ function AdminContent() {
               <Switch />
             </Form.Item>
             <Form.Item name="featured" label="首页推荐" valuePropName="checked">
-              <Switch />
-            </Form.Item>
-            <Form.Item name="upgrade" label="升级商品" valuePropName="checked">
               <Switch />
             </Form.Item>
           </div>

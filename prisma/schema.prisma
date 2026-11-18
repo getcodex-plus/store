@@ -243,6 +243,8 @@ model Integration {
   paymentOrders         Order[]                @relation("orders_integration_idTointegrations")
   quotes                Quote[]
   inventoryReplacements InventoryReplacement[]
+  stockMappings         StockMapping[]
+  stockPurchases        StockPurchase[]
 
   @@map("integrations")
 }
@@ -289,6 +291,7 @@ model InventoryReplacement {
 }
 
 model InventoryBatch {
+  stockPurchase   StockPurchase?
   id              String      @id
   name            String
   productId       String      @map("product_id")
@@ -401,6 +404,8 @@ model PaymentEvent {
 }
 
 model Product {
+  stockMapping     StockMapping?
+  stockPurchases   StockPurchase[]
   inventoryBatches InventoryBatch[] @relation("InventoryBatches")
   id               String           @id
   name             String
@@ -421,6 +426,41 @@ model Product {
   quotes           Quote[]
 
   @@map("products")
+}
+
+model StockMapping {
+  productId         String      @id @map("product_id")
+  integrationId     String      @map("integration_id")
+  upstreamProductId Int         @map("upstream_product_id")
+  skuId             Int         @map("sku_id")
+  product           Product     @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  integration       Integration @relation(fields: [integrationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([integrationId, skuId])
+  @@map("stock_mappings")
+}
+
+model StockPurchase {
+  id                String          @id
+  productId         String          @map("product_id")
+  integrationId     String          @map("integration_id")
+  upstreamProductId Int             @map("upstream_product_id")
+  skuId             Int             @map("sku_id")
+  quantity          Int
+  actor             String
+  state             String          @default("queued")
+  upstreamOrderId   Int?            @map("upstream_order_id")
+  batchId           String?         @unique @map("batch_id")
+  lastError         String?         @map("last_error")
+  attempts          Int             @default(0)
+  nextRunAt         DateTime        @default(now()) @map("next_run_at") @db.Timestamptz(6)
+  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  product           Product         @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  integration       Integration     @relation(fields: [integrationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  batch             InventoryBatch? @relation(fields: [batchId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([state, nextRunAt])
+  @@map("stock_purchases")
 }
 
 model Quote {

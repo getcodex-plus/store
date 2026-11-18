@@ -76,12 +76,21 @@ export function validatePaymentGatewayUrl(rawUrl: string, status = 400): string 
   return rawUrl.replace(/\/$/, '')
 }
 
+export function supplierOrigin(rawUrl: string, status = 400) {
+  try {
+    const url = new URL(validatePaymentGatewayUrl(rawUrl, status))
+    if (url.pathname === '/') return url.origin
+  } catch {}
+  throw new ApiError(status, '上游站点地址须为不含路径和凭据的有效域名；正式环境需使用公网 HTTPS')
+}
+
 export const providers = [
   'xorpay',
   'gmpay',
   'epay_v1',
   'epay_v2',
   'aicdk',
+  'dujiao-next',
   'smtp',
   'resend',
   'sendflare',
@@ -102,6 +111,7 @@ const publicKeys: Record<IntegrationKind, string[]> = {
   epay_v1: ['url', 'pid'],
   epay_v2: ['url', 'pid'],
   aicdk: ['url'],
+  'dujiao-next': ['url'],
   smtp: ['host', 'port', 'user', 'from'],
   resend: ['from'],
   sendflare: ['from'],
@@ -113,6 +123,7 @@ const secretKeys: Record<IntegrationKind, string[]> = {
   epay_v1: ['key'],
   epay_v2: ['privateKey', 'publicKey'],
   aicdk: ['apiKey'],
+  'dujiao-next': ['apiKey', 'apiSecret'],
   smtp: ['password'],
   resend: ['apiKey'],
   sendflare: ['apiKey'],
@@ -174,6 +185,8 @@ export async function saveIntegration(input: z.infer<typeof integrationSchema>, 
       (!['true', 'false'].includes(fields.login) || !['true', 'false'].includes(fields.purchase))
     )
       throw new ApiError(400, '请选择需要开启安全验证的场景')
+    if (input.provider === 'dujiao-next' && !fields.url && previous)
+      fields.url = stringRecord(previous.public).url ?? ''
     if (fields.url) {
       if (input.provider === 'aicdk') {
         let url: URL
@@ -191,6 +204,15 @@ export async function saveIntegration(input: z.infer<typeof integrationSchema>, 
         ) {
           throw new ApiError(400, 'AICDK 地址需为 HTTP 或 HTTPS，不含登录信息、查询参数或片段')
         }
+      } else if (input.provider === 'dujiao-next') {
+        fields.url = supplierOrigin(fields.url)
+        const previousUrl = previous && stringRecord(previous.public).url
+        if (
+          previousUrl &&
+          previousUrl !== fields.url &&
+          (!input.secrets.apiKey?.trim() || !input.secrets.apiSecret?.trim())
+        )
+          throw new ApiError(400, '更换进货站点时请重新填写 API Key 和 Secret')
       } else {
         validatePaymentGatewayUrl(fields.url, 400)
       }

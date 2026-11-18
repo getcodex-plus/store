@@ -133,8 +133,7 @@ describe('coupon domain pricing and validation', () => {
     expect(wrongScope.eligible).toBe(false)
   })
 
-  it('protects dynamic upgrade orders against upstream cost and min_profit floors', () => {
-    // Catalog browse without quote marks upgradeDynamic: true
+  it('does not advertise discounts on retired upgrades even for sitewide coupons', () => {
     const catalogPreview = evaluateCouponPrice(
       {
         discountKind: 'fixed',
@@ -148,63 +147,9 @@ describe('coupon domain pricing and validation', () => {
       { product: { id: 'upgrade-pro20', upgrade: true }, listAmount: 0 },
     )
     expect(catalogPreview).toMatchObject({
-      eligible: true,
-      upgradeDynamic: true,
+      eligible: false,
+      upgradeDynamic: false,
       discountAmount: 0,
-    })
-
-    // Live upgrade quote: $100.00 (10000 cents) upstream * 7.2000 fx = ¥720.00 cost (72000 fen), minimumProfit = ¥15 (1500 fen), listAmount = ¥800 (80000 fen)
-    const snapshot = {
-      fxRateBps: 72000,
-      minimumProfit: 1500,
-      providerQuote: { amount_minor: 10000, currency_decimals: 2 },
-    }
-    const costProtected = evaluateCouponPrice(
-      {
-        discountKind: 'fixed',
-        discountValue: 12000, // tries to take ¥120 off ¥800 -> would hit ¥680 < ¥720 cost
-        maxDiscountAmount: null,
-        minAmount: 0,
-        scopeMode: 'all',
-        productIds: [],
-        upgradeProtection: 'cost',
-      },
-      {
-        product: { id: 'upgrade-pro20', upgrade: true },
-        listAmount: 80000,
-        pricingSnapshot: snapshot,
-      },
-    )
-    expect(costProtected).toMatchObject({
-      eligible: true,
-      listAmount: 80000,
-      discountAmount: 8000,
-      finalAmount: 72000,
-      costFloorCapped: true,
-    })
-
-    const minProfitProtected = evaluateCouponPrice(
-      {
-        discountKind: 'fixed',
-        discountValue: 12000,
-        maxDiscountAmount: null,
-        minAmount: 0,
-        scopeMode: 'all',
-        productIds: [],
-        upgradeProtection: 'min_profit',
-      },
-      {
-        product: { id: 'upgrade-pro20', upgrade: true },
-        listAmount: 80000,
-        pricingSnapshot: snapshot,
-      },
-    )
-    expect(minProfitProtected).toMatchObject({
-      eligible: true,
-      listAmount: 80000,
-      discountAmount: 6500,
-      finalAmount: 73500,
-      costFloorCapped: true,
     })
   })
 

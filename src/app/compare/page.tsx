@@ -102,15 +102,11 @@ export default async function Compare() {
       <p>
         表中金额是本站普通充值服务的每月价格，服务内容以对应商品说明及付款前确认的信息为准。
         本站按订单一次性收款，不自动续扣；账号自身的订阅续费设置需要另行确认。
-        已有订阅需要升级时，应先检查账号并获取升级报价。
       </p>
-      <h2>已有订阅，需要换套餐？</h2>
-      <p>不要把充值与升级当作同一种服务。升级需要检查当前账号，再计算本次应付总价。</p>
       <div className="catalog-links">
-        <Link href="/upgrade" className="primary-link">
-          了解升级条件 →
+        <Link href="/guide" className="primary-link">
+          查看购买指南 →
         </Link>
-        <Link href="/guide">查看购买指南</Link>
       </div>
       <Support />
     </main>

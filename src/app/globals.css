@@ -400,27 +400,6 @@ svg {
   margin: 12px 0 0;
   text-align: center;
 }
-.entry-upgrade {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  padding: 24px 30px;
-  background: var(--surface-subtle);
-  transition: background-color 150ms;
-}
-.entry-upgrade:hover {
-  background: var(--surface-hover);
-}
-.entry-upgrade strong,
-.entry-upgrade small {
-  display: block;
-}
-.entry-upgrade small {
-  color: var(--muted);
-  font-size: var(--text-caption);
-  margin-top: 6px;
-}
 .plans-section {
   background: var(--surface-subtle);
   padding-block: 70px 74px;
@@ -489,11 +468,6 @@ svg {
   border-radius: 12px;
   color: var(--ink);
   font-size: 29px;
-}
-.plan-symbol.upgrade {
-  background: var(--surface-subtle);
-  border-color: var(--line);
-  color: var(--muted);
 }
 .recommend {
   color: var(--accent);
@@ -2371,9 +2345,6 @@ svg {
   .entry-plan h2 {
     margin-top: 20px;
   }
-  .entry-upgrade {
-    padding: 20px 24px;
-  }
   .section-heading h2 {
     font-size: 25px;
   }
@@ -2739,44 +2710,6 @@ svg {
   display: flex;
   justify-content: space-between;
   gap: 16px;
-}
-
-.upgrade-offer {
-  margin-top: 36px;
-  padding: 32px;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 32px;
-  background: var(--surface);
-}
-.upgrade-offer h3 {
-  font-size: 26px;
-  font-weight: 500;
-  margin-block: 12px;
-}
-.upgrade-offer p {
-  color: var(--muted);
-  margin-bottom: 8px;
-}
-.upgrade-actions {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  flex-shrink: 0;
-}
-.upgrade-actions .text-link {
-  min-height: 44px;
-}
-@media (max-width: 710px) {
-  .upgrade-offer {
-    flex-direction: column;
-    align-items: flex-start;
-    padding: 26px;
-  }
 }
 
 .pro-tier-selector {

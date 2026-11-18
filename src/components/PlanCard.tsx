@@ -13,12 +13,12 @@ export function PlanCard({
   title?: string
   selector?: ReactNode
 }) {
-  const comparison = !product.upgrade ? planComparisons[product.plan] : undefined
+  const comparison = planComparisons[product.plan]
   return (
     <article className={`plan-card ${product.featured ? 'featured' : ''}`}>
       <div className="plan-card-top">
-        <span className={`plan-symbol ${product.upgrade ? 'upgrade' : ''}`} aria-hidden="true">
-          {product.upgrade ? '↗' : product.featured ? '✳' : '✦'}
+        <span className="plan-symbol" aria-hidden="true">
+          {product.featured ? '✳' : '✦'}
         </span>
         {selector || (product.featured && <span className="recommend">日常使用推荐</span>)}
       </div>
@@ -29,7 +29,7 @@ export function PlanCard({
         className={product.featured ? 'primary-link plan-button' : 'secondary-link plan-button'}
         href={`/checkout?product=${product.id}`}
       >
-        {product.upgrade ? '查看本次报价' : '选择此套餐'} <span aria-hidden="true">→</span>
+        选择此套餐 <span aria-hidden="true">→</span>
       </Link>
       <ul>
         {(comparison?.contents ?? product.features).map((feature) => (

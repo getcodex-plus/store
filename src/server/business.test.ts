@@ -342,50 +342,20 @@ suite('PostgreSQL payment, wallet and authorization invariants', () => {
     await testQuery(Prisma.sql`DELETE FROM user_roles WHERE user_id=${user.id}`)
     expect(await permissionsFor(user)).toEqual([])
   })
-  it('locks upgrade retail prices in expiring server quotes instead of trusting later catalog prices', async () => {
+  it('hides legacy upgrade rows and rejects new quotes for them even when enabled', async () => {
     await testQuery(
       Prisma.sql`INSERT INTO products(id,name,subtitle,description,price,features,plan,upgrade,pricing_mode) VALUES('test-upgrade','Upgrade','','',1,'[]','promax',true,'markup') ON CONFLICT DO NOTHING`,
     )
-    const previous = (await testQuery(Prisma.sql`SELECT body FROM settings WHERE id=1`)).rows[0]
-      .body
-    try {
-      await testQuery(
-        Prisma.sql`UPDATE settings SET body=body||'{"upgradePricing":{"fxMode":"manual","fxRateBps":70000,"markupBps":1000,"serviceFee":500,"minimum":100,"targets":{"promax":{"markupBps":2000,"serviceFee":500,"minimumProfit":2000}}}}'::jsonb WHERE id=1`,
-      )
-      const priced = await createQuote(
-        'test-upgrade',
-        JSON.stringify({
-          user: { email: `${id()}@example.com` },
-          accessToken: 'demo',
-          sessionToken: 'demo',
-        }),
-        browser,
-      )
-      expect(priced.amount).toBe(9000)
-      expect(priced.targetPlan).toBe('promax')
-      await testQuery(
-        Prisma.sql`UPDATE settings SET body=jsonb_set(body,'{upgradePricing,serviceFee}','90000') WHERE id=1`,
-      )
-      const order = await newOrder(user, browser, {
-        quoteId: priced.id,
-        channel: 'alipay',
-        requestKey: id(),
-      })
-      expect(order.amount).toBe(9000)
-      const snapshot = (
-        await testQuery(Prisma.sql`SELECT pricing_snapshot FROM quotes WHERE id=${priced.id}`)
-      ).rows[0].pricing_snapshot
-      expect(snapshot.serviceFee).toBe(500)
-      const stale = await quote()
-      await testQuery(
-        Prisma.sql`UPDATE quotes SET expires_at=now()-interval '1 minute' WHERE id=${stale}`,
-      )
-      await expect(
-        newOrder(user, browser, { quoteId: stale, channel: 'alipay', requestKey: id() }),
-      ).rejects.toThrow('已过期')
-    } finally {
-      await testQuery(Prisma.sql`UPDATE settings SET body=${JSON.stringify(previous)} WHERE id=1`)
-    }
+    for (const all of [true, false])
+      expect((await products(all)).some((item) => item.upgrade)).toBe(false)
+    await expect(createQuote('test-upgrade', demoSession(), browser)).rejects.toThrow('已下架')
+    const stale = await quote()
+    await testQuery(
+      Prisma.sql`UPDATE quotes SET expires_at=now()-interval '1 minute' WHERE id=${stale}`,
+    )
+    await expect(
+      newOrder(user, browser, { quoteId: stale, channel: 'alipay', requestKey: id() }),
+    ).rejects.toThrow('已过期')
   })
   it('uses exact fixed subscription prices and preserves confirmed quotes after price changes', async () => {
     const productId = id('p_')

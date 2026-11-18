@@ -109,7 +109,6 @@ const accountCheckSchema = z.object({
   account_status: z.enum(['active', 'deactivated']),
   subscription: z.object({
     purchase: group,
-    upgrade: group,
     offers: z
       .object({
         plus_50_percent_discount: z

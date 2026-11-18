@@ -1,7 +1,7 @@
 import type { PricingRules } from '../types'
 import { costBasedPrice } from '../pricing'
 import { ApiError } from './config'
-import { exchangeRate, supportedCurrency, type ExchangeRate } from './exchange-rates'
+import { supportedCurrency, type ExchangeRate } from './exchange-rates'
 import {
   aicdkPlan,
   type ProviderMoney,
@@ -50,31 +50,6 @@ export function moneyDecimals(money: ProviderMoney) {
     throw new ApiError(503, '上游报价币种精度不一致，请稍后重试')
   return digits
 }
-export async function priceReference(
-  money: ProviderMoney,
-  rules: PricingRules,
-  mode: 'auto' | 'manual',
-) {
-  const digits = moneyDecimals(money)
-  // A manual USD/CNY setting must never be applied to JPY/EUR/etc.
-  const rate =
-    money.currency === 'USD' && mode === 'manual'
-      ? undefined
-      : await exchangeRate(true, money.currency)
-  const rateE8 = rate?.rateE8 ?? rules.fxRateBps * 10000
-  return {
-    amount: costBasedPrice(money.amount_minor, rules, rateE8, digits),
-    rate,
-    snapshot: {
-      mode: 'markup' as const,
-      providerQuote: { ...money, currency_decimals: digits },
-      rules,
-      rateE8,
-      exchangeRate: rate,
-    },
-  }
-}
-
 export function validateFulfillment(
   result: Extract<Preflight, { status: 'ready' }> | Redemption,
   quote: FulfillmentQuote,

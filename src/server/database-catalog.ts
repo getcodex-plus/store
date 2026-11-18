@@ -29,6 +29,8 @@ export const managedTables = [
   'roles',
   'risk_events',
   'settings',
+  'stock_mappings',
+  'stock_purchases',
   'twoFactor',
   'user_roles',
   'users',

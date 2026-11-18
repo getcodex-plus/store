@@ -10,9 +10,6 @@ export const defaultPlanPrices: Record<string, number> = {
   promax: 326000,
 }
 
-// Profit is expressed as a markup on cost, before fees and referral rewards.
-export const defaultUpgradeMarkupBps = 3000
-
 export const defaultPaymentLimits = {
   alipay: { min: 1, max: 200000 },
   wechat: { min: 1, max: 200000 },

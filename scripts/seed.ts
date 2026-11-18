@@ -1,6 +1,6 @@
 import { db, transaction, type DbClient } from '../src/server/db'
 import { jsonInput } from '../src/server/data'
-import { defaultPaymentLimits, defaultPlanPrices, defaultUpgradeMarkupBps } from '../src/pricing'
+import { defaultPaymentLimits, defaultPlanPrices } from '../src/pricing'
 import { defaultReferralTiers } from '../src/referral'
 import { defaultWithdrawalChannels } from '../src/withdrawals'
 
@@ -29,19 +29,6 @@ export async function seedDatabase(client: DbClient) {
       featured: false,
       upgrade: false,
     },
-    {
-      id: 'upgrade',
-      name: '升级至 ChatGPT Pro 200',
-      subtitle: '让现有账号再进一步',
-      description: '检查当前订阅状态和升级条件，再确认本次升级价格。',
-      price: 59900,
-      features: ['保留现有账号', '先检查再付款', '确认最终升级金额'],
-      plan: 'pro20',
-      featured: false,
-      upgrade: true,
-    },
-  ]
-  products.push(
     {
       id: 'go',
       name: 'ChatGPT Go',
@@ -75,25 +62,10 @@ export async function seedDatabase(client: DbClient) {
       featured: false,
       upgrade: false,
     },
-    ...[
-      ['upgrade-plus', 'Plus', 'plus'],
-      ['upgrade-pro100', 'Pro 100', 'pro5'],
-      ['upgrade-pro500', 'Pro 500', 'promax'],
-    ].map(([id, title, plan]) => ({
-      id,
-      name: `升级至 ChatGPT ${title}`,
-      subtitle: '按当前订阅实时核价',
-      description: `检查当前账号升级至 ${title} 的条件，确认最终报价后付款。`,
-      price: 100,
-      features: ['当前套餐适用性检查', '按本次预检金额报价', '报价确认后再付款'],
-      plan,
-      featured: false,
-      upgrade: true,
-    })),
-  )
+  ]
 
   await client.product.createMany({
-    data: products.map((p) => ({ ...p, pricingMode: p.upgrade ? 'markup' : 'fixed' })),
+    data: products,
     skipDuplicates: true,
   })
   await client.setting.createMany({
@@ -113,26 +85,6 @@ export async function seedDatabase(client: DbClient) {
           fiatProvider: 'xorpay',
           emailProvider: 'resend',
           paymentLimits: defaultPaymentLimits,
-          upgradePricing: {
-            configured: false,
-            targets: Object.fromEntries(
-              ['plus', 'pro5', 'pro20', 'promax'].map((plan) => [
-                plan,
-                {
-                  markupBps: defaultUpgradeMarkupBps,
-                  serviceFee: 0,
-                  minimumProfit: 1000,
-                  roundingStep: 100,
-                },
-              ]),
-            ),
-            fxMode: 'auto',
-            fxRateBps: 70000,
-            markupBps: defaultUpgradeMarkupBps,
-            serviceFee: 0,
-            roundingStep: 100,
-            minimum: 100,
-          },
         }),
       },
     ],

@@ -4,7 +4,7 @@ const testOrigin = process.env.E2E_BASE_URL || 'http://localhost:3000'
 test('public contact and account guide are present without JavaScript or API requests', async ({
   request,
 }) => {
-  for (const path of ['/', '/guide', '/compare', '/upgrade', '/plans/plus', '/help/payment']) {
+  for (const path of ['/', '/guide', '/compare', '/plans/plus', '/help/payment']) {
     const response = await request.get(path)
     expect(response.status()).toBe(200)
     // Exclude serialized RSC data: the links must be actual rendered markup.
@@ -21,7 +21,7 @@ test('public discovery pages contain readable content, crawlable tier links and 
   page,
 }) => {
   const titles = new Set<string>()
-  for (const path of ['/compare', '/upgrade', '/help/payment', '/plans/plus', '/guide']) {
+  for (const path of ['/compare', '/help/payment', '/plans/plus', '/guide']) {
     const response = await request.get(path)
     expect(response.status()).toBe(200)
     const html = await response.text()
@@ -32,7 +32,9 @@ test('public discovery pages contain readable content, crawlable tier links and 
     titles.add(title!)
     expect(html).toContain('name="robots" content="noindex, nofollow"')
   }
-  expect(titles.size).toBe(5)
+  expect(titles.size).toBe(4)
+  expect((await request.get('/upgrade')).status()).toBe(404)
+  expect((await request.get('/plans/upgrade-plus')).status()).toBe(404)
   const html = await (await request.get('/compare')).text()
   for (const id of ['plus', 'pro100', 'pro200', 'pro500'])
     expect(html).toContain(`href="/plans/${id}"`)

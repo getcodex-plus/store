@@ -20,9 +20,7 @@ it('keeps demo sites out of search without querying the catalog', async () => {
 it('publishes only discovery pages and available catalog URLs on the production origin', async () => {
   vi.stubEnv('APP_MODE', 'live')
   vi.stubEnv('APP_URL', 'https://getcodex.plus')
-  vi.mocked(products).mockResolvedValue([{ id: 'plus' }, { id: 'upgrade-plus' }] as Awaited<
-    ReturnType<typeof products>
-  >)
+  vi.mocked(products).mockResolvedValue([{ id: 'plus' }] as Awaited<ReturnType<typeof products>>)
   const policy = robots()
   expect(policy.rules).toEqual({ userAgent: '*', allow: '/', disallow: ['/api/'] })
   expect(policy.sitemap).toBe('https://getcodex.plus/sitemap.xml')
@@ -31,11 +29,9 @@ it('publishes only discovery pages and available catalog URLs on the production 
     'https://getcodex.plus',
     'https://getcodex.plus/guide',
     'https://getcodex.plus/compare',
-    'https://getcodex.plus/upgrade',
     'https://getcodex.plus/help/payment',
     'https://getcodex.plus/terms',
     'https://getcodex.plus/privacy',
     'https://getcodex.plus/plans/plus',
-    'https://getcodex.plus/plans/upgrade-plus',
   ])
 })

@@ -43,6 +43,17 @@ export async function databaseNow(client: DbClient = db) {
   return row.now
 }
 
+export async function claimStockPurchase(client: DbClient) {
+  const [row] = await client.$queryRaw<{ id: string }[]>`SELECT id FROM stock_purchases
+    WHERE state IN ('queued','polling') AND next_run_at <= now()
+    ORDER BY next_run_at, id LIMIT 1 FOR UPDATE SKIP LOCKED`
+  if (!row) return null
+  return client.stockPurchase.update({
+    where: { id: row.id },
+    data: { attempts: { increment: 1 }, nextRunAt: new Date(Date.now() + 90_000) },
+  })
+}
+
 export async function lockCommissions(client: DbClient, userId: string) {
   await client.$queryRaw`SELECT id FROM commissions WHERE user_id=${userId} FOR UPDATE`
 }

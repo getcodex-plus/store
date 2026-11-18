@@ -18,7 +18,7 @@ import { id } from './crypto'
 import { userView } from './data'
 import { newOrder } from './services'
 import { defaultReferralTiers } from '../referral'
-import { defaultPlanPrices, defaultUpgradeMarkupBps } from '../pricing'
+import { defaultPlanPrices } from '../pricing'
 import { updateCommercialPolicy } from '../../scripts/update-commercial-policy'
 import { jsonInput, settingsData } from './data'
 
@@ -63,7 +63,8 @@ suite('Prisma schema, clock, seeding and worker invariants', () => {
       expect((await db.product.findFirstOrThrow({ where: { plan, upgrade: false } })).price).toBe(
         price,
       )
-    expect(settingsData(original.body).upgradePricing?.markupBps).toBe(defaultUpgradeMarkupBps)
+    expect(settingsData(original.body).upgradePricing).toBeUndefined()
+    expect(await db.product.count({ where: { upgrade: true } })).toBe(0)
     await db.product.update({ where: { id: 'plus' }, data: { price: 43210 } })
     await db.setting.update({
       where: { id: 1 },
@@ -98,14 +99,12 @@ suite('Prisma schema, clock, seeding and worker invariants', () => {
       firstOrderOnly: before.firstOrderOnly,
       settlementDays: before.settlementDays,
       rateBps: 300,
-      upgradePricing: { ...before.upgradePricing, markupBps: 3000, targets: expect.any(Object) },
     })
     expect(after.referralTiers?.map((tier) => tier.rateBps)).toEqual([300, 400, 500, 600])
     expect(after.referralTiers?.map(({ rateBps: _, ...tier }) => tier)).toEqual(
       before.referralTiers?.map(({ rateBps: _, ...tier }) => tier),
     )
-    for (const target of Object.values(after.upgradePricing!.targets!))
-      expect(target.markupBps).toBe(3000)
+    expect(after.upgradePricing).toBeUndefined()
     for (const [plan, price] of Object.entries(defaultPlanPrices))
       expect(await db.product.findFirstOrThrow({ where: { plan, upgrade: false } })).toMatchObject({
         price,

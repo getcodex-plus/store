@@ -1,6 +1,6 @@
 import { ApiError } from './config'
 import { decrypt, encrypt, id, secretHash } from './crypto'
-import { transaction } from './db'
+import { transaction, type DbClient } from './db'
 import { validateInventoryCodes } from '../inventory-import'
 
 // Credentials bind their encrypted contents to a purpose and record ID.
@@ -23,65 +23,70 @@ export function canonicalInventoryCode(code: string) {
 export const inventoryFingerprint = (code: string) =>
   secretHash(`inventory-fingerprint\0${canonicalInventoryCode(code)}`)
 
-export async function importInventory(
+interface BatchOptions {
+  batchName?: string
+  note?: string
+  enabled?: boolean
+  discountCountry?: string | null
+}
+export function importInventory(
   productId: string,
   codes: string[],
   actor: string,
-  options: {
-    batchName?: string
-    note?: string
-    enabled?: boolean
-    discountCountry?: string | null
-  } = {},
+  options: BatchOptions = {},
+) {
+  return transaction((client) => importInventoryBatch(client, productId, codes, actor, options))
+}
+export async function importInventoryBatch(
+  client: DbClient,
+  productId: string,
+  codes: string[],
+  actor: string,
+  options: BatchOptions,
 ) {
   try {
     codes = validateInventoryCodes(codes)
   } catch (error) {
     throw new ApiError(400, (error as Error).message)
   }
-  return transaction(async (client) => {
-    const product = await client.product.findUnique({ where: { id: productId } })
-    if (!product) throw new ApiError(404, '商品不存在，请刷新后重试')
-    const discountCountry = options.discountCountry?.trim().toLowerCase() || null
-    if (
-      discountCountry &&
-      (!/^[a-z]{2}$/.test(discountCountry) || product.plan !== 'plus' || product.upgrade)
-    )
-      throw new ApiError(400, '半价库存仅支持普通 Plus 商品，地区须为两位国家代码')
-    const batchId = id('batch_')
-    await client.inventoryBatch.create({
-      data: {
-        id: batchId,
-        productId,
-        name: options.batchName || '手动导入',
-        importedBy: actor,
-        imported: 0,
-        note: options.note ?? '',
-        enabled: options.enabled !== false,
-        discountCountry,
-      },
-    })
-    const { count: imported } = await client.inventory.createMany({
-      data: [...new Set(codes)].map((code) => {
-        const itemId = id('i_')
-        return {
-          id: itemId,
-          productId,
-          code: sealCredential(code, 'inventory', itemId),
-          fingerprint: inventoryFingerprint(code),
-          batchId,
-          discountCountry,
-        }
-      }),
-      skipDuplicates: true,
-    })
-    await client.audit.create({
-      data: { id: id('a_'), actor, action: '导入兑换库存', target: batchId },
-    })
-    const duplicates = codes.length - imported
-    await client.inventoryBatch.update({ where: { id: batchId }, data: { imported, duplicates } })
-    if (imported === 0)
-      await client.inventoryBatch.update({ where: { id: batchId }, data: { enabled: false } })
-    return { saved: true as const, imported, duplicates, batchId }
+  const product = await client.product.findUnique({ where: { id: productId } })
+  if (!product || product.upgrade) throw new ApiError(404, '充值商品不存在，请刷新后重试')
+  const discountCountry = options.discountCountry?.trim().toLowerCase() || null
+  if (discountCountry && (!/^[a-z]{2}$/.test(discountCountry) || product.plan !== 'plus'))
+    throw new ApiError(400, '半价库存仅支持普通 Plus 商品，地区须为两位国家代码')
+  const batchId = id('batch_')
+  await client.inventoryBatch.create({
+    data: {
+      id: batchId,
+      productId,
+      name: options.batchName || '手动导入',
+      importedBy: actor,
+      imported: 0,
+      note: options.note ?? '',
+      enabled: options.enabled !== false,
+      discountCountry,
+    },
   })
+  const { count: imported } = await client.inventory.createMany({
+    data: [...new Set(codes)].map((code) => {
+      const itemId = id('i_')
+      return {
+        id: itemId,
+        productId,
+        code: sealCredential(code, 'inventory', itemId),
+        fingerprint: inventoryFingerprint(code),
+        batchId,
+        discountCountry,
+      }
+    }),
+    skipDuplicates: true,
+  })
+  await client.audit.create({
+    data: { id: id('a_'), actor, action: '导入兑换库存', target: batchId },
+  })
+  const duplicates = codes.length - imported
+  await client.inventoryBatch.update({ where: { id: batchId }, data: { imported, duplicates } })
+  if (imported === 0)
+    await client.inventoryBatch.update({ where: { id: batchId }, data: { enabled: false } })
+  return { saved: true as const, imported, duplicates, batchId }
 }

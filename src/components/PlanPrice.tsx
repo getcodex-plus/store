@@ -14,15 +14,9 @@ export function PlanPrice({
   const { coupon } = useSite()
   const preview = productCouponPreview(product, coupon)
   const pending = product.priceStatus === 'pending'
-  const hasDiscount =
-    !pending && !product.upgrade && Boolean(preview?.eligible && preview.discountAmount > 0)
-  const upgradeEligible = !pending && product.upgrade && Boolean(preview?.eligible)
+  const hasDiscount = !pending && Boolean(preview?.eligible && preview.discountAmount > 0)
   const thresholdHint =
-    !pending &&
-    !product.upgrade &&
-    preview &&
-    !preview.eligible &&
-    preview.reason?.startsWith('满 ')
+    !pending && preview && !preview.eligible && preview.reason?.startsWith('满 ')
       ? preview.reason
       : ''
 
@@ -73,14 +67,7 @@ export function PlanPrice({
   if (variant === 'detail') {
     return (
       <div className="detail-price" aria-live="polite" aria-atomic="true">
-        {product.upgrade ? (
-          <>
-            验证账号后报价 <span>确认本次总价后再付款</span>
-            {upgradeEligible && coupon?.summary && (
-              <span className="coupon-diff-badge ml-8">券后享 {coupon.summary}</span>
-            )}
-          </>
-        ) : pending ? (
+        {pending ? (
           <>
             价格更新中 <span>/ 月</span>
           </>
@@ -106,19 +93,10 @@ export function PlanPrice({
   // Default: 'card'
   return (
     <div className="plan-price-block" aria-live="polite" aria-atomic="true">
-      <span className="plan-price-caption">
-        {product.upgrade ? '本次升级' : hasDiscount ? '券后每月订阅' : '每月订阅'}
-      </span>
+      <span className="plan-price-caption">{hasDiscount ? '券后每月订阅' : '每月订阅'}</span>
       <div className="price">
-        {product.upgrade || pending ? (
-          <>
-            <strong className="quote-price-label">
-              {product.upgrade ? '验证账号后报价' : '价格更新中'}
-            </strong>
-            {upgradeEligible && coupon?.summary && (
-              <span className="coupon-diff-badge">券后享 {coupon.summary}</span>
-            )}
-          </>
+        {pending ? (
+          <strong className="quote-price-label">价格更新中</strong>
         ) : hasDiscount && preview ? (
           <>
             <strong>{money(preview.finalAmount)}</strong>
@@ -135,16 +113,5 @@ export function PlanPrice({
       </div>
       {thresholdHint && <p className="price-note">{thresholdHint}</p>}
     </div>
-  )
-}
-
-export function UpgradeCouponHint({ product }: { product: Product }) {
-  const { coupon } = useSite()
-  const preview = productCouponPreview(product, coupon)
-  if (!coupon?.valid || !preview?.eligible || !coupon.summary) return null
-  return (
-    <span className="coupon-diff-badge">
-      优惠码 {coupon.code} · 核价后享 {coupon.summary}
-    </span>
   )
 }

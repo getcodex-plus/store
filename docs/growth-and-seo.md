@@ -5,7 +5,7 @@
 - 构建和运行时设置 `APP_MODE=live` 及 HTTPS 的 `APP_URL`；演示模式禁止索引，sitemap 为空。
 - 在后台维护真实商品名称、价格、说明、支持邮箱和账号操作指引。
 - 可配置 `GOOGLE_SITE_VERIFICATION`、`BING_SITE_VERIFICATION`，重新构建后到搜索平台验证域名并提交 `/sitemap.xml`。
-- 首页、套餐详情、对比、升级及帮助页可索引；账户、订单、结算和后台保持 noindex。
+- 首页、充值套餐详情、对比及帮助页可索引；账户、订单、结算和后台保持 noindex。
 
 ## 站内统计
 

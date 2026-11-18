@@ -68,6 +68,9 @@ suite('inventory batches and allocation in PostgreSQL', () => {
       importInventory((await product(true)).id, [id('discount_')], actor, {
         discountCountry: 'us',
       }),
+    ).rejects.toThrow('充值商品不存在')
+    await expect(
+      importInventory('go', [id('discount_')], actor, { discountCountry: 'us' }),
     ).rejects.toThrow('普通 Plus')
     await expect(
       importInventory(p.id, [id('discount_')], actor, { discountCountry: 'invalid' }),
@@ -125,56 +128,53 @@ suite('inventory batches and allocation in PostgreSQL', () => {
     ).toBe(false)
   })
 
-  it.each([false, true])(
-    'supplies all enabled batches independently (upgrade=%s)',
-    async (upgrade) => {
-      const p = await product(upgrade)
-      const first = await importInventory(p.id, [id('first_'), id('first_')], actor, {
-        batchName: '土耳其第一批',
-        enabled: true,
-      })
-      const existing = await transaction((client) => reserveInventory(client, p.id))
-      const second = await importInventory(p.id, [id('second_')], actor, {
-        batchName: '土耳其第二批',
-        enabled: true,
-      })
-      const third = await importInventory(p.id, [id('third_')], actor, { enabled: false })
-      await changeInventory({ action: 'enable-batch', batchId: third.batchId }, actor)
-      expect(await db.inventoryBatch.count({ where: { productId: p.id, enabled: true } })).toBe(3)
-      await changeInventory({ action: 'disable-batch', batchId: third.batchId }, actor)
-      expect(await db.inventoryBatch.count({ where: { productId: p.id, enabled: true } })).toBe(2)
-      const report = await adminData({
-        id: 'stock_admin',
-        email: actor,
-        role: 'admin',
-        permissions: ['products:read'],
-        referralCode: '',
-        createdAt: '',
-        disabled: false,
-      })
-      expect(report.inventory.find((item) => item.productId === p.id)).toMatchObject({
-        available: 2,
-        reserved: 1,
-      })
-      expect(report.products.find((item) => item.id === p.id)?.enabledBatchCount).toBe(2)
-      const allocated = await Promise.all([
-        transaction((client) => reserveInventory(client, p.id)),
-        transaction((client) => reserveInventory(client, p.id)),
-      ])
-      expect(new Set(allocated.map((stock) => stock?.batchId))).toEqual(
-        new Set([first.batchId, second.batchId]),
-      )
-      expect(await transaction((client) => reserveInventory(client, p.id))).toBeNull()
-      await changeInventory({ action: 'disable-batch', batchId: first.batchId }, actor)
-      expect((await db.inventory.findUniqueOrThrow({ where: { id: existing!.id } })).status).toBe(
-        'reserved',
-      )
-      await changeInventory({ action: 'enable-batch', batchId: third.batchId }, actor)
-      expect((await transaction((client) => reserveInventory(client, p.id)))?.batchId).toBe(
-        third.batchId,
-      )
-    },
-  )
+  it('supplies all enabled recharge batches independently', async () => {
+    const p = await product()
+    const first = await importInventory(p.id, [id('first_'), id('first_')], actor, {
+      batchName: '土耳其第一批',
+      enabled: true,
+    })
+    const existing = await transaction((client) => reserveInventory(client, p.id))
+    const second = await importInventory(p.id, [id('second_')], actor, {
+      batchName: '土耳其第二批',
+      enabled: true,
+    })
+    const third = await importInventory(p.id, [id('third_')], actor, { enabled: false })
+    await changeInventory({ action: 'enable-batch', batchId: third.batchId }, actor)
+    expect(await db.inventoryBatch.count({ where: { productId: p.id, enabled: true } })).toBe(3)
+    await changeInventory({ action: 'disable-batch', batchId: third.batchId }, actor)
+    expect(await db.inventoryBatch.count({ where: { productId: p.id, enabled: true } })).toBe(2)
+    const report = await adminData({
+      id: 'stock_admin',
+      email: actor,
+      role: 'admin',
+      permissions: ['products:read'],
+      referralCode: '',
+      createdAt: '',
+      disabled: false,
+    })
+    expect(report.inventory.find((item) => item.productId === p.id)).toMatchObject({
+      available: 2,
+      reserved: 1,
+    })
+    expect(report.products.find((item) => item.id === p.id)?.enabledBatchCount).toBe(2)
+    const allocated = await Promise.all([
+      transaction((client) => reserveInventory(client, p.id)),
+      transaction((client) => reserveInventory(client, p.id)),
+    ])
+    expect(new Set(allocated.map((stock) => stock?.batchId))).toEqual(
+      new Set([first.batchId, second.batchId]),
+    )
+    expect(await transaction((client) => reserveInventory(client, p.id))).toBeNull()
+    await changeInventory({ action: 'disable-batch', batchId: first.batchId }, actor)
+    expect((await db.inventory.findUniqueOrThrow({ where: { id: existing!.id } })).status).toBe(
+      'reserved',
+    )
+    await changeInventory({ action: 'enable-batch', batchId: third.batchId }, actor)
+    expect((await transaction((client) => reserveInventory(client, p.id)))?.batchId).toBe(
+      third.batchId,
+    )
+  })
 
   it('waits for in-flight allocation before disabling a batch and continues from other batches', async () => {
     const p = await product()

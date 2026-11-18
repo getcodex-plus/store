@@ -57,7 +57,7 @@ test('checkout selects an enabled channel and blocks unavailable payments', asyn
 test('checkout locks the submitted account and clears a quote when the product changes', async ({
   page,
 }) => {
-  await page.goto('/checkout?product=upgrade')
+  await page.goto('/checkout?product=plus')
   let release!: () => void
   const gate = new Promise<void>((resolve) => {
     release = resolve
@@ -69,7 +69,6 @@ test('checkout locks the submitted account and clears a quote when the product c
   await page.getByLabel('联系邮箱', { exact: true }).fill('frontend-review@example.com')
   await page.getByRole('checkbox', { name: /我确认有权使用该账号/ }).check()
   await page.getByRole('button', { name: /验证账号并确认价格/ }).click()
-  await expect(page.getByRole('combobox', { name: '目标升级套餐' })).toBeDisabled()
   await expect(page.getByLabel('账号会话信息', { exact: true })).toBeDisabled()
   release()
   await expect(page.getByRole('heading', { name: '核对订单，选择支付方式' })).toBeVisible()
@@ -299,7 +298,6 @@ test('public and signed-in frontend pages fit narrow and desktop viewports', asy
     '/',
     '/compare',
     '/guide',
-    '/upgrade',
     '/plans/plus',
     '/help/payment',
     '/privacy',

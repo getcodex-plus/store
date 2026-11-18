@@ -344,19 +344,18 @@ suite('coupon reservation, concurrency, upgrade floor, and affiliate attribution
     ).rejects.toThrow(/限用|首单|已使用/)
   })
 
-  it('caps upgrade discounts at upstream cost floor during order creation', async () => {
-    await createCoupon({
-      code: 'UPG_BIG',
-      name: '升级大额券（保本）',
-      discountKind: 'fixed',
-      discountValue: 15000, // ¥150 off
-      scopeMode: 'upgrade_only',
-      upgradeProtection: 'cost',
-      enabled: true,
-    })
-
-    // Upstream $80 * 7.2000 = ¥576.00 (57600 fen) cost, quote price = ¥650.00 (65000 fen)
-    // Max allowed discount under 'cost' protection = 65000 - 57600 = 7400 fen (¥74.00)
+  it('rejects upgrade-only coupons and prevents ordering from a legacy upgrade quote', async () => {
+    await expect(
+      createCoupon({
+        code: 'UPG_BIG',
+        name: '升级大额券（保本）',
+        discountKind: 'fixed',
+        discountValue: 15000, // ¥150 off
+        scopeMode: 'upgrade_only',
+        upgradeProtection: 'cost',
+        enabled: true,
+      }),
+    ).rejects.toThrow()
     const browser = `browser_upg_${id()}`
     const quote = await createQuoteFixture({
       browser,
@@ -371,16 +370,16 @@ suite('coupon reservation, concurrency, upgrade floor, and affiliate attribution
       },
     })
 
-    const order = await newOrder(null, browser, {
-      quoteId: quote.id,
-      channel: 'alipay',
-      requestKey: `rk_upg_${id()}`,
-      contactEmail: `upg-${id()}@example.com`,
-      couponCode: 'UPG_BIG',
-    })
-    expect(order.listAmount).toBe(65000)
-    expect(order.discountAmount).toBe(7400)
-    expect(order.amount).toBe(57600)
+    await expect(
+      newOrder(null, browser, {
+        quoteId: quote.id,
+        channel: 'alipay',
+        requestKey: `rk_upg_${id()}`,
+        contactEmail: `upg-${id()}@example.com`,
+        couponCode: 'UPG_BIG',
+      }),
+    ).rejects.toThrow('已下架')
+    expect(await db.order.count({ where: { quoteId: quote.id } })).toBe(0)
   })
 
   it('coordinates allowReferral, affiliate exclusive attribution, self-use block, and refund reversal', async () => {

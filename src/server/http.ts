@@ -6,10 +6,10 @@ import { safeUpstreamError } from './safe-errors'
 
 export const privateResponseHeaders = { 'Cache-Control': 'private, no-store, max-age=0' }
 
-export async function bodyText(request: Request, max = 110_000) {
+export async function bodyBytes(request: Pick<Request, 'body' | 'headers'>, max = 110_000) {
   if (Number(request.headers.get('content-length') || 0) > max) throw new ApiError(413, '请求过大')
   const reader = request.body?.getReader()
-  if (!reader) return ''
+  if (!reader) return Buffer.alloc(0)
   let length = 0
   const chunks: Uint8Array[] = []
   while (true) {
@@ -22,7 +22,10 @@ export async function bodyText(request: Request, max = 110_000) {
     }
     chunks.push(part.value)
   }
-  return Buffer.concat(chunks).toString('utf8')
+  return Buffer.concat(chunks)
+}
+export async function bodyText(request: Pick<Request, 'body' | 'headers'>, max = 110_000) {
+  return (await bodyBytes(request, max)).toString('utf8')
 }
 export function guard(request: NextRequest, callback = false) {
   validateRuntime()

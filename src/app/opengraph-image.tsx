@@ -1,7 +1,7 @@
 import { ImageResponse } from 'next/og'
 import { BrandMark } from '../components/BrandMark'
 
-export const alt = 'GetCodex Plus — ChatGPT recharge and upgrades'
+export const alt = 'GetCodex Plus — ChatGPT recharge'
 export const size = { width: 1200, height: 630 }
 export const contentType = 'image/png'
 
@@ -20,17 +20,20 @@ export default function Image() {
         fontFamily: 'sans-serif',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 18, fontSize: 36, fontWeight: 700 }}>
+      <div
+        style={{ display: 'flex', alignItems: 'center', gap: 18, fontSize: 36, fontWeight: 700 }}
+      >
         <BrandMark size={64} />
         <span>GetCodex Plus</span>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
         <div style={{ fontSize: 76, fontWeight: 700 }}>Your account.</div>
-        <div style={{ fontSize: 76, fontWeight: 700 }}>Your next upgrade.</div>
+        <div style={{ fontSize: 76, fontWeight: 700 }}>Your monthly plan.</div>
       </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 24, color: '#636363' }}>
-        <span>ChatGPT recharge &amp; upgrades · Independent service</span>
-        <span>getcodex.plus</span>
+      <div
+        style={{ display: 'flex', justifyContent: 'space-between', fontSize: 24, color: '#636363' }}
+      >
+        <span>ChatGPT recharge · Independent service</span>
       </div>
     </div>,
     size,

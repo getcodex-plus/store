@@ -12,7 +12,6 @@ import {
   InputNumber,
   Result,
   Skeleton,
-  Select,
   Space,
   Steps,
   Tag,
@@ -30,7 +29,7 @@ import { useSite } from './Providers'
 import { api, channels, money, parseSession, demoSession, normalizeDemoSession } from '../lib'
 import type { AccountData, Order, Quote } from '../types'
 import { PaymentOptions, usePaymentChannel } from './PaymentOptions'
-import { paymentLimitError, planNames } from '../pricing'
+import { paymentLimitError } from '../pricing'
 import { FunnelView } from './FunnelView'
 import { trackFunnel, attributionSource, analyticsAllowed } from '../funnel-client'
 import { normalizeCouponCode, productCouponPreview } from '../coupons'
@@ -65,7 +64,6 @@ function CheckoutContent({ productId }: { productId: string | null }) {
   const { channel, setChannel, paymentAvailable } = usePaymentChannel()
   const [error, setError] = useState('')
   const [requestKey, setRequestKey] = useState('')
-  const [upgradeId, setUpgradeId] = useState('')
   const [walletBalance, setWalletBalance] = useState<number | null>(null)
   const [balanceAmount, setBalanceAmount] = useState(0)
   const [clock, setClock] = useState(Date.now())
@@ -124,10 +122,7 @@ function CheckoutContent({ productId }: { productId: string | null }) {
     void applyCoupon(coupon.code, { quoteId: quote.id, silent: true })
   }, [quote, coupon?.valid, coupon?.code, coupon?.quote?.quoteId, data?.user?.id, applyCoupon])
 
-  const requestedProduct = data?.products.find((p) => p.id === productId)
-  const product = requestedProduct?.upgrade
-    ? data?.products.find((p) => p.id === upgradeId && p.upgrade) || requestedProduct
-    : requestedProduct
+  const product = data?.products.find((p) => p.id === productId)
 
   const itemPreview = product ? productCouponPreview(product, coupon) : null
   const quoteCoupon =
@@ -136,14 +131,14 @@ function CheckoutContent({ productId }: { productId: string | null }) {
     ? quoteCoupon?.eligible
       ? quoteCoupon.discountAmount
       : 0
-    : !product?.upgrade && itemPreview?.eligible
+    : itemPreview?.eligible
       ? itemPreview.discountAmount
       : 0
   const payableAmount = quote
     ? quoteCoupon?.eligible
       ? quoteCoupon.finalAmount
       : quote.amount
-    : !product?.upgrade && itemPreview?.eligible
+    : itemPreview?.eligible
       ? itemPreview.finalAmount
       : (product?.price ?? 0)
 
@@ -318,7 +313,6 @@ function CheckoutContent({ productId }: { productId: string | null }) {
                   <small className="coupon-saving-text">
                     本单已减 {money(quoteCoupon.discountAmount)}，折后{' '}
                     {money(quoteCoupon.finalAmount)}
-                    {quoteCoupon.costFloorCapped ? '（已按升级成本保护规则折算最大减免）' : ''}
                   </small>
                 ) : (
                   <small className="coupon-ineligible-text">
@@ -340,12 +334,6 @@ function CheckoutContent({ productId }: { productId: string | null }) {
               ) : (
                 <small className="muted">正在计算本单优惠金额…</small>
               )
-            ) : product.upgrade ? (
-              <small className="muted">
-                {itemPreview?.eligible
-                  ? '验证账号获取升级总价后，将自动计算立减差价'
-                  : itemPreview?.reason || '此优惠码不适用于升级服务'}
-              </small>
             ) : itemPreview?.eligible ? (
               <small className="coupon-saving-text">
                 预计立省 {money(itemPreview.discountAmount)}，券后 {money(itemPreview.finalAmount)}
@@ -442,7 +430,7 @@ function CheckoutContent({ productId }: { productId: string | null }) {
         <ArrowLeftOutlined /> 返回套餐
       </Link>
       <div className="page-title">
-        <h1>{product.upgrade ? '确认本次升级' : '确认本次充值'}</h1>
+        <h1>确认本次充值</h1>
         <p>核对账号与价格后再付款。{!data.user && '无需提前注册。'}</p>
       </div>
       <div className="checkout-progress">
@@ -470,27 +458,6 @@ function CheckoutContent({ productId }: { productId: string | null }) {
             <div id="checkout-error" tabIndex={-1} className="mb-24">
               <Alert type="error" title={error} showIcon />
             </div>
-          )}
-          {product.upgrade && (
-            <Form layout="vertical">
-              <Form.Item label="想升级到哪个套餐？">
-                <Select
-                  disabled={busy}
-                  aria-label="目标升级套餐"
-                  styles={{ popup: { root: { maxWidth: 'calc(100vw - 36px)' } } }}
-                  value={product.id}
-                  options={data.products
-                    .filter((p) => p.upgrade)
-                    .map((p) => ({ value: p.id, label: planNames[p.plan] || p.name }))}
-                  onChange={(value) => {
-                    setUpgradeId(value)
-                    setQuote(null)
-                    setBalanceAmount(0)
-                    setError('')
-                  }}
-                />
-              </Form.Item>
-            </Form>
           )}
           {bot.widget}
           {!data.user ? (
@@ -643,19 +610,6 @@ function CheckoutContent({ productId }: { productId: string | null }) {
                   更换
                 </Button>
               </div>
-              {product.upgrade && (
-                <Alert
-                  className="mt-24"
-                  type="info"
-                  showIcon
-                  title={`${planNames[quote.currentPlan || ''] || quote.currentPlan || '当前套餐'} → ${planNames[quote.targetPlan || product.plan] || product.name}`}
-                  description={
-                    discountAmount > 0
-                      ? `本次升级原价 ${money(quote.amount)}，使用优惠码立减 ${money(discountAmount)}，折后应付 ${money(payableAmount)}。${data.mode === 'demo' ? '当前为演示报价。' : ''}`
-                      : `本次升级总价 ${money(quote.amount)}，已包含服务费用。${data.mode === 'demo' ? '当前为演示报价。' : ''}`
-                  }
-                />
-              )}
               <p className="tiny muted mt-20">
                 {expired
                   ? '报价已过期，请重新验证账号。'
@@ -784,18 +738,7 @@ function CheckoutContent({ productId }: { productId: string | null }) {
             <p className="muted">{product.subtitle}</p>
             <p className="tiny muted">本站按本次订单收费，不自动续扣。</p>
             <div className="summary-price" aria-live="polite" aria-atomic="true">
-              {!quote && product.upgrade ? (
-                <>
-                  验证账号后报价
-                  {itemPreview?.eligible && coupon?.summary && (
-                    <div className="summary-coupon-meta">
-                      <span className="coupon-diff-badge">
-                        券码 {coupon.code} · 核价后享 {coupon.summary}
-                      </span>
-                    </div>
-                  )}
-                </>
-              ) : !quote && product.priceStatus === 'pending' ? (
+              {!quote && product.priceStatus === 'pending' ? (
                 '价格更新中'
               ) : discountAmount > 0 ? (
                 <>

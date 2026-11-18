@@ -40,7 +40,7 @@ const providerQuote = {
   amount_minor: 1000,
   currency: 'USD',
   currency_decimals: 2,
-  business: 'upgrade',
+  business: 'recharge',
   target_plan: 'pro_200',
 }
 const ready = {
@@ -54,8 +54,13 @@ const accountResult = {
   current_plan: 'plus',
   account_status: 'active',
   subscription: {
-    purchase: { eligible: true, plans: [{ id: 'plus', eligible: true }] },
-    upgrade: { eligible: true, plans: [{ id: 'pro_200', eligible: true, quote: providerQuote }] },
+    purchase: {
+      eligible: true,
+      plans: [
+        { id: 'pro_200', eligible: true },
+        { id: 'plus', eligible: true },
+      ],
+    },
   },
 }
 const ok = (data: unknown, status = 200) =>
@@ -70,7 +75,7 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
       throw new Error('Dedicated _test database required')
     await prepareTestDatabase()
     await testQuery(Prisma.sql`INSERT INTO products(id,name,subtitle,description,price,features,plan,upgrade,pricing_mode)
-      VALUES('upgrade','Upgrade','','',100,'[]','pro20',true,'markup'),('plus','Plus','','',12900,'[]','plus',false,'fixed')`)
+      VALUES('pro200','Pro 200','','',8800,'[]','pro20',false,'fixed'),('plus','Plus','','',12900,'[]','plus',false,'fixed')`)
     await testQuery(
       Prisma.sql`INSERT INTO settings(id,body) VALUES(1,${JSON.stringify({
         rateBps: 300,
@@ -80,17 +85,6 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
         wechat: true,
         crypto: true,
         fiatProvider: 'xorpay',
-        upgradePricing: {
-          configured: true,
-          fxMode: 'manual',
-          fxRateBps: 70000,
-          markupBps: 2500,
-          serviceFee: 0,
-          minimum: 100,
-          targets: {
-            pro20: { markupBps: 2500, serviceFee: 0, minimumProfit: 1000, roundingStep: 100 },
-          },
-        },
       })})`,
     )
     await saveIntegration(
@@ -124,7 +118,7 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
         return ok({
           redemption_token: 'preview-ticket',
           credential_type: 'chatgpt_session',
-          business: 'upgrade',
+          business: 'recharge',
         })
       if (url.endsWith('/redemptions/preflights')) return ok(preflight)
       if (url.includes('/redemptions?')) return ok([])
@@ -135,8 +129,8 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
   }
   async function stockedQuote() {
     stub()
-    await importInventory('upgrade', [`synthetic-card-${++stockCounter}-${id()}`], user.email)
-    return quote('upgrade', session, browser)
+    await importInventory('pro200', [`synthetic-card-${++stockCounter}-${id()}`], user.email)
+    return quote('pro200', session, browser)
   }
   async function purchase() {
     const q = await stockedQuote()
@@ -415,14 +409,14 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
     await db.product.create({
       data: {
         id: productId,
-        name: 'Concurrent upgrade',
+        name: 'Concurrent recharge',
         subtitle: '',
         description: '',
         price: 100,
         features: [],
         plan: 'pro20',
-        upgrade: true,
-        pricingMode: 'markup',
+        upgrade: false,
+        pricingMode: 'fixed',
       },
     })
     await importInventory(
@@ -628,8 +622,8 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
       productId,
       requests: [a, b],
     } = await competingBuyers(1)
-    stub(accountResult, { ...ready, quote: { ...providerQuote, amount_minor: 9000 } })
-    await expect(newOrder(a.buyer, a.browser, a.input)).rejects.toThrow('成本')
+    stub(accountResult, { ...ready, quote: { ...providerQuote, business: 'upgrade' } })
+    await expect(newOrder(a.buyer, a.browser, a.input)).rejects.toThrow('业务类型')
     expect(await db.inventory.count({ where: { productId, status: 'available' } })).toBe(1)
     expect(await db.walletEntry.count({ where: { userId: a.buyer.id } })).toBe(0)
     stub()
@@ -716,7 +710,7 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
   }, 20_000)
   it('checks and quotes without inventory, and persists no Session or redemption authorization', async () => {
     const fetcher = stub()
-    const result = await quote('upgrade', session, browser)
+    const result = await quote('pro200', session, browser)
     expect(result.amount).toBe(8800)
     expect(fetcher).toHaveBeenCalledTimes(1)
     expect(fetcher.mock.calls[0][0]).toContain('/account-checks')
@@ -732,7 +726,7 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
         ...accountResult,
         subscription: {
           ...accountResult.subscription,
-          upgrade: {
+          purchase: {
             eligible: true,
             plans: [
               { id: 'pro_200', eligible },
@@ -741,33 +735,31 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
           },
         },
       })
-      await expect(quote('upgrade', session, browser)).rejects.toThrow()
+      await expect(quote('pro200', session, browser)).rejects.toThrow()
     }
     stub({ ...accountResult, account_email: 'other@example.com' })
-    await expect(quote('upgrade', session, browser)).rejects.toThrow('不匹配')
+    await expect(quote('pro200', session, browser)).rejects.toThrow('不匹配')
     stub({
       ...accountResult,
       subscription: {
         ...accountResult.subscription,
-        upgrade: {
+        purchase: {
           eligible: true,
           plans: [
-            accountResult.subscription.upgrade.plans[0],
-            accountResult.subscription.upgrade.plans[0],
+            accountResult.subscription.purchase.plans[0],
+            accountResult.subscription.purchase.plans[0],
           ],
         },
       },
     })
-    await expect(quote('upgrade', session, browser)).rejects.toThrow('暂不可用')
+    await expect(quote('pro200', session, browser)).rejects.toThrow('暂不可用')
   })
-  it('quotes zero-decimal currency through its own cached exchange rate', async () => {
-    await testQuery(Prisma.sql`INSERT INTO exchange_rates(id,rate_e8,source_date,fetched_at,expires_at)
-      VALUES('JPY_CNY',5000000,to_char(now(),'YYYY-MM-DD'),now(),now()+interval '1 day')`)
+  it('keeps the fixed recharge price when the provider includes a cost quote', async () => {
     stub({
       ...accountResult,
       subscription: {
         ...accountResult.subscription,
-        upgrade: {
+        purchase: {
           eligible: true,
           plans: [
             {
@@ -779,7 +771,7 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
         },
       },
     })
-    expect((await quote('upgrade', session, browser)).amount).toBe(6300)
+    expect((await quote('pro200', session, browser)).amount).toBe(8800)
   })
   it('allocates only at order confirmation, serializes concurrent retries and returns no secrets', async () => {
     const q = await stockedQuote()
@@ -806,15 +798,15 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
     expect(JSON.stringify(admin)).not.toContain('synthetic')
     expect(JSON.stringify(await account(user))).not.toContain('synthetic')
   })
-  it('rolls back allocation and balance when a card quote costs more than the accepted price', async () => {
+  it('rolls back allocation and balance for a mismatched card plan', async () => {
     const q = await stockedQuote()
-    stub(accountResult, { ...ready, quote: { ...providerQuote, amount_minor: 9000 } })
+    stub(accountResult, { ...ready, quote: { ...providerQuote, target_plan: 'plus' } })
     const before = (
       await testQuery(Prisma.sql`SELECT balance FROM wallets WHERE user_id=${user.id}`)
     ).rows[0].balance
     await expect(
       newOrder(user, browser, { quoteId: q.id, channel: 'balance', requestKey: id(), session }),
-    ).rejects.toThrow('成本')
+    ).rejects.toThrow('不匹配')
     expect(
       (await testQuery(Prisma.sql`SELECT inventory_id FROM quotes WHERE id=${q.id}`)).rows[0]
         .inventory_id,
@@ -1079,7 +1071,7 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
   })
   it('binds credentials to their row and purpose and keeps imports idempotent', async () => {
     const code = 'ABCDEF0123456789ABCD'
-    await importInventory('upgrade', [code], user.email)
+    await importInventory('pro200', [code], user.email)
     const row = await db.inventory.findUniqueOrThrow({
       where: { fingerprint: inventoryFingerprint(code) },
     })
@@ -1089,7 +1081,7 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
     expect(() => openCredential('invalid', 'inventory', row.id)).toThrow('凭据格式无效')
     const token = sealCredential('synthetic-ticket', 'preflight', 'quote-id')
     expect(openCredential(token, 'preflight', 'quote-id')).toBe('synthetic-ticket')
-    await importInventory('upgrade', [code, code], user.email)
+    await importInventory('pro200', [code, code], user.email)
     expect(await db.inventory.count({ where: { fingerprint: row.fingerprint } })).toBe(1)
     expect(sealCredential(code, 'inventory', row.id)).not.toBe(row.code)
   })
