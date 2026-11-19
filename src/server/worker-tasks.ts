@@ -35,6 +35,7 @@ export async function tick() {
   await db.quote.updateMany({
     where: {
       expiresAt: { lt: now },
+      preflightToken: { not: null },
       OR: [{ order: null }, { order: { status: { in: ['completed', 'failed', 'refunded'] } } }],
     },
     data: { preflightToken: null },

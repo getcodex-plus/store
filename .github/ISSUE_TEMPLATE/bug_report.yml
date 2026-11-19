@@ -1,0 +1,33 @@
+name: 问题反馈
+description: 报告可复现的功能或部署问题
+body:
+  - type: markdown
+    attributes:
+      value: |
+        安全漏洞请按 SECURITY.md 私下报告。请去除日志与截图中的邮箱、订单信息、卡密、Session、Cookie 和密钥。
+  - type: input
+    id: version
+    attributes:
+      label: 版本或提交
+      description: Release 版本、提交 SHA 或容器镜像摘要
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: 运行环境
+      description: 操作系统、Bun / 数据库版本、Docker 或直接运行、demo 或 live；不要粘贴 .env
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 复现步骤
+      description: 描述最小操作步骤，以及预期结果和实际结果
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 脱敏日志或截图
+      description: 可选；仅提供与问题有关的内容

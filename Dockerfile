@@ -31,8 +31,9 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN bun run build && rm -rf /app/.next/cache
 
 FROM base AS runner
-LABEL org.opencontainers.image.title="GetCodex Plus" \
-    org.opencontainers.image.description="ChatGPT recharge and upgrade portal with background worker and PostgreSQL persistence"
+LABEL org.opencontainers.image.title="GetCodex Plus Store" \
+    org.opencontainers.image.description="Self-hosted ChatGPT recharge storefront with Dujiao-Next procurement and AICDK fulfillment" \
+    org.opencontainers.image.source="https://github.com/getcodex-plus/store"
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1

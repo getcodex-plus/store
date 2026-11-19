@@ -16,6 +16,7 @@ export interface AdminOrder extends Order {
   provider: PaymentProvider
   resolutionRevision: string
   fulfillmentResolution: import('./order-resolution').OrderResolution | null
+  refillHistory?: import('./order-refill').RefillHistory
   refundRecord: {
     note: string
     actor: string | null
@@ -83,6 +84,8 @@ export interface Order {
   settlementDays: number
   firstOrderOnly: boolean
   fulfillmentStatus?: string | null
+  refillCount?: number
+  canRefill?: boolean
   refund?: OrderRefund | null
 }
 export type CouponDiscountKind = 'fixed' | 'percent'

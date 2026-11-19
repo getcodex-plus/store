@@ -2,6 +2,7 @@ import { openAdminPage } from './admin-helpers'
 import { expect, test } from '@playwright/test'
 import { db, Prisma } from '../src/server/db'
 import { id } from '../src/server/crypto'
+import type { AdminOrder } from '../src/types'
 
 test.afterAll(async () => {
   await db.$disconnect()
@@ -59,6 +60,7 @@ test('admin refunds enforce channel capabilities, required notes and split amoun
   const stale = await db.order.create({
     data: {
       ...orders[0],
+      refillHistory: [],
       fulfillmentResolution: orders[0].fulfillmentResolution ?? Prisma.DbNull,
       couponSnapshot: orders[0].couponSnapshot ?? Prisma.DbNull,
       id: id(),
@@ -71,6 +73,14 @@ test('admin refunds enforce channel capabilities, required notes and split amoun
       refundActor: 'original-admin@example.com',
       refundNote: '原申请备注',
     },
+  })
+  const manualOrderId = orders[1].id
+  await page.route('**/api/admin?*', async (route) => {
+    const response = await route.fetch()
+    const data = await response.json()
+    const eligible = data.orders?.find((order: AdminOrder) => order.id === manualOrderId)
+    if (eligible && !eligible.refund) eligible.canRefill = true
+    await route.fulfill({ response, json: data })
   })
   await page.goto('/admin')
   await openAdminPage(page, '订单管理')
@@ -92,13 +102,16 @@ test('admin refunds enforce channel capabilities, required notes and split amoun
   await row('epay_v1').getByRole('button', { name: '处理退款' }).click()
   await expect(automatic).toBeDisabled()
   await expect(automatic).not.toBeChecked()
+  await dialog.getByRole('button', { name: '先锁定手动退款' }).click()
+  await expect(dialog).toContainText('手动退款已锁定，本单不能再补充')
+  const reconcileManual = dialog.getByRole('button', { name: '确认渠道已退款并登记' })
+  await expect(reconcileManual).toBeDisabled()
+  await dialog.getByRole('textbox', { name: '核实备注' }).fill('   ')
+  await expect(reconcileManual).toBeDisabled()
   const confirm = dialog.getByRole('button', { name: '确认已退款并登记' })
-  await expect(confirm).toBeDisabled()
-  await dialog.getByRole('textbox', { name: '退款备注' }).fill('   ')
-  await expect(confirm).toBeDisabled()
   const note = '已在微信商户后台退回 ¥60.00，退款单号 UI-fixture'
-  await dialog.getByRole('textbox', { name: '退款备注' }).fill(note)
-  await confirm.click()
+  await dialog.getByRole('textbox', { name: '核实备注' }).fill(note)
+  await reconcileManual.click()
   await expect(dialog).toBeHidden()
   await row('epay_v1').getByRole('button', { name: '退款记录' }).click()
   await expect(dialog).toContainText(note)

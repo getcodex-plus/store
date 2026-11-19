@@ -9,8 +9,7 @@ describe('Shared client IP policy', () => {
   })
   afterEach(() => vi.unstubAllEnvs())
 
-  it('uses X-Forwarded-For even when the legacy proxy switch is disabled', async () => {
-    vi.stubEnv('TRUST_PROXY', 'false')
+  it('uses the client IP supplied by the gateway in X-Forwarded-For', async () => {
     const { clientIP } = await import('./client-ip')
     expect(
       clientIP(new Headers({ 'x-forwarded-for': '192.0.2.1', 'x-real-ip': '192.0.2.2' })),

@@ -35,20 +35,7 @@ jobs:
 
   verify:
     needs: validate
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - name: Check out source
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.4.4
-      - run: bun install --frozen-lockfile
-      - run: bun run check
-      - run: bun run build
+    uses: ./.github/workflows/test.yaml
 
   draft:
     name: Create draft release

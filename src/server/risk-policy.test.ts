@@ -6,7 +6,7 @@ describe('ZEN risk policy', () => {
     const expected = [
       ['events', 'browser', 'events', 120, 60],
       ['quote', 'browser', 'quote', 12, 60],
-      ['quote', 'global', 'aicdk:account-check', 12, 60],
+      ['quote', 'global', 'aicdk:account-check', 60, 60],
       ['quote', 'ip', 'quote', 60, 60],
       ['quote', 'user', 'quote', 60, 60],
       ['quote-target', 'target', 'quote-target', 12, 60],
@@ -14,7 +14,9 @@ describe('ZEN risk policy', () => {
       ['order', 'ip', 'order', 40, 600],
       ['order', 'user', 'order', 40, 600],
       ['order-contact', 'email', 'guest-contact', 10, 600],
-      ['preflight', 'global', 'aicdk:preflight', 12, 60],
+      ['order-email', 'email', 'order-email', 12, 600],
+      ['order-email', 'global', 'order-email-global', 1000, 600],
+      ['preflight', 'global', 'aicdk:preflight', 60, 60],
       ['session-update', 'browser', 'session-update', 12, 60],
       ['session-update', 'ip', 'session-update', 40, 60],
       ['session-update', 'user', 'session-update', 40, 60],
@@ -28,6 +30,7 @@ describe('ZEN risk policy', () => {
       ['withdrawal-request', 'ip', 'withdrawal-request', 10, 600],
       ['coupon-preview', 'browser', 'coupon-preview', 30, 60],
       ['coupon-preview', 'ip', 'coupon-preview', 60, 60],
+      ['coupon-preview', 'global', 'coupon-preview-global', 120, 60],
     ]
     const actual = []
     for (const scene of riskScenes.filter((scene) => !scene.startsWith('auth-'))) {

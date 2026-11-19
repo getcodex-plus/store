@@ -10,14 +10,24 @@ export const refundInputSchema = z
     automatic: z.boolean(),
     note: z.string().trim().max(1000, '退款备注最多 1000 字').default(''),
     reconcile: z.boolean().default(false),
+    reserveManual: z.boolean().default(false),
+    round: z.number().int().nonnegative().default(0),
   })
   .superRefine((input, ctx) => {
-    if ((input.destination === 'original' && !input.automatic) || input.reconcile) {
+    if (
+      (input.destination === 'original' && !input.automatic && !input.reserveManual) ||
+      input.reconcile
+    ) {
       if (!input.note)
         ctx.addIssue({ code: 'custom', path: ['note'], message: '请填写手动退款处理备注' })
     }
     if (input.automatic && (input.destination !== 'original' || input.reconcile))
       ctx.addIssue({ code: 'custom', path: ['automatic'], message: '此操作不支持自动退款' })
+    if (
+      input.reserveManual &&
+      (input.destination !== 'original' || input.automatic || input.reconcile)
+    )
+      ctx.addIssue({ code: 'custom', path: ['reserveManual'], message: '只能预留手动原路退款' })
   })
 export type RefundInput = z.infer<typeof refundInputSchema>
 export const supportsAutomaticRefund = (order: Pick<AdminOrder, 'provider' | 'externalAmount'>) =>

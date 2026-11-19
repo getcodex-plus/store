@@ -218,6 +218,58 @@ test('security load errors can be retried and wallet follows enabled payment cha
   await expect(page.getByRole('heading', { name: '已收到付款，正在为你充值。' })).toBeVisible()
 })
 
+test('a buyer explicitly requests a free refill on the same order, not another checkout', async ({
+  page,
+}) => {
+  const orderId = 'o_review_refill'
+  let round = 0
+  let calls = 0
+  const session = JSON.stringify({ user: { email: 'refill@example.com' } })
+  await page.route(`**/api/orders/${orderId}`, (route) =>
+    route.fulfill({
+      json: {
+        id: orderId,
+        kind: 'purchase',
+        status: round ? 'processing' : 'failed',
+        refillCount: round,
+        canRefill: round === 0,
+        productName: 'ChatGPT Plus',
+        email: 'refill@example.com',
+        contactEmail: 'contact@example.com',
+        amount: 12900,
+        externalAmount: 12900,
+        balanceAmount: 0,
+        channel: 'wechat',
+        createdAt: new Date().toISOString(),
+      },
+    }),
+  )
+  await page.route(`**/api/orders/${orderId}/refill`, async (route) => {
+    expect(route.request().postDataJSON()).toEqual({
+      round: 0,
+      confirmedNotReceived: true,
+      session,
+    })
+    calls++
+    round++
+    await route.fulfill({ json: { accepted: true } })
+  })
+  await page.goto(`/orders/${orderId}`)
+  const submit = page.getByRole('button', { name: '在原订单免费补充' })
+  await expect(submit).toBeDisabled()
+  await page.getByLabel('原充值账号的最新会话信息（Session）').fill(session)
+  await expect(submit).toBeDisabled()
+  await page.getByRole('checkbox', { name: /确认本单未到账/ }).check()
+  await submit.click()
+  await expect(
+    page.getByRole('heading', { name: '正在原订单免费补充，无需再付款。' }),
+  ).toBeVisible()
+  await expect(page.getByText('1 次，未额外收费')).toBeVisible()
+  await expect(submit).toHaveCount(0)
+  await expect(page).toHaveURL(new RegExp(`/orders/${orderId}$`))
+  expect(calls).toBe(1)
+})
+
 test('order polling errors preserve the current order and session draft', async ({ page }) => {
   await page.clock.install()
   let fail = false

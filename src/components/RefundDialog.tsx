@@ -46,19 +46,25 @@ export function RefundDialog({
   const original = destination === 'original'
   const auto = original && supported && automatic && !started
   const manual = original && !auto
-  const needsNote = manual || reconcile
+  const reserveManual = manual && !started && !!order.canRefill
+  const manualHold = order.refund?.status === 'review' && !order.refund.automatic
+  const needsNote = (manual && !reserveManual) || reconcile
+  const conflict = !!order.fulfillmentResolution?.conflict && !started
   const walletAmount = original ? order.balanceAmount : order.amount
   const needsOwner = walletAmount > 0 && !order.userId
   const status = orderStatusLabel(order)
   const submitText = reconcile
     ? '确认渠道已退款并登记'
-    : manual
-      ? '确认已退款并登记'
-      : original
-        ? `确认退款 ${money(order.amount)}`
-        : `确认退回余额 ${money(order.amount)}`
+    : reserveManual
+      ? '先锁定手动退款'
+      : manual
+        ? '确认已退款并登记'
+        : original
+          ? `确认退款 ${money(order.amount)}`
+          : `确认退回余额 ${money(order.amount)}`
   async function submit() {
-    if (busy || waiting || completed || needsOwner || (needsNote && !note.trim())) return
+    if (busy || waiting || completed || conflict || needsOwner || (needsNote && !note.trim()))
+      return
     setBusy(true)
     setError('')
     try {
@@ -68,7 +74,10 @@ export function RefundDialog({
         automatic: auto,
         note,
         reconcile,
+        reserveManual,
+        round: order.refillCount ?? 0,
       })
+      if (reserveManual) setNote('')
       await onRefresh()
       if (result.refunded) {
         message.success(original ? '原路退款已完成，记录已保存' : '订单金额已退回站内余额')
@@ -101,7 +110,7 @@ export function RefundDialog({
               <Button
                 type="primary"
                 loading={busy}
-                disabled={waiting || needsOwner || (needsNote && !note.trim())}
+                disabled={waiting || conflict || needsOwner || (needsNote && !note.trim())}
                 onClick={submit}
               >
                 {waiting ? '等待渠道退款结果' : submitText}
@@ -134,11 +143,19 @@ export function RefundDialog({
           className="mb-24"
           type={reconcile ? 'warning' : 'info'}
           showIcon
-          title={reconcile ? '退款结果待核实，请勿重复打款' : '正在确认渠道退款结果'}
+          title={
+            manualHold
+              ? '手动退款已锁定，本单不能再补充'
+              : reconcile
+                ? '退款结果待核实，请勿重复打款'
+                : '正在确认渠道退款结果'
+          }
           description={
-            reconcile
-              ? '先在 XorPay 后台核对。已退款则登记结果；确认未退款后才可手动处理。全额退回渠道款后，填写备注完成登记。'
-              : '请保留原订单。渠道确认成功后退回原抵扣余额；结果不明确时转为人工核实。'
+            manualHold
+              ? `请由 ${order.refundRecord?.actor ?? '原处理人'} 核对渠道流水后打款，其他人不要重复操作。确认渠道款已退回后，填写退款单号或转账凭证并登记。`
+              : reconcile
+                ? '先在 XorPay 后台核对。已退款则登记结果；确认未退款后才可手动处理。全额退回渠道款后，填写备注完成登记。'
+                : '请保留原订单。渠道确认成功后退回原抵扣余额；结果不明确时转为人工核实。'
           }
         />
       )}
@@ -205,13 +222,17 @@ export function RefundDialog({
         {original && !completed && (
           <Form.Item
             extra={
-              !supported
-                ? '此渠道不支持自动退款，请先手动退款，再填写备注登记。'
-                : started
-                  ? '原退款已经发起，不能再次自动退款。'
-                  : auto
-                    ? '提交后由 XorPay 完成渠道退款，成功后退回原抵扣余额。'
-                    : '请先在支付渠道完成退款，再填写备注登记。'
+              reserveManual
+                ? '此订单可免费补充。先在本站锁定手动退款，收到锁定确认后再去支付渠道操作。'
+                : manualHold
+                  ? '本单已锁定手动退款，请勿重复打款。'
+                  : !supported
+                    ? '此渠道不支持自动退款，请先手动退款，再填写备注登记。'
+                    : started
+                      ? '原退款已经发起，不能再次自动退款。'
+                      : auto
+                        ? '提交后由 XorPay 完成渠道退款，成功后退回原抵扣余额。'
+                        : '请先在支付渠道完成退款，再填写备注登记。'
             }
           >
             <Checkbox

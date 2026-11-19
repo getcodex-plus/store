@@ -37,6 +37,8 @@ jobs:
           bash scripts/check-release-version.sh "${TAG#v}" "$PRERELEASE"
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
           echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - name: Set up QEMU for multi-platform builds
+        uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Log in to GHCR
@@ -57,8 +59,8 @@ jobs:
             type=raw,value=latest,enable=${{ !github.event.release.prerelease }}
             type=sha,format=long
           labels: |
-            org.opencontainers.image.title=GetCodex Plus
-            org.opencontainers.image.description=ChatGPT recharge and upgrade portal with background worker and PostgreSQL persistence
+            org.opencontainers.image.title=GetCodex Plus Store
+            org.opencontainers.image.description=Self-hosted ChatGPT recharge storefront with Dujiao-Next procurement and AICDK fulfillment
       - name: Build and publish
         id: build
         uses: docker/build-push-action@v6

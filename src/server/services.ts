@@ -22,6 +22,7 @@ import {
   productView,
   orderView,
   adminOrderView,
+  canOfferRefill,
   paymentOrderView,
   quoteView,
   userView,
@@ -80,6 +81,8 @@ import {
 import { reservePlusDiscount } from './plus-discount'
 import { createPayment, refundXorpay, type Receipt } from './integrations/payments'
 import { refundInputSchema, refundReviewDelayMs } from '../refunds'
+import { redemptionRequestId } from '../order-refill'
+import { orderResolutionSchema } from '../order-resolution'
 import type { Order as OrderRecord } from '../generated/prisma/client'
 import { money, parseSession } from '../lib'
 import { paymentLimitError, convertedSubscriptionPrice } from '../pricing'
@@ -1468,6 +1471,10 @@ export async function refundFailedOrder(
     if (order.refundStatus) {
       if (input.destination !== order.refundDestination)
         throw new ApiError(409, '退款已发起，不能切换退款去向，请先核实原退款')
+      if (input.reserveManual && order.refundAutomatic)
+        throw new ApiError(409, '已发起渠道自动退款，不能另行打款')
+      if (input.reserveManual && order.refundActor !== actor)
+        throw new ApiError(409, '退款已由其他操作人接手，请核对记录，不要重复打款')
       if (!input.reconcile) return null
       const now = await databaseNow(client)
       if (
@@ -1483,6 +1490,20 @@ export async function refundFailedOrder(
       return null
     }
     if (input.reconcile) throw new ApiError(409, '尚无待核实的退款，请刷新订单')
+    if (input.round !== orderView(order).refillCount)
+      throw new ApiError(409, '补充记录已更新，请刷新订单后重新核对退款')
+    if (
+      input.destination === 'original' &&
+      !input.automatic &&
+      !input.reserveManual &&
+      canOfferRefill(order)
+    )
+      throw new ApiError(409, '请先锁定手动退款，再到支付渠道打款')
+    if (
+      order.fulfillmentResolution &&
+      orderResolutionSchema.parse(order.fulfillmentResolution).conflict
+    )
+      throw new ApiError(409, '兑换结果冲突，请先核对到账情况，不能发起退款')
     if (input.destination === 'original' && order.externalAmount <= 0)
       throw new ApiError(409, '纯余额订单只能退回站内余额')
     if (input.automatic && order.provider !== 'xorpay')
@@ -1512,6 +1533,20 @@ export async function refundFailedOrder(
       secret = config.secret
     }
     const requestedAt = await databaseNow(client)
+    if (input.reserveManual) {
+      await client.order.update({
+        where: { id: order.id },
+        data: {
+          refundDestination: 'original',
+          refundStatus: 'review',
+          refundActor: actor,
+          refundRequestedAt: requestedAt,
+          refundNote: input.note || '已锁定手动退款，待核实渠道打款记录',
+        },
+      })
+      await audit(actor, '锁定手动原路退款', order.id, client)
+      return null
+    }
     if (!input.automatic) {
       // Record and complete manual/wallet refunds in one transaction.
       await client.order.update({
@@ -1606,19 +1641,20 @@ export async function confirmSession(
       const stored = await client.quote.findUnique({ where: { id: quoteId } })
       if (!stored) throw new ApiError(409, '订单报价需由管理员核对')
       const quote = quoteView(stored)
+      const requestId = redemptionRequestId(order.id, order.refillCount)
       let recovered = order.redemptionId
         ? await getRedemption(order.redemptionId, binding)
-        : await findRedemption(order.id, binding)
+        : await findRedemption(requestId, binding)
       if (recovered) {
-        validateFulfillment(recovered, quote, order.id)
+        validateFulfillment(recovered, quote, requestId)
         if (recovered.status === 'needs_session') {
           recovered = await updateAccountSession(
             recovered.id,
             session,
-            `${order.id}-session-${secretHash(JSON.stringify(session))}`,
+            `${requestId}-session-${secretHash(JSON.stringify(session))}`,
             binding,
           )
-          validateFulfillment(recovered, quote, order.id)
+          validateFulfillment(recovered, quote, requestId)
         }
         if (recovered.version < order.redemptionVersion)
           throw new ApiError(409, '订单状态正在同步，请稍后重试')

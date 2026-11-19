@@ -39,7 +39,9 @@ export function OrderResolutionDialog({
         expectedRevision: order.resolutionRevision,
         confirmed,
       })
-      message.success(outcome === 'completed' ? '已确认兑换成功' : '已确认兑换失败，可继续处理退款')
+      message.success(
+        outcome === 'completed' ? '已确认兑换成功' : '已确认兑换失败，未退款或发起补充',
+      )
       await onRefresh()
       onClose()
     } catch (e) {
@@ -156,7 +158,7 @@ export function OrderResolutionDialog({
                 title={
                   outcome === 'completed'
                     ? '订单将完成并按原规则结算返佣'
-                    : '订单将标记失败，之后可单独办理退款'
+                    : '订单将标记失败，不会自动补充或退款'
                 }
                 description={
                   outcome === 'completed'

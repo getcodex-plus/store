@@ -45,6 +45,22 @@ test('operators can verify outcomes, inspect records, and continue to refunds', 
           kind: 'purchase',
           status: 'processing',
           fulfillmentStatus: 'uncertain',
+          refillHistory:
+            outcome === 'failed'
+              ? [
+                  {
+                    createdAt: new Date().toISOString(),
+                    requestId: 'refill-audit-original',
+                    redemptionId: 'prior-redemption',
+                    version: 3,
+                    outcome: 'failed',
+                    inventoryId: 'original-locked',
+                    disposition: 'held',
+                    nextInventoryId: 'spare',
+                    resolution: null,
+                  },
+                ]
+              : [],
           productName: `人工处理 UI ${outcome}`,
           email: 'resolution@example.com',
           contactEmail: admin.email,
@@ -66,6 +82,13 @@ test('operators can verify outcomes, inspect records, and continue to refunds', 
   const row = (outcome: string) =>
     page.getByRole('row').filter({ hasText: `人工处理 UI ${outcome}` })
   const dialog = page.getByRole('dialog')
+  await row('failed')
+    .getByRole('button', { name: /补充记录/ })
+    .click()
+  await expect(dialog).toContainText('prior-redemption')
+  await expect(dialog).toContainText('保持锁定，需核对')
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
   for (const outcome of ['completed', 'failed']) {
     await row(outcome).getByRole('button', { name: '人工处理', exact: true }).click()
     await dialog
@@ -101,6 +124,7 @@ test('operators can verify outcomes, inspect records, and continue to refunds', 
   const publicOrders = await (await page.request.get('/api/account')).json()
   expect(JSON.stringify(publicOrders)).not.toContain('上游工单')
   expect(JSON.stringify(publicOrders)).not.toContain('fulfillmentResolution')
+  expect(JSON.stringify(publicOrders)).not.toContain('prior-redemption')
 
   const session = await db.authSession.findFirstOrThrow({
     where: { userId: admin.id },

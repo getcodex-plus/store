@@ -218,6 +218,7 @@ function AdminContent() {
   const [withdrawal, setWithdrawal] = useState<Withdrawal | null>(null)
   const [refundOrderId, setRefundOrderId] = useState<string | null>(null)
   const [resolutionOrderId, setResolutionOrderId] = useState<string | null>(null)
+  const [refillOrderId, setRefillOrderId] = useState<string | null>(null)
   const [roleOpen, setRoleOpen] = useState(false)
   const [roleForm] = Form.useForm()
   const [productForm] = Form.useForm(),
@@ -575,12 +576,54 @@ function AdminContent() {
               {o.fulfillmentResolution ? '处理记录' : '人工处理'}
             </Button>
           )}
+          {!!o.refillCount && (
+            <Button type="link" onClick={() => setRefillOrderId(o.id)}>
+              补充记录（{o.refillCount}）
+            </Button>
+          )}
         </Space>
       ),
     },
   ]
   return (
     <div className="admin-shell">
+      {refillOrderId && (
+        <Modal open title="原单免费补充记录" footer={null} onCancel={() => setRefillOrderId(null)}>
+          <p>订单号：{refillOrderId}</p>
+          {data?.orders
+            .find((order) => order.id === refillOrderId)
+            ?.refillHistory?.map((entry, index) => (
+              <div className="refund-record" key={entry.requestId}>
+                <strong>
+                  第 {index + 1} 次免费补充 · {dateTime(entry.createdAt)}
+                </strong>
+                <p>
+                  上一笔兑换：
+                  {entry.outcome === 'not_submitted'
+                    ? '未提交'
+                    : entry.outcome === 'cancelled'
+                      ? '已取消'
+                      : '已失败'}
+                  {entry.redemptionId && `（${entry.redemptionId}）`}
+                </p>
+                <p>
+                  原卡：
+                  {entry.disposition === 'held'
+                    ? '保持锁定，需核对'
+                    : entry.disposition === 'returned'
+                      ? '已核实可用，退回库存'
+                      : '已核实可用，继续用于本单'}
+                  （{entry.inventoryId}）
+                </p>
+                {entry.resolution && (
+                  <p className="refund-note">
+                    原人工结论：{entry.resolution.actor} · {entry.resolution.note}
+                  </p>
+                )}
+              </div>
+            ))}
+        </Modal>
+      )}
       {resolutionOrderId && data?.orders.find((order) => order.id === resolutionOrderId) && (
         <OrderResolutionDialog
           key={resolutionOrderId}
@@ -593,17 +636,20 @@ function AdminContent() {
           }}
         />
       )}
-      {refundOrderId && data?.orders.find((order) => order.id === refundOrderId) && (
-        <RefundDialog
-          key={refundOrderId}
-          order={data.orders.find((order) => order.id === refundOrderId)!}
-          onClose={() => setRefundOrderId(null)}
-          onRefresh={async () => {
-            await load()
-            await refresh()
-          }}
-        />
-      )}
+      {refundOrderId &&
+        data?.orders.some(
+          (order) => order.id === refundOrderId && ['failed', 'refunded'].includes(order.status),
+        ) && (
+          <RefundDialog
+            key={refundOrderId}
+            order={data.orders.find((order) => order.id === refundOrderId)!}
+            onClose={() => setRefundOrderId(null)}
+            onRefresh={async () => {
+              await load()
+              await refresh()
+            }}
+          />
+        )}
       <aside className="admin-sidebar">{nav}</aside>
       <Drawer
         open={mobile}

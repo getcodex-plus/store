@@ -789,6 +789,10 @@
       "definition": "integer|true|0"
     },
     {
+      "key": "orders.refill_history",
+      "definition": "jsonb|true|'[]'::jsonb"
+    },
+    {
       "key": "orders.refund_actor",
       "definition": "text|false|"
     },
@@ -2195,6 +2199,10 @@
       "definition": "NOT NULL redemption_version"
     },
     {
+      "key": "orders.orders_refill_history_not_null",
+      "definition": "NOT NULL refill_history"
+    },
+    {
       "key": "orders.orders_refund_automatic_not_null",
       "definition": "NOT NULL refund_automatic"
     },
@@ -2208,7 +2216,7 @@
     },
     {
       "key": "orders.orders_refund_record_check",
-      "definition": "CHECK ((((refund_status IS NULL) AND (refund_destination IS NULL) AND (NOT refund_automatic) AND (refund_requested_at IS NULL) AND (refund_completed_at IS NULL)) OR ((refund_status IS NOT NULL) AND (refund_destination IS NOT NULL) AND (refund_requested_at IS NOT NULL) AND (refund_actor IS NOT NULL) AND (kind = 'purchase'::text) AND ((NOT refund_automatic) OR ((refund_destination = 'original'::text) AND (provider = 'xorpay'::text) AND (external_amount > 0))) AND ((refund_destination <> 'original'::text) OR refund_automatic OR (length(TRIM(BOTH FROM refund_note)) > 0)) AND (((refund_status = ANY (ARRAY['processing'::text, 'review'::text])) AND (status = 'failed'::text) AND refund_automatic AND (refund_completed_at IS NULL)) OR ((refund_status = 'completed'::text) AND (status = 'refunded'::text) AND (refund_completed_at IS NOT NULL))))))"
+      "definition": "CHECK ((((refund_status IS NULL) AND (refund_destination IS NULL) AND (NOT refund_automatic) AND (refund_requested_at IS NULL) AND (refund_completed_at IS NULL)) OR ((refund_status IS NOT NULL) AND (refund_destination IS NOT NULL) AND (refund_requested_at IS NOT NULL) AND (refund_actor IS NOT NULL) AND (kind = 'purchase'::text) AND ((NOT refund_automatic) OR ((refund_destination = 'original'::text) AND (provider = 'xorpay'::text) AND (external_amount > 0))) AND ((refund_destination <> 'original'::text) OR refund_automatic OR (length(TRIM(BOTH FROM refund_note)) > 0)) AND (((refund_status = ANY (ARRAY['processing'::text, 'review'::text])) AND (status = 'failed'::text) AND (refund_automatic OR ((refund_status = 'review'::text) AND (refund_destination = 'original'::text) AND (external_amount > 0))) AND (refund_completed_at IS NULL)) OR ((refund_status = 'completed'::text) AND (status = 'refunded'::text) AND (refund_completed_at IS NOT NULL))))))"
     },
     {
       "key": "orders.orders_refund_resolution_note_not_null",

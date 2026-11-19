@@ -14,29 +14,42 @@ vi.mock('./config', () => ({
     secret: 'test-only',
     key: 'test-only',
     privateKey: keys.privateKey,
+    publicKey: keys.publicKey,
   }),
 }))
 import { createPayment, refundXorpay, type PaymentOrder } from './payments'
-import { xorpaySignature } from './signatures'
+import { epayV2Signature, xorpaySignature } from './signatures'
 afterEach(() => vi.unstubAllGlobals())
 it.each(['http', 'https'])(
   'sends only the external payment amount through %s gateways',
   async (protocol) => {
     for (const provider of ['xorpay', 'gmpay', 'epay_v1', 'epay_v2'] as const) {
+      const signedResponse: Record<string, string | number> = {
+        code: 0,
+        trade_no: 'tx',
+        pay_type: 'jump',
+        pay_info: 'https://pay.example',
+        sign_type: 'RSA',
+      }
+      signedResponse.sign = epayV2Signature(signedResponse, keys.privateKey)
       const fetcher = vi.fn(
         async () =>
           new Response(
-            JSON.stringify({
-              status: 'ok',
-              aoid: 'tx',
-              info: { qr: 'https://pay.example' },
-              data: { trade_id: 'tx', payment_url: 'https://pay.example' },
-              code: provider === 'epay_v2' ? 0 : 1,
-              trade_no: 'tx',
-              payurl: 'https://pay.example',
-              pay_type: 'jump',
-              pay_info: 'https://pay.example',
-            }),
+            JSON.stringify(
+              provider === 'epay_v2'
+                ? signedResponse
+                : {
+                    status: 'ok',
+                    aoid: 'tx',
+                    info: { qr: 'https://pay.example' },
+                    data: { trade_id: 'tx', payment_url: 'https://pay.example' },
+                    code: 1,
+                    trade_no: 'tx',
+                    payurl: 'https://pay.example',
+                    pay_type: 'jump',
+                    pay_info: 'https://pay.example',
+                  },
+            ),
           ),
       )
       vi.stubGlobal('fetch', fetcher)

@@ -1,6 +1,6 @@
 # Attach only the web service to your existing Traefik network.
-# When Cloudflare or another proxy sits in front of Traefik, set TRUSTED_PROXIES in .env
-# to the Traefik/CDN CIDRs so multi-hop X-Forwarded-For preserves client IPs for rate limits.
+# Configure your gateway to resolve the proxy chain and overwrite X-Forwarded-For
+# with a single client IP before forwarding requests to the application.
 services:
   web:
     networks: [backend, traefik]

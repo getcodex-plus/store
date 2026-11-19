@@ -21,6 +21,8 @@ export const statuses: Record<OrderStatus, { text: string; color: string }> = {
   refunded: { text: '退款已完成', color: 'default' },
 }
 export function orderStatusLabel(order: Order) {
+  if (order.refund?.status === 'review' && !order.refund.automatic)
+    return { text: '手动退款处理中', color: 'processing' }
   if (order.refund && order.refund.status !== 'completed')
     return refundNeedsReview(order.refund)
       ? { text: '退款待核实', color: 'warning' }

@@ -2,6 +2,7 @@
 .gitignore
 .next
 .data
+.data-bootstrap-admin.txt
 .env
 .env.*
 !.env.example

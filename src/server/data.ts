@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import { tawkSettingsSchema } from '../tawk'
 import { orderResolutionSchema } from '../order-resolution'
+import { refillHistorySchema } from '../order-refill'
+import { demo } from './config'
 import type {
   Product as ProductRecord,
   Order as OrderRecord,
@@ -138,6 +140,8 @@ export function orderView(record: OrderRecord): Order {
     settlementDays: record.settlementDays,
     firstOrderOnly: record.firstOrderOnly,
     fulfillmentStatus: record.fulfillmentStatus,
+    refillCount: refillHistorySchema.parse(record.refillHistory).length,
+    canRefill: canOfferRefill(record),
     refund: record.refundStatus
       ? {
           destination: z.enum(['wallet', 'original']).parse(record.refundDestination),
@@ -150,12 +154,31 @@ export function orderView(record: OrderRecord): Order {
   }
 }
 
+export function canOfferRefill(record: OrderRecord) {
+  if (
+    demo ||
+    record.kind !== 'purchase' ||
+    record.status !== 'failed' ||
+    record.completedAt ||
+    record.refundStatus ||
+    !record.quoteId ||
+    !record.aicdkIntegrationId
+  )
+    return false
+  const resolution =
+    record.fulfillmentResolution && orderResolutionSchema.parse(record.fulfillmentResolution)
+  return resolution
+    ? resolution.outcome === 'failed' && !resolution.conflict
+    : ['failed', 'cancelled'].includes(record.fulfillmentStatus ?? '')
+}
+
 export function adminOrderView(record: OrderRecord): AdminOrder {
   return {
     ...orderView(record),
     ipAddress: record.ipAddress,
     provider: z.enum(['xorpay', 'gmpay', 'epay_v1', 'epay_v2', 'balance']).parse(record.provider),
     resolutionRevision: orderResolutionRevision(record),
+    refillHistory: refillHistorySchema.parse(record.refillHistory),
     fulfillmentResolution: record.fulfillmentResolution
       ? orderResolutionSchema.parse(record.fulfillmentResolution)
       : null,

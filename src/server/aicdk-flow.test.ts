@@ -12,7 +12,7 @@ vi.hoisted(() => {
   }
 })
 import { db, Prisma, transaction } from './db'
-import { userView, paymentOrderView, adminOrderView } from './data'
+import { userView, paymentOrderView, adminOrderView, orderView } from './data'
 import { id, hash } from './crypto'
 import {
   importInventory,
@@ -20,10 +20,20 @@ import {
   openCredential,
   sealCredential,
 } from './credential-storage'
-import { quote, newOrder, cancelOrder, confirmSession, adminData, account } from './services'
+import {
+  quote,
+  newOrder,
+  cancelOrder,
+  confirmSession,
+  adminData,
+  account,
+  acceptPayment,
+  refundFailedOrder,
+} from './services'
 import { lockRow, reserveInventory } from './database-sql'
 import { fulfillOrder } from './fulfillment'
 import { resolveOrder } from './order-resolution'
+import { refillOrder } from './order-refill'
 import { saveIntegration } from './integrations/config'
 import { permissions } from './rbac'
 import type { User } from '../types'
@@ -461,6 +471,385 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
     })
     return { promise, release }
   }
+  describe('free refills on the paid order', () => {
+    const request = { session, confirmedNotReceived: true, round: 0 }
+    async function fixture(cards: number, guest = false) {
+      const {
+        productId,
+        requests: [buyer],
+      } = await competingBuyers(cards, 1)
+      if (guest)
+        await saveIntegration(
+          {
+            provider: 'xorpay',
+            enabled: true,
+            public: { appId: 'refill' },
+            secrets: { secret: id() },
+          },
+          'test',
+        )
+      const owner = guest ? null : buyer.buyer
+      const order = await newOrder(
+        owner,
+        buyer.browser,
+        guest
+          ? { ...buyer.input, channel: 'alipay', contactEmail: 'guest@example.com' }
+          : buyer.input,
+      )
+      if (guest) {
+        const payment = await internal(order.id)
+        await acceptPayment(payment.provider, payment.integrationId!, {
+          orderId: order.id,
+          transactionId: id(),
+          amount: order.externalAmount,
+          paid: true,
+        })
+      }
+      const stored = await db.order.update({
+        where: { id: order.id },
+        data: {
+          status: 'failed',
+          fulfillmentStatus: 'failed',
+          redemptionId: `ord_${order.id}`,
+          redemptionVersion: 4,
+          submissionAttempted: true,
+        },
+      })
+      const originalId = (await db.quote.findUniqueOrThrow({ where: { id: buyer.q.id } }))
+        .inventoryId!
+      const apply = () => refillOrder(owner, buyer.browser, order.id, request)
+      return { apply, owner, browser: buyer.browser, order, originalId, productId, stored }
+    }
+
+    function upstream(orderId: string, available = true) {
+      const fetcher = stub()
+      const base = fetcher.getMockImplementation()!
+      fetcher.mockImplementation(async (url) => {
+        if (url.endsWith(`/redemptions/ord_${orderId}`)) return ok(remote(orderId, 'failed', 4))
+        if (url.endsWith('/replacements/previews'))
+          return available
+            ? ok({ product_id: 'p200', product_name: 'Pro', plan: 'pro_200', expires_at: null })
+            : new Response(JSON.stringify({ ok: false, error: { code: 'CDK_LOCKED' } }), {
+                status: 409,
+              })
+        return base(url)
+      })
+      return fetcher
+    }
+
+    it('replays concurrent clicks without another debit, releases only verified stock, and fulfills the new round once', async () => {
+      const { apply, order, originalId, productId, stored } = await fixture(2)
+      const fetcher = upstream(order.id)
+      await Promise.all([apply(), apply(), apply()])
+      expect(fetcher.mock.calls).toHaveLength(4)
+      const current = await db.order.findUniqueOrThrow({ where: { id: order.id } })
+      expect(current).toMatchObject({
+        status: 'processing',
+        amount: stored.amount,
+        quoteId: stored.quoteId,
+        balanceAmount: stored.balanceAmount,
+        redemptionId: null,
+        submissionAttempted: false,
+      })
+      expect(adminOrderView(current).refillHistory).toMatchObject([
+        { disposition: 'returned', inventoryId: originalId, redemptionId: stored.redemptionId },
+      ])
+      expect(orderView(current)).not.toHaveProperty('refillHistory')
+      expect(await db.inventory.findUniqueOrThrow({ where: { id: originalId } })).toMatchObject({
+        status: 'available',
+      })
+      expect(await transaction((client) => reserveInventory(client, productId))).toMatchObject({
+        id: originalId,
+      })
+      const key = `${order.id}-r1`
+      const submit = vi
+        .fn()
+        .mockResolvedValueOnce(ok([]))
+        .mockRejectedValueOnce(new Error('timeout'))
+        .mockResolvedValueOnce(ok([]))
+        .mockResolvedValueOnce(ok(remote(key), 202))
+        .mockResolvedValueOnce(ok(remote(key, 'completed', 2)))
+      vi.stubGlobal('fetch', submit)
+      await expect(fulfillOrder(order.id)).rejects.toMatchObject({ uncertain: true })
+      expect(await fulfillOrder(order.id)).toBe(false)
+      expect(await fulfillOrder(order.id)).toBe(true)
+      expect(submit.mock.calls[0][0]).toContain(`client_request_id=${key}`)
+      expect(JSON.parse(submit.mock.calls[1][1].body).client_request_id).toBe(key)
+      expect(submit.mock.calls[3][1].body).toBe(submit.mock.calls[1][1].body)
+      expect(submit.mock.calls[3][1].headers['Idempotency-Key']).toBe(`${key}-v1`)
+      expect(await apply()).toEqual({ accepted: true })
+      expect(await internal(order.id)).toMatchObject({ refillCount: 1, status: 'completed' })
+      expect(await db.walletEntry.count({ where: { orderId: order.id } })).toBe(1)
+      expect(await db.order.count({ where: { productId } })).toBe(1)
+      expect(await db.inventory.count({ where: { productId, status: 'consumed' } })).toBe(1)
+      expect(
+        await db.emailOutbox.count({ where: { orderId: order.id, status: 'completed' } }),
+      ).toBe(1)
+    })
+
+    it('holds an unverified old card and resumes a renewed session under the refill request ID', async () => {
+      const { apply, owner, browser, order, originalId, productId } = await fixture(2)
+      upstream(order.id, false)
+      await apply()
+      expect(await db.inventory.findUniqueOrThrow({ where: { id: originalId } })).toMatchObject({
+        status: 'reserved',
+        reservedUntil: null,
+      })
+      expect(await transaction((client) => reserveInventory(client, productId))).toBe(null)
+      const key = `${order.id}-r1`
+      await db.quote.update({
+        where: { id: (await internal(order.id)).quoteId! },
+        data: { preflightExpiresAt: new Date(0) },
+      })
+      const refresh = stub()
+      expect(await fulfillOrder(order.id)).toBe(true)
+      await confirmSession(owner, order.id, session, browser)
+      expect(
+        refresh.mock.calls.filter(([url]) => url.includes(`client_request_id=${key}`)),
+      ).toHaveLength(2)
+      expect(await internal(order.id)).toMatchObject({
+        status: 'processing',
+        refillCount: 1,
+        fulfillmentAttempt: 2,
+      })
+    })
+
+    it('rolls back on shortage or a mismatched preflight, and reuses a verified original if no spare exists', async () => {
+      const { apply, order, originalId } = await fixture(1)
+      upstream(order.id, false)
+      await expect(apply()).rejects.toThrow('库存')
+      const mocked = upstream(order.id)
+      const base = mocked.getMockImplementation()!
+      mocked.mockImplementation((url) =>
+        url.endsWith('/redemptions/preflights')
+          ? Promise.resolve(ok({ ...ready, account_email: 'other@example.com' }))
+          : base(url),
+      )
+      await expect(apply()).rejects.toThrow('不匹配')
+      expect(await internal(order.id)).toMatchObject({ status: 'failed', refillCount: 0 })
+      upstream(order.id)
+      await apply()
+      const row = await db.order.findUniqueOrThrow({ where: { id: order.id } })
+      expect(adminOrderView(row).refillHistory).toMatchObject([
+        { disposition: 'reused', inventoryId: originalId, nextInventoryId: originalId },
+      ])
+    })
+
+    it('requires the original guest, confirmation, matching account and actual payment; rejects pending or conflicting remote outcomes', async () => {
+      const { apply, order, browser, stored } = await fixture(2, true)
+      const fetcher = upstream(order.id)
+      await expect(refillOrder(null, 'other-browser', order.id, request)).rejects.toMatchObject({
+        status: 404,
+      })
+      await expect(
+        refillOrder(null, browser, order.id, { ...request, confirmedNotReceived: false }),
+      ).rejects.toThrow()
+      await expect(refillOrder(null, browser, order.id, { ...request, round: 1 })).rejects.toThrow(
+        '不能补充',
+      )
+      await expect(
+        refillOrder(null, browser, order.id, {
+          ...request,
+          session: JSON.stringify({ ...JSON.parse(session), user: { email: 'other@example.com' } }),
+        }),
+      ).rejects.toThrow('原充值账号')
+      expect(fetcher).not.toHaveBeenCalled()
+      for (const result of [
+        remote(order.id, 'failed', 3),
+        { ...remote(order.id, 'failed', 5), account_email: 'other@example.com' },
+      ]) {
+        fetcher.mockResolvedValueOnce(ok(result))
+        await expect(apply()).rejects.toThrow()
+      }
+      expect(
+        fetcher.mock.calls.every(([url]) => url.endsWith(`/redemptions/${stored.redemptionId}`)),
+      ).toBe(true)
+      await apply()
+      expect(await db.paymentEvent.count({ where: { orderId: order.id } })).toBe(1)
+      await db.order.update({
+        where: { id: order.id },
+        data: { status: 'failed', fulfillmentStatus: 'failed' },
+      })
+      expect(await apply()).toEqual({ accepted: true })
+      expect((await internal(order.id)).refillCount).toBe(1)
+      await db.paymentEvent.deleteMany({ where: { orderId: order.id } })
+      fetcher.mockClear()
+      await expect(refillOrder(null, browser, order.id, { ...request, round: 1 })).rejects.toThrow(
+        '收款记录',
+      )
+      expect(fetcher).not.toHaveBeenCalled()
+    })
+
+    it.each(['queued', 'uncertain', 'completed'])(
+      'only resumes polling the original when the upstream now reports %s',
+      async (status) => {
+        const { apply, order, originalId } = await fixture(2)
+        const fetcher = upstream(order.id)
+        fetcher.mockResolvedValueOnce(ok(remote(order.id, status, 5)))
+        await expect(apply()).rejects.toThrow('上游未确认')
+        expect(await internal(order.id)).toMatchObject({
+          status: 'processing',
+          refillCount: 0,
+          redemptionId: `ord_${order.id}`,
+        })
+        await expect(refundFailedOrder(order.id, 'finance')).rejects.toThrow('仅已确认失败')
+        fetcher.mockResolvedValueOnce(ok(remote(order.id, 'completed', 6)))
+        expect(await fulfillOrder(order.id)).toBe(true)
+        expect(
+          fetcher.mock.calls.every(([url]) => url.endsWith(`/redemptions/ord_${order.id}`)),
+        ).toBe(true)
+        expect(await db.inventory.findUniqueOrThrow({ where: { id: originalId } })).toMatchObject({
+          status: 'consumed',
+        })
+      },
+    )
+
+    it('allows a verified never-submitted failure, but blocks a conflicting manual decision and refund', async () => {
+      for (const wasSubmitted of [false, true]) {
+        const { order, apply } = await fixture(2)
+        const before = await db.order.update({
+          where: { id: order.id },
+          data: {
+            status: 'processing',
+            redemptionId: null,
+            redemptionVersion: 0,
+            submissionAttempted: wasSubmitted,
+            fulfillmentStatus: null,
+          },
+        })
+        await resolveOrder(order.id, 'support', {
+          outcome: 'failed',
+          note: '核对原订单',
+          confirmed: true,
+          expectedRevision: adminOrderView(before).resolutionRevision,
+        })
+        const fetcher = upstream(order.id)
+        if (wasSubmitted) {
+          fetcher.mockResolvedValueOnce(ok([remote(order.id, 'completed', 3)]))
+          await expect(apply()).rejects.toThrow('上游未确认')
+          await expect(apply()).rejects.toThrow('不能补充')
+          await expect(refundFailedOrder(order.id, 'finance')).rejects.toThrow('冲突')
+          expect(fetcher).toHaveBeenCalledTimes(1)
+        } else {
+          await apply()
+          expect(
+            adminOrderView(await db.order.findUniqueOrThrow({ where: { id: order.id } }))
+              .refillHistory,
+          ).toMatchObject([{ outcome: 'not_submitted' }])
+        }
+      }
+    })
+
+    it('requires a durable claim before a manual transfer for a refillable order', async () => {
+      const { order, apply } = await fixture(2, true)
+      const fetcher = upstream(order.id)
+      const manual = { destination: 'original', automatic: false, note: '渠道退款凭证 123' }
+      await expect(refundFailedOrder(order.id, 'finance', manual)).rejects.toThrow('先锁定')
+      const claim = { ...manual, reserveManual: true, note: '' }
+      const claimed = await refundFailedOrder(order.id, 'finance', claim)
+      expect(claimed.order).toMatchObject({
+        status: 'failed',
+        canRefill: false,
+        refund: { status: 'review', automatic: false },
+      })
+      await expect(refundFailedOrder(order.id, 'another-admin', claim)).rejects.toThrow(
+        '其他操作人',
+      )
+      await expect(apply()).rejects.toThrow('不能补充')
+      await refundFailedOrder(order.id, 'finance', { ...manual, reconcile: true })
+      expect(await internal(order.id)).toMatchObject({ status: 'refunded', refillCount: 0 })
+      expect(fetcher).not.toHaveBeenCalled()
+    })
+
+    it('archives manual evidence, refuses untraced submissions, and isolates late results from the next attempt', async () => {
+      const { apply, order } = await fixture(2)
+      const before = await db.order.update({
+        where: { id: order.id },
+        data: {
+          status: 'processing',
+          redemptionId: null,
+          fulfillmentStatus: 'uncertain',
+          redemptionVersion: 0,
+        },
+      })
+      const started = gate()
+      const finish = gate()
+      const fetcher = upstream(order.id)
+      fetcher.mockImplementationOnce(async () => {
+        started.release()
+        await finish.promise
+        return ok([remote(order.id, 'failed', 1)])
+      })
+      const running = fulfillOrder(order.id)
+      await started.promise
+      try {
+        await resolveOrder(order.id, 'operator', {
+          outcome: 'failed',
+          note: 'verified ticket',
+          confirmed: true,
+          expectedRevision: adminOrderView(before).resolutionRevision,
+        })
+        await expect(apply()).rejects.toThrow('原兑换已终止')
+        fetcher.mockResolvedValueOnce(ok([remote(order.id, 'cancelled', 3)]))
+        await apply()
+      } finally {
+        finish.release()
+      }
+      await running
+      const row = await db.order.findUniqueOrThrow({ where: { id: order.id } })
+      expect(row).toMatchObject({
+        status: 'processing',
+        redemptionVersion: 0,
+        redemptionId: null,
+        fulfillmentResolution: null,
+      })
+      expect(adminOrderView(row).refillHistory).toMatchObject([
+        { outcome: 'cancelled', resolution: { note: 'verified ticket' } },
+      ])
+      expect(JSON.stringify(orderView(row))).not.toContain('verified ticket')
+    })
+
+    it('serializes a refund against a refill and blocks a refunded order', async () => {
+      const { apply, order } = await fixture(2)
+      const fetcher = upstream(order.id)
+      const started = gate()
+      const finish = gate()
+      fetcher.mockImplementationOnce(async () => {
+        started.release()
+        await finish.promise
+        return ok(remote(order.id, 'failed', 4))
+      })
+      const running = apply()
+      await started.promise
+      const refund = expect(refundFailedOrder(order.id, 'finance')).rejects.toThrow('仅已确认失败')
+      finish.release()
+      await Promise.all([running, refund])
+      expect(await db.walletEntry.count({ where: { orderId: order.id, kind: 'refund' } })).toBe(0)
+      const other = await fixture(2)
+      await refundFailedOrder(other.order.id, 'finance')
+      const unused = upstream(other.order.id)
+      await expect(other.apply()).rejects.toThrow('不能补充')
+      expect(unused).not.toHaveBeenCalled()
+    })
+    it('requires a new buyer decision for another failed round and rejects stale refund forms', async () => {
+      const { order, owner, browser, apply } = await fixture(1)
+      const first = upstream(order.id)
+      await apply()
+      first.mockResolvedValueOnce(ok([remote(`${order.id}-r1`, 'failed', 1)]))
+      expect(await fulfillOrder(order.id)).toBe(true)
+      await apply()
+      expect(await internal(order.id)).toMatchObject({ status: 'failed', refillCount: 1 })
+      await expect(refundFailedOrder(order.id, 'finance')).rejects.toThrow('补充记录已更新')
+      first.mockResolvedValueOnce(ok(remote(`${order.id}-r1`, 'failed', 1)))
+      await refillOrder(owner, browser, order.id, { ...request, round: 1 })
+      const polling = vi.fn().mockResolvedValueOnce(ok([remote(`${order.id}-r2`, 'completed', 1)]))
+      vi.stubGlobal('fetch', polling)
+      expect(await fulfillOrder(order.id)).toBe(true)
+      expect(polling.mock.calls[0][0]).toContain(`client_request_id=${order.id}-r2`)
+      expect(await internal(order.id)).toMatchObject({ status: 'completed', refillCount: 2 })
+      expect(await db.walletEntry.count({ where: { orderId: order.id } })).toBe(1)
+    })
+  })
   it('lets only one of two different buyers reserve the last card while preflight is in flight', async () => {
     const {
       productId,
@@ -674,6 +1063,7 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
     const conflicting = await db.order.create({
       data: {
         ...original,
+        refillHistory: [],
         fulfillmentResolution: original.fulfillmentResolution ?? Prisma.DbNull,
         couponSnapshot: original.couponSnapshot ?? Prisma.DbNull,
         id: id('o_'),

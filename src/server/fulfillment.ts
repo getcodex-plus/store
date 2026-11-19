@@ -1,4 +1,5 @@
 import { db, transaction, upstreamTransaction, type DbClient } from './db'
+import { redemptionRequestId } from '../order-refill'
 import { paymentOrderView, quoteView } from './data'
 import { demo } from './config'
 import { openCredential } from './credential-storage'
@@ -47,8 +48,11 @@ async function recordResult(
   record: OrderRecord,
   quote: StoredQuote,
   result: Redemption,
+  requestId: string,
 ) {
-  validateFulfillment(result, quote, record.id)
+  const current = paymentOrderView(record)
+  if (redemptionRequestId(current.id, current.refillCount) !== requestId) return false
+  validateFulfillment(result, quote, requestId)
   if (record.fulfillmentResolution) {
     if (
       (!record.redemptionId || record.redemptionId === result.id) &&
@@ -58,7 +62,6 @@ async function recordResult(
     return true
   }
   if (!['processing', 'needs_session'].includes(record.status)) return true
-  const current = paymentOrderView(record)
   if (
     (current.redemptionId && current.redemptionId !== result.id) ||
     result.version < current.redemptionVersion ||
@@ -110,9 +113,10 @@ export async function fulfillOrder(orderId: string): Promise<boolean> {
     : null
   const quote = storedQuote ? quoteView(storedQuote) : null
   if (!quote) throw new UpstreamError('UPSTREAM_INVALID_RESPONSE', 30, true)
+  const requestId = redemptionRequestId(order.id, order.refillCount)
   const result = order.redemptionId
     ? await getRedemption(order.redemptionId, binding)
-    : await findRedemption(order.id, binding)
+    : await findRedemption(requestId, binding)
   if (!result) {
     const expired = !quote.preflightExpiresAt || Date.parse(quote.preflightExpiresAt) <= Date.now()
     if ((!quote.preflightToken || expired) && !order.submissionAttempted) {
@@ -149,8 +153,8 @@ export async function fulfillOrder(orderId: string): Promise<boolean> {
       try {
         submitted = await submitRedemption(
           openCredential(quote.preflightToken!, 'preflight', quote.id),
-          order.id,
-          `${order.id}-v${order.fulfillmentAttempt}`,
+          requestId,
+          `${requestId}-v${order.fulfillmentAttempt}`,
           binding,
         )
       } catch (error) {
@@ -170,7 +174,7 @@ export async function fulfillOrder(orderId: string): Promise<boolean> {
             'SESSION_TOKEN_EXPIRED',
           ].includes(error.code)
         ) {
-          const recovered = await findRedemption(order.id, binding)
+          const recovered = await findRedemption(requestId, binding)
           if (!recovered) {
             await needSession(order, client)
             return { done: true }
@@ -185,13 +189,13 @@ export async function fulfillOrder(orderId: string): Promise<boolean> {
           return { error }
         }
       }
-      return { done: await recordResult(client, current, quote, submitted) }
+      return { done: await recordResult(client, current, quote, submitted, requestId) }
     }, upstreamTransaction)
     if ('error' in attempt) throw attempt.error
     return attempt.done
   }
   return transaction(async (client) => {
     const current = await lockOrderForCompletion(client, order.id)
-    return current ? recordResult(client, current, quote, result) : true
+    return current ? recordResult(client, current, quote, result, requestId) : true
   })
 }

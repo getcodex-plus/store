@@ -220,6 +220,9 @@ suite('persistent original-payment refunds', () => {
     await started
     try {
       await expect(
+        refundFailedOrder(order.id, 'admin', { ...manual, reserveManual: true }),
+      ).rejects.toThrow('已发起渠道自动退款')
+      await expect(
         refundFailedOrder(order.id, 'reviewer', { ...manual, reconcile: true }),
       ).rejects.toThrow('仍在处理中')
     } finally {

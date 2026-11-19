@@ -5,6 +5,7 @@ import {
   Alert,
   Button,
   Card,
+  Checkbox,
   Descriptions,
   Input,
   QRCode,
@@ -21,6 +22,68 @@ import type { Order } from '../types'
 export function OrderPage({ id }: { id: string }) {
   const { data } = useSite()
   return <OrderContent key={`${id}:${data?.user?.id ?? 'guest'}`} id={id} />
+}
+
+function RefillForm({ order, reload }: { order: Order; reload: () => Promise<void> }) {
+  const [session, setSession] = useState('')
+  const [confirmed, setConfirmed] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  async function submit() {
+    if (busy || !confirmed || !session.trim()) return
+    setBusy(true)
+    setError('')
+    try {
+      await api(`/orders/${order.id}/refill`, {
+        round: order.refillCount ?? 0,
+        confirmedNotReceived: confirmed,
+        session,
+      })
+      setSession('')
+    } catch (failure) {
+      setError((failure as Error).message)
+    } finally {
+      await reload()
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="mt-24">
+      <p>
+        如果 {order.email}{' '}
+        没有到账，可以在这笔订单上免费补充，无需再付款。如果不想继续，请联系支持办理退款。
+      </p>
+      <label className="session-recovery-label" htmlFor="refill-session">
+        原充值账号的最新会话信息（Session）
+      </label>
+      <Input.TextArea
+        id="refill-session"
+        rows={6}
+        autoComplete="off"
+        disabled={busy}
+        value={session}
+        onChange={(event) => setSession(event.target.value)}
+      />
+      <p>
+        <Checkbox
+          checked={confirmed}
+          disabled={busy}
+          onChange={(event) => setConfirmed(event.target.checked)}
+        >
+          我已核对原账号，确认本单未到账，选择免费补充
+        </Checkbox>
+      </p>
+      {error && <Alert type="error" showIcon title={error} />}
+      <Button
+        type="primary"
+        loading={busy}
+        disabled={!confirmed || !session.trim()}
+        onClick={submit}
+      >
+        在原订单免费补充
+      </Button>
+    </div>
+  )
 }
 
 function OrderContent({ id }: { id: string }) {
@@ -142,7 +205,9 @@ function OrderContent({ id }: { id: string }) {
   const titles = {
     cancelled: '订单已取消，抵扣余额已退回。',
     unpaid: '订单已准备好，完成付款即可继续。',
-    processing: '已收到付款，正在为你充值。',
+    processing: order.refillCount
+      ? '正在原订单免费补充，无需再付款。'
+      : '已收到付款，正在为你充值。',
     completed: order.kind === 'topup' ? '充值余额已到账。' : '充值完成，开始使用吧。',
     needs_session: '需要更新账号信息，继续原订单。',
     failed: '这笔订单需要进一步处理。',
@@ -352,9 +417,14 @@ function OrderContent({ id }: { id: string }) {
                   ? originalRefund
                     ? '请核对原支付账户及站内钱包的退款记录。'
                     : '退款已入账，可在本站钱包查看。'
-                  : '请保留原订单号，联系支持核对处理结果。'
+                  : order.canRefill
+                    ? '可核对原订单后继续充值，也可联系支持退款。'
+                    : '请保留原订单号，联系支持核对处理结果。'
               }
             />
+          )}
+          {order.status === 'failed' && order.canRefill && !order.refund && (
+            <RefillForm key={order.refillCount} order={order} reload={load} />
           )}
         </Card>
         <Card title="订单详情">
@@ -364,6 +434,15 @@ function OrderContent({ id }: { id: string }) {
               { key: 'p', label: '服务', children: order.productName },
               { key: 'e', label: '充值账号', children: order.email },
               { key: 'contact', label: '联系邮箱', children: order.contactEmail },
+              ...(order.refillCount
+                ? [
+                    {
+                      key: 'refills',
+                      label: '免费补充',
+                      children: `${order.refillCount} 次，未额外收费`,
+                    },
+                  ]
+                : []),
               ...((order.discountAmount ?? 0) > 0
                 ? [
                     {

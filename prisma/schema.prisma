@@ -365,6 +365,7 @@ model Order {
   redemptionVersion     Int               @default(0) @map("redemption_version")
   submissionAttempted   Boolean           @default(false) @map("submission_attempted")
   fulfillmentResolution Json?             @map("fulfillment_resolution")
+  refillHistory         Json              @default("[]") @map("refill_history")
   refundDestination     String?           @map("refund_destination")
   refundStatus          String?           @map("refund_status")
   refundAutomatic       Boolean           @default(false) @map("refund_automatic")

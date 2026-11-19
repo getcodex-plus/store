@@ -60,6 +60,7 @@ import { updateAdminUser } from '../../../server/admin-users'
 import { adminQuerySchema } from '../../../server/admin-query'
 import { accountHistory, accountHistoryQuery } from '../../../server/account-history'
 import { resolveOrder } from '../../../server/order-resolution'
+import { refillOrder } from '../../../server/order-refill'
 import { previewCoupon, saveAdminCoupon } from '../../../server/coupons'
 
 export const runtime = 'nodejs'
@@ -241,6 +242,18 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
       })
       if (order.kind === 'purchase') await completeOrder(order.id)
       result = { ok: true }
+    } else if (/^orders\/[^/]+\/refill$/.test(path) && method === 'POST') {
+      const user = await currentUser()
+      const browser = await browserDigest()
+      const orderId = path.split('/')[1]
+      await checkRiskRate('session-update', {
+        browser,
+        user: user?.id,
+        ip: clientIP(request.headers),
+      })
+      const order = await accessibleOrder(user, browser, orderId)
+      if (order.canRefill) await checkRiskRate('preflight', {})
+      result = await refillOrder(user, browser, orderId, data)
     } else if (/^orders\/[^/]+\/session$/.test(path) && method === 'POST') {
       const input = z.object({ session: z.string().max(100000) }).parse(data)
       await checkRiskRate('session-update', {

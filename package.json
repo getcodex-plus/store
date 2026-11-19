@@ -1,7 +1,16 @@
 {
   "name": "getcodex-plus",
+  "description": "Self-hosted ChatGPT recharge storefront with Dujiao-Next procurement, AICDK fulfillment, payments and referrals.",
   "private": true,
   "version": "0.1.0",
+  "homepage": "https://github.com/getcodex-plus/store#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/getcodex-plus/store.git"
+  },
+  "bugs": {
+    "url": "https://github.com/getcodex-plus/store/issues"
+  },
   "type": "module",
   "scripts": {
     "dev": "bun run db:generate && next dev --hostname 127.0.0.1",
