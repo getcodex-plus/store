@@ -114,13 +114,22 @@ esac
 echo "== 3. 支付/上游集成 =="
 ACTIVE=$(q "select string_agg(provider,',' order by provider) from integrations where active;")
 
-# 严重度取决于「现在是否真的要收钱」：未启用任何支付集成、也不是 live 的
-# demo/纯库存站，回调域名不可解析或渠道缺集成都不会造成损失；转 live 或启用了
-# 收款就必须是 FAIL。否则本地开发默认 .env 一跑 preflight 就整体 FAILED，这个
-# 检查会被当成噪音关掉。
+# 严重度取决于「现在是否真的要收钱」。两个容易搞错的点：
+# 1. integrations.active 只表示「这份配置在生效」，操作员真正开关的是 enabled；
+#    integration() 要求两者都真，所以只有 active AND enabled 才算「已启用收款」。
+#    用 active 判断会把一份关掉的网关算成要收钱，在 demo 上误判 FAIL。
+# 2. 部署机常把 APP_MODE=live 写在 .env 里交给 Compose，宿主 shell 并没有 export，
+#    只看环境变量会把 live 当成 demo，把该 FAIL 的降级成 WARN 放过去。
+APP_MODE_VAL="${APP_MODE:-}"
+if [ -z "$APP_MODE_VAL" ] && [ -f .env ]; then
+  APP_MODE_VAL=$(grep -E '^APP_MODE=' .env | head -1 | cut -d= -f2-)
+  APP_MODE_VAL="${APP_MODE_VAL%\"}"; APP_MODE_VAL="${APP_MODE_VAL#\"}"
+  APP_MODE_VAL="${APP_MODE_VAL%\'}"; APP_MODE_VAL="${APP_MODE_VAL#\'}"
+fi
+ENABLED=$(q "select string_agg(provider,',' order by provider) from integrations where active and enabled;")
 STRICT_PAY=0
-if [ "${APP_MODE:-}" = "live" ]; then STRICT_PAY=1; fi
-case "$ACTIVE" in *gmpay*|*xorpay*|*epay*) STRICT_PAY=1 ;; esac
+if [ "$APP_MODE_VAL" = "live" ]; then STRICT_PAY=1; fi
+case "$ENABLED" in *gmpay*|*xorpay*|*epay*) STRICT_PAY=1 ;; esac
 payfail() {
   if [ "$STRICT_PAY" = "1" ]; then fail "$1"
   else warn "$1（当前未启用收款：demo/纯库存站暂不阻塞，转 live 前必须修）"; fi
@@ -154,11 +163,18 @@ CH_ALIPAY=$(q "select coalesce(body->>'alipay','false') from settings where id=1
 CH_WECHAT=$(q "select coalesce(body->>'wechat','false') from settings where id=1;")
 CH_CRYPTO=$(q "select coalesce(body->>'crypto','false') from settings where id=1;")
 FIAT=$(q "select coalesce(body->>'fiatProvider','xorpay') from settings where id=1;")
+# The value comes from the database and is later interpolated into SQL run under
+# the deploy account, so the whitelist decides whether a query happens at all:
+# an unrecognised value is reported and never reaches a query string.
 case "$FIAT" in
-  xorpay|epay_v1|epay_v2) ;;
-  *) payfail "settings.fiatProvider 值异常（${FIAT}）：newOrder() 会拿它去查集成，下单必失败" ;;
+  xorpay|epay_v1|epay_v2)
+    FIAT_ON=$(q "select count(*) from integrations where provider='${FIAT}' and active and enabled;")
+    ;;
+  *)
+    FIAT_ON=0
+    payfail "settings.fiatProvider 值异常（${FIAT}）：newOrder() 会拿它去查集成，下单必失败；该值未进入任何查询"
+    ;;
 esac
-FIAT_ON=$(q "select count(*) from integrations where provider='${FIAT}' and active and enabled;")
 GMP_ON=$(q "select count(*) from integrations where provider='gmpay' and active and enabled;")
 if [ "$CH_ALIPAY" = "true" ] || [ "$CH_WECHAT" = "true" ]; then
   if [ "${FIAT_ON:-0}" -gt 0 ]; then
