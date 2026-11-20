@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Alert, Button, Card, Checkbox, InputNumber, Popconfirm, Select, Space, Table } from 'antd'
 import { api } from '../lib'
 import { createQueryGeneration } from '../query-generation'
@@ -52,28 +52,30 @@ export function StockProcurement({
   const [rows, setRows] = useState<Overview['purchases']>([])
   const [hasMore, setHasMore] = useState(false)
   const requestKey = useRef('')
-  const query = async (params: { state?: string; before?: string }) => {
-    const qs = new URLSearchParams()
-    if (params.state) qs.set('state', params.state)
-    if (params.before) qs.set('before', params.before)
-    const tail = qs.toString()
-    return api<Overview>(`/admin/procurement${tail ? `?${tail}` : ''}`)
-  }
-  // Every refresh/filter change starts a new generation; responses from an older
-  // one are dropped instead of overwriting the current view.
+  const activeFilter = useRef<string | undefined>(undefined)
   const generation = useRef(createQueryGeneration())
-  const load = async (state = stateFilter) => {
-    const mine = generation.current.start()
-    const next = await query({ state })
-    if (!generation.current.isCurrent(mine)) return
-    setOverview(next)
-    setRows(next.purchases)
-    setHasMore(next.hasMore)
-  }
+  const load = useCallback(async (before?: string) => {
+    const mine = before ? generation.current.ticket() : generation.current.start()
+    if (!before) setHasMore(false)
+    const params = new URLSearchParams()
+    if (activeFilter.current) params.set('state', activeFilter.current)
+    if (before) params.set('before', before)
+    try {
+      const next = await api<Overview>(`/admin/procurement${params.size ? `?${params}` : ''}`)
+      if (!generation.current.isCurrent(mine)) return
+      setOverview(next)
+      setRows((previous) => (before ? [...previous, ...next.purchases] : next.purchases))
+      setHasMore(next.hasMore)
+    } catch (err) {
+      if (generation.current.isCurrent(mine)) setError((err as Error).message)
+    }
+  }, [])
   useEffect(() => {
-    void load(stateFilter).catch((err: Error) => setError(err.message))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stateFilter])
+    void load()
+    return () => {
+      generation.current.start()
+    }
+  }, [load])
   async function run(action: () => Promise<void>) {
     setBusy(true)
     setError('')
@@ -133,17 +135,6 @@ export function StockProcurement({
   // Counted by the server over the whole table: deriving it from the visible page
   // made the alert vanish once 50 newer purchases pushed the review row off it.
   const reviewCount = overview?.reviewCount ?? 0
-  const visiblePurchases = rows
-  const loadMore = async () => {
-    const last = rows[rows.length - 1]
-    if (!last) return
-    const mine = generation.current.ticket()
-    const next = await query({ state: stateFilter, before: last.id })
-    // A filter change or refresh while this page was in flight invalidates it.
-    if (!generation.current.isCurrent(mine)) return
-    setRows((prev) => [...prev, ...next.purchases])
-    setHasMore(next.hasMore)
-  }
   return (
     <Card
       title="上游进货与 SKU 映射"
@@ -307,11 +298,18 @@ export function StockProcurement({
       <h3 className="mt-20">采购记录</h3>
       <Space wrap className="mt-10">
         <Select
+          aria-label="按状态筛选"
           allowClear
           placeholder="按状态筛选"
           style={{ width: 180 }}
           value={stateFilter}
-          onChange={setStateFilter}
+          onChange={(state: string | undefined) => {
+            activeFilter.current = state
+            setStateFilter(state)
+            setRows([])
+            setError('')
+            void load()
+          }}
           options={Object.entries(statusNames).map(([value, label]) => ({ value, label }))}
         />
         {reviewCount > 0 && (
@@ -332,7 +330,7 @@ export function StockProcurement({
           />
         )}
         {hasMore && (
-          <Button disabled={busy} onClick={() => void run(loadMore)}>
+          <Button disabled={busy} onClick={() => void run(() => load(rows.at(-1)?.id))}>
             加载更早的采购单
           </Button>
         )}
@@ -342,7 +340,7 @@ export function StockProcurement({
         size="small"
         scroll={{ x: 1000 }}
         className="mt-10"
-        dataSource={visiblePurchases}
+        dataSource={rows}
         rowClassName={(item) => (item.state === 'review' ? 'procurement-review-row' : '')}
         locale={{ emptyText: '暂无采购记录' }}
         pagination={{ pageSize: 5 }}
