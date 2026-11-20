@@ -930,6 +930,54 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
       expect(JSON.stringify(orderView(row))).not.toContain('verified ticket')
     })
 
+    it('does not park a fresh refill when a late lookup reports a conflict', async () => {
+      const { apply, order } = await fixture(2)
+      const before = await db.order.update({
+        where: { id: order.id },
+        data: {
+          status: 'processing',
+          redemptionId: null,
+          fulfillmentStatus: 'uncertain',
+          redemptionVersion: 0,
+        },
+      })
+      const started = gate()
+      const finish = gate()
+      const fetcher = upstream(order.id)
+      fetcher.mockImplementationOnce(async () => {
+        started.release()
+        await finish.promise
+        // Two distinct redemptions for the round that is about to be failed by a
+        // human. By the time this lands, the order runs a new round.
+        return ok([
+          remote(order.id, 'completed', 1),
+          { ...remote(order.id, 'completed', 2), id: 'ord_late_duplicate' },
+        ])
+      })
+      const running = fulfillOrder(order.id)
+      await started.promise
+      try {
+        await resolveOrder(order.id, 'operator', {
+          outcome: 'failed',
+          note: 'verified ticket',
+          confirmed: true,
+          expectedRevision: adminOrderView(before).resolutionRevision,
+        })
+        fetcher.mockResolvedValueOnce(ok([remote(order.id, 'cancelled', 3)]))
+        await apply()
+      } finally {
+        finish.release()
+      }
+      await running.catch(() => undefined)
+
+      const row = await db.order.findUniqueOrThrow({ where: { id: order.id } })
+      // The late conflict belongs to the failed round: the refill must stay live
+      // and its job must remain claimable.
+      expect(row.fulfillmentStatus).not.toBe('redemption_conflict')
+      const job = await db.job.findFirst({ where: { orderId: order.id } })
+      expect(job?.done).toBe(false)
+    })
+
     it('serializes a refund against a refill and blocks a refunded order', async () => {
       const { apply, order } = await fixture(2)
       const fetcher = upstream(order.id)

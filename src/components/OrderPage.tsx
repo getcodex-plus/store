@@ -409,15 +409,19 @@ function OrderContent({ id }: { id: string }) {
             </div>
           )}
           {order.status === 'processing' &&
-            ['requires_action', 'uncertain'].includes(order.fulfillmentStatus || '') && (
+            ['requires_action', 'uncertain', 'redemption_conflict'].includes(
+              order.fulfillmentStatus || '',
+            ) && (
               <Alert
                 className="mt-24"
                 type="warning"
                 showIcon
                 title={
-                  order.fulfillmentStatus === 'requires_action'
-                    ? '本次充值需要进一步处理'
-                    : '正在核对本次充值结果'
+                  order.fulfillmentStatus === 'redemption_conflict'
+                    ? '本次充值需要人工核对'
+                    : order.fulfillmentStatus === 'requires_action'
+                      ? '本次充值需要进一步处理'
+                      : '正在核对本次充值结果'
                 }
                 description="请保留原订单并联系支持，不要重复下单或付款。"
               />

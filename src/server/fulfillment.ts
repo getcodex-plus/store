@@ -137,14 +137,21 @@ export async function fulfillOrder(orderId: string): Promise<boolean> {
     // without touching upstream again.
     if (error instanceof UpstreamError && error.code === 'REDEMPTION_CONFLICT') {
       await transaction(async (client) => {
-        await client.order.updateMany({
-          where: { id: order.id, status: 'processing' },
-          data: { fulfillmentStatus: 'redemption_conflict' },
-        })
-        // Returning true only means "this attempt is over". tick() sets
-        // job.done solely when order.status left 'processing', and this order
-        // stays in 'processing' on purpose — so without this line the worker
-        // re-claims the conflict every few seconds and writes forever.
+        // This lookup ran outside the order lock, so the conflict may belong to a
+        // round that a human has since failed and refilled. Match the round
+        // atomically: only while the order is still processing on THIS round does
+        // the mark apply — and only then may the job be closed. Otherwise a late
+        // response would park a fresh, healthy refill.
+        const marked = await client.$executeRaw`
+          UPDATE orders SET fulfillment_status = 'redemption_conflict'
+          WHERE id = ${order.id}
+            AND status = 'processing'
+            AND jsonb_array_length(refill_history) = ${order.refillCount}
+        `
+        if (!marked) return
+        // Returning true alone does not close the job: tick() sets job.done only
+        // when order.status leaves 'processing', and this order stays there on
+        // purpose — without this the worker re-claims it every few seconds.
         await client.job.updateMany({
           where: { orderId: order.id },
           data: { done: true, lockedUntil: null, lastError: 'REDEMPTION_CONFLICT' },
@@ -221,10 +228,15 @@ export async function fulfillOrder(orderId: string): Promise<boolean> {
               recoverError instanceof UpstreamError &&
               recoverError.code === 'REDEMPTION_CONFLICT'
             ) {
-              await client.order.updateMany({
-                where: { id: order.id, status: 'processing' },
-                data: { fulfillmentStatus: 'redemption_conflict' },
-              })
+              // Same round check as the pre-submit path: the recovery lookup may
+              // have been answered for a round that is no longer live.
+              const marked = await client.$executeRaw`
+                UPDATE orders SET fulfillment_status = 'redemption_conflict'
+                WHERE id = ${order.id}
+                  AND status = 'processing'
+                  AND jsonb_array_length(refill_history) = ${order.refillCount}
+              `
+              if (!marked) return { done: true }
               await client.job.updateMany({
                 where: { orderId: order.id },
                 data: { done: true, lockedUntil: null, lastError: 'REDEMPTION_CONFLICT' },

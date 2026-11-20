@@ -331,7 +331,11 @@ export async function syncStockPurchase() {
   } catch (error) {
     if (error instanceof PurchaseRejection) await stop('rejected', error.code, error.orderId)
     else if (error instanceof DeliveryMismatch) await stop('review', 'delivery_mismatch')
-    else if (exhausted) await stop('review', 'retry_exhausted')
+    // The exception path needs its own terminal bound too: once an upstream order
+    // exists `exhausted` is always false, so without `stale` a purchase that keeps
+    // answering 5xx would retry forever and never reach a human.
+    else if (stale || exhausted)
+      await stop('review', purchase.upstreamOrderId ? 'stale_upstream' : 'retry_exhausted')
     else
       await db.stockPurchase.updateMany({
         where,

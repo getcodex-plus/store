@@ -245,6 +245,34 @@ suite('downstream stock purchases', () => {
     expect(filtered.purchases.map((item) => item.id)).toContain('sp_old_review')
   })
 
+  it('hands a purchase to a human when upstream keeps failing after the order exists', async () => {
+    // Once an upstream order exists the failure budget is `stale` (120 polls).
+    // The exception path used to check `exhausted` only, which is always false
+    // here — so a purchase that kept answering 5xx retried forever.
+    const purchase = await db.stockPurchase.create({
+      data: {
+        id: 'sp_persistent_502',
+        productId: mapping.productId,
+        integrationId: mapping.integrationId,
+        upstreamProductId: 20,
+        skuId: 34,
+        quantity: 1,
+        actor,
+        state: 'polling',
+        upstreamOrderId: 92,
+        attempts: 119, // claimStockPurchase increments to 120 → stale
+        nextRunAt: new Date(0),
+      },
+    })
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('boom', { status: 502 })))
+
+    await syncStockPurchase()
+
+    expect(
+      await db.stockPurchase.findUniqueOrThrow({ where: { id: purchase.id } }),
+    ).toMatchObject({ state: 'review', lastError: 'stale_upstream' })
+  })
+
   it('does not spend the failure budget on a healthy poll that hits one 502', async () => {
     // The order already exists upstream, so `attempts` keeps ticking on every
     // healthy poll. Charging those against the failure budget would hand a
