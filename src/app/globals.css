@@ -3045,3 +3045,9 @@ svg {
   flex-wrap: wrap;
   gap: 8px;
 }
+
+/* Procurement rows that need a human (state=review) must be impossible to miss:
+   the operator has to reconcile them before the upstream charge is forgotten. */
+.procurement-review-row > td {
+  background: #fffbe6;
+}

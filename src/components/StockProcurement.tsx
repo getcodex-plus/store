@@ -47,6 +47,7 @@ export function StockProcurement({
   const [quantity, setQuantity] = useState<number | null>(1)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [stateFilter, setStateFilter] = useState<string>()
   const requestKey = useRef('')
   const load = async () => setOverview(await api<Overview>('/admin/procurement'))
   useEffect(() => {
@@ -108,6 +109,11 @@ export function StockProcurement({
       requestKey.current = ''
       await load()
     })
+  const purchases = overview?.purchases ?? []
+  const reviewCount = purchases.filter((item) => item.state === 'review').length
+  const visiblePurchases = stateFilter
+    ? purchases.filter((item) => item.state === stateFilter)
+    : purchases
   return (
     <Card
       title="上游进货与 SKU 映射"
@@ -269,11 +275,30 @@ export function StockProcurement({
       )}
       {demo && <p className="tiny muted">演示模式不会提交真实采购。</p>}
       <h3 className="mt-20">采购记录</h3>
+      <Space wrap className="mt-10">
+        <Select
+          allowClear
+          placeholder="按状态筛选"
+          style={{ width: 180 }}
+          value={stateFilter}
+          onChange={setStateFilter}
+          options={Object.entries(statusNames).map(([value, label]) => ({ value, label }))}
+        />
+        {reviewCount > 0 && (
+          <Alert
+            type="warning"
+            showIcon
+            title={`${reviewCount} 张采购单需人工核对（review）：上游可能已扣款但未交付，请核对后手工入库或退款`}
+          />
+        )}
+      </Space>
       <Table
         rowKey="id"
         size="small"
-        scroll={{ x: 760 }}
-        dataSource={overview?.purchases}
+        scroll={{ x: 1000 }}
+        className="mt-10"
+        dataSource={visiblePurchases}
+        rowClassName={(item) => (item.state === 'review' ? 'procurement-review-row' : '')}
         locale={{ emptyText: '暂无采购记录' }}
         pagination={{ pageSize: 5 }}
         columns={[
@@ -295,6 +320,18 @@ export function StockProcurement({
               ]
                 .filter(Boolean)
                 .join(' · '),
+          },
+          { title: '重试次数', dataIndex: 'attempts' },
+          {
+            title: '下次重试',
+            render: (_, item) =>
+              item.state === 'queued' || item.state === 'polling'
+                ? new Date(item.nextRunAt).toLocaleString('zh-CN')
+                : '—',
+          },
+          {
+            title: '创建时间',
+            render: (_, item) => new Date(item.createdAt).toLocaleString('zh-CN'),
           },
           { title: '入库批次', dataIndex: 'batchId' },
           {
