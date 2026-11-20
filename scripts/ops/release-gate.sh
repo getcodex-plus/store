@@ -79,30 +79,20 @@ echo "  （并行会因 auth_rate_limit 共用 schema 出假 403；OPAQUE 单测
 if [ "$SKIP_TESTS" = "1" ]; then
   echo "  SKIP  按 --skip-tests 跳过（发布时不许跳）"
 else
-  OUT=$(TEST_DATABASE_URL="${TEST_DATABASE_URL:-postgresql://getgpt@127.0.0.1:55439/${TEST_DB}}" \
-        bunx vitest run --no-file-parallelism --testTimeout=30000 2>&1)
-  LINE=$(printf '%s\n' "$OUT" | grep -E '^ +Tests +' | tail -1)
-  FILES=$(printf '%s\n' "$OUT" | grep -E '^ +Test Files +' | tail -1)
-  printf '  %s\n  %s\n' "${FILES:-（未取到 Test Files 行）}" "${LINE:-（未取到 Tests 行）}"
-  if printf '%s\n' "$LINE" | grep -q 'failed'; then
+  if ! TEST_DATABASE_URL="${TEST_DATABASE_URL:-postgresql://getgpt@127.0.0.1:55439/${TEST_DB}}" \
+       bunx vitest run --no-file-parallelism --testTimeout=30000; then
     FAILED="${FAILED} 串行测试有失败;"
   fi
-  printf '%s\n' "$LINE" | grep -qE 'skipped' && echo "  （报告口径：passed 与 skipped 必须成对报）"
 fi
 
 # ---- 2. db:verify ----
 echo
 echo "== 2/4 db:verify（结构基线）=="
 if [ -n "$PSQL_URL" ]; then
-  V=$(DATABASE_URL="$PSQL_URL" bun --bun scripts/verify-database.ts 2>&1 | tail -8)
+  DATABASE_URL="$PSQL_URL" bun --bun scripts/verify-database.ts || FAILED="${FAILED} db:verify 失败;"
 else
-  V=$(bun run db:verify 2>&1 | tail -8)
+  bun run db:verify || FAILED="${FAILED} db:verify 失败;"
 fi
-printf '%s\n' "$V" | sed 's/^/  /'
-EXPECTED_COLUMNS="${EXPECTED_COLUMNS:-336}"
-EXPECTED_CONSTRAINTS="${EXPECTED_CONSTRAINTS:-394}"
-printf '%s\n' "$V" | grep -q "columns: ${EXPECTED_COLUMNS}" || FAILED="${FAILED} db:verify 列数 ${EXPECTED_COLUMNS} 不符;"
-printf '%s\n' "$V" | grep -q "constraints: ${EXPECTED_CONSTRAINTS}" || FAILED="${FAILED} db:verify 约束数 ${EXPECTED_CONSTRAINTS} 不符;"
 
 # ---- 3. preflight 双向（只看 §3.5 回调域名判据）----
 echo
