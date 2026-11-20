@@ -39,7 +39,6 @@ function paidOrder(id: string, extra: Record<string, unknown> = {}) {
 // Pure budget arithmetic runs everywhere — no database needed, so a plain
 // `bun run test` still exercises the cap.
 describe('fulfillment retry cap', () => {
-
   it('treats the 20th attempt as exhausted and never means unlimited', () => {
     expect(fulfillmentRetryExhausted(0)).toBe(false)
     expect(fulfillmentRetryExhausted(19)).toBe(false)
@@ -80,10 +79,17 @@ suite('fulfillment hand-off', () => {
   it('moves a stuck order to failed, closes the job and records an audit line', async () => {
     await db.order.create({ data: paidOrder('o_stuck') })
     await db.job.create({
-      data: { id: 'j_stuck', orderId: 'o_stuck', attempts: 20, lastError: 'earlier' },
+      data: {
+        id: 'j_stuck',
+        orderId: 'o_stuck',
+        lease: 'current',
+        attempts: 20,
+        lastError: 'earlier',
+      },
     })
 
-    expect(await exhaustFulfillment('o_stuck', 'UPSTREAM_UNAVAILABLE')).toBe(true)
+    expect(await exhaustFulfillment('o_stuck', 'UPSTREAM_UNAVAILABLE', 'expired')).toBe(false)
+    expect(await exhaustFulfillment('o_stuck', 'UPSTREAM_UNAVAILABLE', 'current')).toBe(true)
 
     const moved = await db.order.findUniqueOrThrow({ where: { id: 'o_stuck' } })
     expect(moved.status).toBe('failed')
@@ -102,18 +108,19 @@ suite('fulfillment hand-off', () => {
   it('is idempotent and never touches an order that already left processing', async () => {
     await db.order.create({ data: paidOrder('o_completed', { status: 'completed' }) })
 
-    expect(await exhaustFulfillment('o_completed', 'X')).toBe(false)
+    expect(await exhaustFulfillment('o_completed', 'X', 'current')).toBe(false)
     expect((await db.order.findUniqueOrThrow({ where: { id: 'o_completed' } })).status).toBe(
       'completed',
     )
     // Unknown order: nothing to move, no throw.
-    expect(await exhaustFulfillment('o_never_existed', 'X')).toBe(false)
+    expect(await exhaustFulfillment('o_never_existed', 'X', 'current')).toBe(false)
   })
 
   it('records why the buyer was not notified when the order has no contact email', async () => {
     await db.order.create({ data: paidOrder('o_noemail', { contactEmail: null }) })
 
-    await exhaustFulfillment('o_noemail', 'X')
+    await db.job.create({ data: { id: 'j_noemail', orderId: 'o_noemail', lease: 'current' } })
+    await exhaustFulfillment('o_noemail', 'X', 'current')
 
     const audits = await db.audit.findMany({ where: { target: 'o_noemail' } })
     expect(audits.map((entry) => entry.action)).toContain('通知未发送：缺少联系邮箱')
@@ -123,7 +130,8 @@ suite('fulfillment hand-off', () => {
     await db.order.create({ data: paidOrder('o_outbox', { contactEmail: 'buyer@example.com' }) })
     const before = await db.emailOutbox.count({ where: { orderId: 'o_outbox' } })
 
-    await exhaustFulfillment('o_outbox', 'X')
+    await db.job.create({ data: { id: 'j_outbox', orderId: 'o_outbox', lease: 'current' } })
+    await exhaustFulfillment('o_outbox', 'X', 'current')
 
     // The status flip is what queues the buyer email; this function never talks
     // to the mail provider itself. Counting the new outbox episode is the real

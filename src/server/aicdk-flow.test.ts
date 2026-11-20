@@ -361,20 +361,37 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
       status: 'completed' as const,
       client_request_id: requestId,
       account_email: email,
-      quote: { amount_minor: 2000, currency: 'USD', business: 'recharge', target_plan: 'plus' },
+      quote: {
+        amount_minor: 900,
+        currency: 'USD',
+        business: 'plus_50_percent_discount',
+        target_plan: 'plus',
+      },
       version: 1,
     })
-    fetcher.mockImplementation(async (url: string) => {
-      if (url.includes('/redemptions?')) return ok([redemption('remote_dup_1'), redemption('remote_dup_2')])
-      throw new Error('must not call upstream again after a redemption conflict')
-    })
-
-    expect(await fulfillOrder(order.id)).toBe(true)
+    const started = gate()
+    const finish = gate()
+    fetcher
+      .mockImplementationOnce(async () => {
+        started.release()
+        await finish.promise
+        return ok([redemption('remote_dup_1')])
+      })
+      .mockResolvedValueOnce(ok([redemption('remote_dup_1'), redemption('remote_dup_2')]))
+    const pending = fulfillOrder(order.id)
+    await started.promise
+    try {
+      expect(await fulfillOrder(order.id)).toBe(true)
+    } finally {
+      finish.release()
+      await pending
+    }
 
     const after = await db.order.findUniqueOrThrow({ where: { id: order.id } })
     // A local mark, not the provider's requires_action: manual_review orders keep
     // their read-only poll and must not be parked by us.
     expect(after.fulfillmentStatus).toBe('redemption_conflict')
+    expect(after.status).toBe('processing')
     // The job must actually be closed, otherwise the worker re-claims it forever.
     const job = await db.job.findFirstOrThrow({ where: { orderId: order.id } })
     expect(job.done).toBe(true)
@@ -424,7 +441,9 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
     expect(
       fetcher.mock.calls.some(([url]) => String(url).includes('/redemptions/remote_manual')),
     ).toBe(true)
-    expect((await db.order.findUniqueOrThrow({ where: { id: order.id } })).status).toBe('processing')
+    expect((await db.order.findUniqueOrThrow({ where: { id: order.id } })).status).toBe(
+      'processing',
+    )
 
     // Upstream finishes on its own; the next poll settles the paid order.
     status = 'completed'
@@ -968,7 +987,7 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
       } finally {
         finish.release()
       }
-      await running.catch(() => undefined)
+      await running
 
       const row = await db.order.findUniqueOrThrow({ where: { id: order.id } })
       // The late conflict belongs to the failed round: the refill must stay live

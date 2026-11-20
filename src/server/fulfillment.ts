@@ -1,4 +1,5 @@
 import { db, transaction, upstreamTransaction, type DbClient } from './db'
+import { markRedemptionConflict } from './database-sql'
 import { redemptionRequestId } from '../order-refill'
 import { paymentOrderView, quoteView } from './data'
 import { demo } from './config'
@@ -30,6 +31,7 @@ async function needSession(order: PaymentOrder, tx?: DbClient) {
         status: 'processing',
         redemptionId: null,
         fulfillmentAttempt: order.fulfillmentAttempt,
+        fulfillmentStatus: order.fulfillmentStatus ?? null,
       },
       data: { status: 'needs_session', submissionAttempted: false },
     })
@@ -43,6 +45,16 @@ async function needSession(order: PaymentOrder, tx?: DbClient) {
   else await transaction(update)
 }
 
+async function parkRedemptionConflict(client: DbClient, order: PaymentOrder) {
+  const marked = await markRedemptionConflict(client, order.id, order.refillCount ?? 0)
+  if (!marked) return false
+  await client.job.updateMany({
+    where: { orderId: order.id },
+    data: { done: true, lease: null, lockedUntil: null, lastError: 'REDEMPTION_CONFLICT' },
+  })
+  return true
+}
+
 async function recordResult(
   client: DbClient,
   record: OrderRecord,
@@ -52,6 +64,8 @@ async function recordResult(
 ) {
   const current = paymentOrderView(record)
   if (redemptionRequestId(current.id, current.refillCount) !== requestId) return false
+  if (record.fulfillmentStatus === 'redemption_conflict' && !record.fulfillmentResolution)
+    return true
   validateFulfillment(result, quote, requestId)
   if (record.fulfillmentResolution) {
     if (
@@ -102,17 +116,8 @@ export async function fulfillOrder(orderId: string): Promise<boolean> {
   )
     return true
   if (order.status !== 'processing') return false
-  // awaiting_procurement / procurement_review wait on other systems; those are
-  // local marks. redemption_conflict is our own stop mark: upstream already holds
-  // more than one redemption, so no further submission is safe.
-  // requires_action is deliberately NOT here: the provider uses it for
-  // manual_review, and such a redemption has an id and can still complete
-  // upstream, so those orders keep their read-only poll.
-  if (
-    ['awaiting_procurement', 'procurement_review', 'redemption_conflict'].includes(
-      order.fulfillmentStatus ?? '',
-    )
-  )
+  if (order.fulfillmentStatus === 'redemption_conflict') return true
+  if (['awaiting_procurement', 'procurement_review'].includes(order.fulfillmentStatus ?? ''))
     return false
   if (demo) {
     await completeOrder(order.id)
@@ -132,33 +137,8 @@ export async function fulfillOrder(orderId: string): Promise<boolean> {
       ? await getRedemption(order.redemptionId, binding)
       : await findRedemption(requestId, binding)
   } catch (error) {
-    // Upstream already holds more than one redemption for this request. Any
-    // retry would create another one, so mark the order for a human and stop
-    // without touching upstream again.
-    if (error instanceof UpstreamError && error.code === 'REDEMPTION_CONFLICT') {
-      await transaction(async (client) => {
-        // This lookup ran outside the order lock, so the conflict may belong to a
-        // round that a human has since failed and refilled. Match the round
-        // atomically: only while the order is still processing on THIS round does
-        // the mark apply — and only then may the job be closed. Otherwise a late
-        // response would park a fresh, healthy refill.
-        const marked = await client.$executeRaw`
-          UPDATE orders SET fulfillment_status = 'redemption_conflict'
-          WHERE id = ${order.id}
-            AND status = 'processing'
-            AND jsonb_array_length(refill_history) = ${order.refillCount}
-        `
-        if (!marked) return
-        // Returning true alone does not close the job: tick() sets job.done only
-        // when order.status leaves 'processing', and this order stays there on
-        // purpose — without this the worker re-claims it every few seconds.
-        await client.job.updateMany({
-          where: { orderId: order.id },
-          data: { done: true, lockedUntil: null, lastError: 'REDEMPTION_CONFLICT' },
-        })
-      })
-      return true
-    }
+    if (error instanceof UpstreamError && error.code === 'REDEMPTION_CONFLICT')
+      return transaction((client) => parkRedemptionConflict(client, order))
     throw error
   }
   if (!result) {
@@ -176,6 +156,7 @@ export async function fulfillOrder(orderId: string): Promise<boolean> {
         status: 'processing',
         redemptionId: null,
         fulfillmentAttempt: order.fulfillmentAttempt,
+        fulfillmentStatus: order.fulfillmentStatus ?? null,
       },
       data: { submissionAttempted: true },
     })
@@ -187,6 +168,7 @@ export async function fulfillOrder(orderId: string): Promise<boolean> {
       const current = await lockOrderForCompletion(client, order.id)
       if (!current || !['processing', 'needs_session'].includes(current.status))
         return { done: true }
+      if (current.fulfillmentStatus === 'redemption_conflict') return { done: true }
       if (
         current.status !== 'processing' ||
         current.fulfillmentAttempt !== order.fulfillmentAttempt ||
@@ -222,27 +204,11 @@ export async function fulfillOrder(orderId: string): Promise<boolean> {
           try {
             recovered = await findRedemption(requestId, binding)
           } catch (recoverError) {
-            // Same definitive stop as the pre-submit lookup: never add a second
-            // redemption when upstream already reports more than one.
             if (
               recoverError instanceof UpstreamError &&
               recoverError.code === 'REDEMPTION_CONFLICT'
-            ) {
-              // Same round check as the pre-submit path: the recovery lookup may
-              // have been answered for a round that is no longer live.
-              const marked = await client.$executeRaw`
-                UPDATE orders SET fulfillment_status = 'redemption_conflict'
-                WHERE id = ${order.id}
-                  AND status = 'processing'
-                  AND jsonb_array_length(refill_history) = ${order.refillCount}
-              `
-              if (!marked) return { done: true }
-              await client.job.updateMany({
-                where: { orderId: order.id },
-                data: { done: true, lockedUntil: null, lastError: 'REDEMPTION_CONFLICT' },
-              })
-              return { done: true }
-            }
+            )
+              return { done: await parkRedemptionConflict(client, order) }
             throw recoverError
           }
           if (!recovered) {

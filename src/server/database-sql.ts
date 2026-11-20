@@ -162,6 +162,14 @@ export async function claimJob(client: DbClient, lease: string) {
   return job
 }
 
+export function markRedemptionConflict(client: DbClient, orderId: string, refillCount: number) {
+  return client.$executeRaw`
+    UPDATE orders SET fulfillment_status = 'redemption_conflict'
+    WHERE id = ${orderId} AND status = 'processing'
+      AND jsonb_array_length(refill_history) = ${refillCount}
+  `
+}
+
 export async function claimExchangeRate(pair: string, lease: string) {
   return db.$executeRaw`UPDATE exchange_rates SET lease=${lease},locked_until=now()+interval '45 seconds'
     WHERE id=${pair} AND refresh_after<=now() AND (locked_until IS NULL OR locked_until<now())`

@@ -17,6 +17,8 @@ const statusNames: Record<string, string> = {
 }
 const issueNames: Record<string, string> = {
   retry_pending: '暂未确认，等待重试',
+  stale_upstream: '上游交付未确认，请核对原单',
+  retry_exhausted: '采购重试已达上限，请核对原单',
   delivery_pending: '交付超时，请核对上游原单',
   outcome_unknown: '上游结果未确认，请核对原单',
   delivery_mismatch: '交付内容与采购单不符或卡密重复',
