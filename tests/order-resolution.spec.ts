@@ -86,7 +86,7 @@ test('operators can verify outcomes, inspect records, and continue to refunds', 
     .getByRole('button', { name: /补充记录/ })
     .click()
   await expect(dialog).toContainText('prior-redemption')
-  await expect(dialog).toContainText('保持锁定，需核对')
+  await expect(dialog).toContainText('本轮未将旧码回库，释放情况见订单卡密记录（original-locked）')
   await page.keyboard.press('Escape')
   await expect(dialog).toBeHidden()
   for (const outcome of ['completed', 'failed']) {
