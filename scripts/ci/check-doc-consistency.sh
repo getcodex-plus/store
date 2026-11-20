@@ -33,18 +33,18 @@ if [ -n "${hits}" ]; then printf '%s\n' "${hits}" >&2; fi
 check "无『N 个工作日到账』类退款时效承诺" test -z "${hits}"
 
 # ---- 规则 2：不再对外宣称 XorPay 自动退款（渠道已不注册） ----
-hits=$(grep -rn "XorPay 支持自动\|自动原路退款" README.md docs/*.md 2>/dev/null || true)
+hits=$(grep -rn "XorPay 支持自动\|自动原路退款" README.md docs/*.md || true)
 if [ -n "${hits}" ]; then printf '%s\n' "${hits}" >&2; fi
 check "无『XorPay 支持自动原路退款』这类失效承诺" test -z "${hits}"
 
 # ---- 规则 3：退款必须写明「100% 人工」 ----
 check "客服剧本声明退款 100% 人工" grep -q "退款 100% 人工" "${PLAYBOOK}"
 
-# ---- 规则 4：内部时限数字在多份文档里必须同时存在（改一处就会掉一条） ----
-for pair in "${PLAYBOOK}:24 小时" "${PLAYBOOK}:48 小时" "${RUNBOOK}:24 小时" "${RUNBOOK}:48 小时"; do
-  f=${pair%%:*}; t=${pair#*:}
-  check "$(basename "${f}") 含内部时限「${t}」" grep -qF -- "${t}" "${f}"
+# ---- 规则 4：退款时限只维护在巡检说明中 ----
+for threshold in '24 小时' '48 小时'; do
+  check "订单巡检含内部时限「${threshold}」" grep -qF -- "${threshold}" "${RUNBOOK}"
 done
+check "客服处理指向订单巡检" grep -qF '(ops-runbook.md#订单巡检)' "${PLAYBOOK}"
 
 # ---- 规则 5：值班人必须被写明（不许只写「人盯」） ----
 check "客服剧本写明值班人" grep -q "值班人" "${PLAYBOOK}"
@@ -52,9 +52,7 @@ check "运维手册写明值班人" grep -q "值班人" "${RUNBOOK}"
 
 # ---- 规则 6：退款时限必须有机器提醒（D 类）且状态取值已标注 ----
 check "运维手册含 D 类（退款超时巡检）" grep -q "D 退款超时" "${RUNBOOK}"
-check "客服剧本的时限表指向 D 类" grep -q "D 类" "${PLAYBOOK}"
-check "两份文档都标注 processing 为历史/自动退款遗留" bash -c \
-  "grep -q '历史/自动退款遗留' '${PLAYBOOK}' && grep -q '历史/自动退款遗留' '${RUNBOOK}'"
+check "巡检区分新旧退款状态" grep -q 'D 退款超时.*`review`.*旧.*`processing`' "${RUNBOOK}"
 
 # ---- 规则 7：巡检不得退回「只扫 processing」的旧口径 ----
 # 允许出现 processing，但同一处不许再说「crypto 单停在 processing」。

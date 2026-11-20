@@ -51,7 +51,7 @@
 | AICDK              | API 地址、应用 Key，兑换及换码需要相应 `redeem:*` 权限             |
 | Dujiao-Next        | 上游站点地址、下游账号的 API Key 和 API Secret（采购从上游钱包扣款） |
 | XorPay             | App ID、Secret                                                     |
-| GMPay              | 兼容 `GMWalletApp/gmpay-edge` Merchant API 的网关 URL、PID、Secret |
+| GMPay              | 兼容 EPUSDT v2 查单与回调接口的网关 URL、PID、Secret              |
 | 易支付             | 选择 v1 或 v2，填写对应商户及签名密钥                              |
 | Resend / Sendflare | API Key、经过验证的发件地址                                        |
 | SMTP               | 发信地址、服务器与 TLS 凭证                                        |

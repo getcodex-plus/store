@@ -75,24 +75,13 @@ bun run worker
 
 ## 使用文档
 
-| 文档                                                  | 内容                                               |
-| ----------------------------------------------------- | -------------------------------------------------- |
-| [订单与服务配置](docs/orders-and-services.md)         | 购买、优惠码、兑换、免费补充、退款、支付与邮件接入 |
-| [兑换码与导入批次](docs/inventory-batches.md)         | 上游采购、SKU 映射、批次、换码与库存规则           |
-| [邀请返现与提现](docs/invitations-and-withdrawals.md) | 邀请等级、推广员优惠码、结算及打款登记             |
-| [风控](docs/risk-control.md)                          | 风控规则与操作说明                                 |
-| [SEO 与统计](docs/growth-and-seo.md)                  | 搜索收录、站点验证与 GA4                           |
-| [数据库维护](docs/database.md)                        | 初始化、结构校验与存量数据库更新                   |
-| [开发与测试](docs/development.md)                     | 目录结构、常用命令与独立测试数据库                 |
-| [运维手册](docs/ops-runbook.md)                       | 部署更新、数据库变更顺序、备份与恢复演练、事故处置 |
-| [客服剧本](docs/support-playbook.md)                  | 买家问题定性依据、回复话术与升级条件               |
-| [版本发布](docs/releasing.md)                         | GitHub 简介、发布检查、Release 与 GHCR 镜像        |
+- **订单与售后**：[订单与服务配置](docs/orders-and-services.md) · [采购与库存](docs/inventory-batches.md) · [客服处理](docs/support-playbook.md)
+- **店铺运营**：[邀请返现与提现](docs/invitations-and-withdrawals.md) · [风控](docs/risk-control.md) · [SEO 与统计](docs/growth-and-seo.md)
+- **开发与运维**：[开发与测试](docs/development.md) · [数据库维护](docs/database.md) · [生产部署](docs/deployment.md) · [运维手册](docs/ops-runbook.md) · [版本发布](docs/releasing.md)
 
 ## 参与和反馈
 
 提交问题或改动前请阅读 [贡献指南](CONTRIBUTING.md)。安全问题按 [安全说明](SECURITY.md) 私下报告。
-
-历史验收见 [功能验收记录](docs/release-acceptance.md) 和 [数据库部署验收](docs/postgres-deployment-acceptance.md)，结果仅适用于各记录注明的日期、版本与范围。当前版本以重新运行的检查和目标环境联调为准。
 
 ## 许可证
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 滞留单巡检：上线首周强制执行，每 30 分钟一次（用户拍板「不做支付通道联调」的兜底）。
+# 滞留单巡检：上线首周每 30 分钟一次。
 #
 # 为什么扫三类：GMPay 回调被拒时订单**永远停在 unpaid**（services.ts:683 建单 unpaid、
 # :765 点支付只置 payment_attempted、:824 回调被接受才 processing），只扫 processing
@@ -10,7 +10,7 @@
 #
 # 另加一类（不属滞留单，但同一张表留痕，值班人一眼看全）：
 #   D 退款超时：refund_status in (processing,review) 且未完成、受理超 24 小时（内部 SLA）；
-#     其中超 48 小时的必须**主动回信**（runbook §7.6）。退款 100% 人工后，这一步没人盯就没人做。
+#     其中超 48 小时的必须主动回信，见 docs/ops-runbook.md 的「订单巡检」。
 #
 # B 类**不靠猜**：拿本地 paymentId（= EPUSDT 的 trade_id）调公开无签名的
 #   GET /pay/check-status/{trade_id}
@@ -21,7 +21,7 @@
 #   scripts/ops/sweep-stuck-orders.sh [--db-container <名>] [--psql-user <名>] [--db <库>]
 #                                     [--minutes <N>] [--ignore-unpaid]
 #   默认 --minutes 30。
-#   --ignore-unpaid：B 类只打印、不计入退出码。**有护栏**：P0#6（check-status）没进本仓库源码时
+#   --ignore-unpaid：B 类只打印、不计入退出码。本版本不支持 check-status 时
 #   直接 rc=2 拒绝——否则等于把唯一能抓「crypto 全挂」的那类关掉，还显示一片祥和。
 #
 # 环境变量：GMPAY_BASE_URL 覆盖网关地址（默认取 DB 里 gmpay 集成的 url）。
@@ -48,11 +48,11 @@ while [ $# -gt 0 ]; do
 done
 case "$MINUTES" in ''|*[!0-9]*) echo "--minutes 必须是整数" >&2; exit 2 ;; esac
 
-# 护栏：P0#6 未进源码时不许开 --ignore-unpaid。判断依据是本仓库 payments.ts 里已有 check-status
+# 护栏：不支持网关查单时不许开 --ignore-unpaid。判断依据是本仓库 payments.ts 里已有 check-status
 # （镜像由同一提交构建）；以仓库为准，不去猜运行中容器的内容。
 if [ "$IGNORE_UNPAID" = "1" ]; then
   if ! grep -q 'check-status' src/server/integrations/payments.ts 2>/dev/null; then
-    echo "--ignore-unpaid 被拒绝：P0#6（GMPay check-status）尚未进入本仓库源码。" >&2
+    echo "--ignore-unpaid 被拒绝：当前版本不支持 GMPay check-status。" >&2
     echo "  此时 B 类是唯一能发现「钱付了但没入账」的一类，忽略它等于把兜底关掉。" >&2
     exit 2
   fi
@@ -82,7 +82,7 @@ check_status() {   # $1=trade_id；2/1/3/4 或 10008，查不到返回空串
 SQL_A="status='processing' and created_at < now() - interval '${MINUTES} minutes'"
 SQL_B="status='unpaid' and payment_attempted and payment_url is not null and created_at < now() - interval '${MINUTES} minutes'"
 SQL_C="status='unpaid' and payment_attempted and payment_url is null and created_at < now() - interval '5 minutes'"
-# D 退款时限（内部 SLA：24 小时打款 / 48 小时必须主动回信）。字段与约束见 §7.6。
+# D 退款时限（内部 SLA：24 小时打款 / 48 小时必须主动回信）。
 # 计时用 refund_requested_at（受理时间），**不是** created_at——后者更早，会提前报警。
 # status='failed' 是 DB 约束的要求；不带它，约束生效前的历史行可能被扫出来变成「永远核销不掉」的单，
 # 所以不合规存量单独警告、不混进 D 的计数。
@@ -113,7 +113,7 @@ echo
 echo "[A 履约卡] ${A} 单"
 if [ "$A" != "0" ]; then
   list_where "$SQL_A" | sed 's/^/  /'
-  echo "  处置：先看 Worker 存活与 ops_heartbeat，再看 job 的 lastError；20 分钟内自愈则记录，否则人工接管（runbook §7.1）"
+  echo "  处置：先看 Worker 存活与 ops_heartbeat，再看 job 的 lastError；20 分钟内自愈则记录，否则人工接管"
 fi
 
 # ---- B 类：逐单查网关状态自动分流 ----
@@ -148,7 +148,7 @@ echo
 echo "[B 疑似付了但没入账] ${B_TOTAL} 单（网关分流：已付 ${B_PAID} / 未付 ${B_UNPAID} / 过期 ${B_EXPIRED} / 占位未选链 ${B_PLACEHOLDER} / 网关无此单 ${B_NOTFOUND} / 未核实 ${B_UNKNOWN} / 无 trade_id ${B_NOPID}）"
 if [ "$B_PAID" != "0" ]; then
   printf '%s' "$B_DETAIL_PAID" | sed 's/^/  /'
-  echo "  处置：status=2 已付但本地未入账 → 按 runbook §7.3 补入账，必须先核金额"
+  echo "  处置：status=2 已付但本地未入账 → 核对订单和实收金额后，通过渠道重发回调"
 fi
 if [ "$B_UNKNOWN" != "0" ]; then
   printf '%s' "$B_DETAIL_UNKNOWN" | sed 's/^/  /'
@@ -170,7 +170,7 @@ echo
 echo "[C 建单失败] ${C} 单"
 if [ "$C" != "0" ]; then
   list_where "$SQL_C" | sed 's/^/  /'
-  echo "  处置：买家当场卡住，让其重开收银台（同一 requestKey 命中原订单）；大量出现说明渠道不通（runbook §7.4）"
+  echo "  处置：买家当场卡住，让其重开收银台（同一 requestKey 命中原订单）；大量出现说明渠道不通"
 fi
 
 # ---- D 退款人工时限（24h 打款 / 48h 必须主动回信）----
@@ -186,7 +186,7 @@ if [ "$D" != "0" ]; then
             ' | 经办 ' || coalesce(refund_actor,'(空)') ||
             ' | 备注 ' || coalesce(nullif(trim(refund_resolution_note),''), '(空)')
      from orders where $SQL_D order by refund_requested_at" | sed 's/^/  /'
-  echo "  处置：按 §7.6 完成人工打款并回填凭证（币种/数量/链/txid）；超过 48 小时的必须**主动回信**说明原因，不要等买家催"
+  echo "  处置：完成人工打款并回填凭证（币种/数量/链/txid）；超过 48 小时的必须主动回信说明原因"
 fi
 LEGACY=$(count_where "$SQL_LEGACY")
 if [ -n "$LEGACY" ] && [ "$LEGACY" != "0" ]; then
