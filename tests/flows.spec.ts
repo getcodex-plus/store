@@ -430,6 +430,97 @@ test('procurement requires an admin, defaults off and never charges a supplier i
   expect((await purchase.json()).error).toContain('演示模式')
   expect((await (await page.request.get('/api/admin/procurement')).json()).purchases).toEqual([])
 })
+test('saved procurement mappings reopen without a catalog and drafts do not cross plans', async ({
+  page,
+}) => {
+  let mapping = {
+    productId: 'plus',
+    integrationId: 'supplier',
+    upstreamProductId: 20,
+    skuId: 34,
+    purchaseAfterPayment: true,
+  }
+  await page.route('**/api/admin/procurement', (route) =>
+    route.fulfill({ json: { mappings: [mapping], purchases: [] } }),
+  )
+  await page.route('**/api/admin/procurement/mapping', (route) => {
+    mapping = route.request().postDataJSON()
+    return route.fulfill({ json: { saved: true } })
+  })
+  await page.route('**/api/admin/procurement/catalog?*', (route) => {
+    const skuId = new URL(route.request().url()).searchParams.get('page') === '1' ? 35 : 34
+    return route.fulfill({
+      json: {
+        integrationId: 'supplier',
+        info: { site_name: '测试目录', balance: '0', currency: 'CNY' },
+        total: 51,
+        items: [
+          {
+            id: 20,
+            is_active: true,
+            fulfillment_type: 'auto',
+            title: { 'zh-CN': '测试商品' },
+            skus: [
+              {
+                id: skuId,
+                is_active: true,
+                sku_code: `S${skuId}`,
+                price_amount: '2',
+                stock_quantity: 1,
+              },
+            ],
+          },
+        ],
+      },
+    })
+  })
+  await page.goto('/')
+  await login(page, 'admin@example.com')
+  await page.goto('/admin')
+  await openAdminPage(page, '商品管理')
+  const savedPlan = page.getByRole('button', { name: 'ChatGPT Plus', exact: true })
+  const row = page.getByRole('row').filter({ has: savedPlan })
+  const mode = page.getByRole('checkbox', { name: /付款后按单采购/ })
+  const save = page.getByRole('button', { name: '保存映射' })
+  const dropdown = page.locator('.ant-select-dropdown:visible')
+  await expect(row).toContainText('付款后按单采购')
+  await expect(page.getByText('暂无采购记录')).toBeVisible()
+  await savedPlan.click()
+  await expect(page.getByText('SKU #34（已保存）', { exact: true })).toBeVisible()
+  await expect(mode).toBeChecked()
+  await page.getByRole('button', { name: '读取上游目录' }).click()
+  await expect(save).toBeDisabled()
+  await page.getByRole('button', { name: '下一页' }).click()
+  await expect(page.getByText(/测试商品 · S34/)).toBeVisible()
+  await expect(mode).toBeChecked()
+  await page.getByRole('button', { name: '上一页' }).click()
+  await page.getByLabel('上游 SKU').click()
+  await dropdown.getByText(/测试商品 · S35/).click()
+  await expect(mode).not.toBeChecked()
+  await page.getByLabel('本地充值套餐').click()
+  await dropdown.getByText('ChatGPT Go', { exact: true }).click()
+  await expect(page.getByText('选择上游发卡 SKU', { exact: true })).toBeVisible()
+  await expect(save).toBeDisabled()
+  await savedPlan.click()
+  await expect(mode).toBeChecked()
+  await page.getByLabel('上游 SKU').click()
+  await dropdown.getByText(/测试商品 · S35/).click()
+  await save.click()
+  await expect(row).toContainText('手动进货')
+  expect(mapping).toEqual({
+    productId: 'plus',
+    integrationId: 'supplier',
+    upstreamProductId: 20,
+    skuId: 35,
+    purchaseAfterPayment: false,
+  })
+  await page.reload()
+  await openAdminPage(page, '商品管理')
+  await expect(row.getByRole('cell', { name: '35', exact: true })).toBeVisible()
+  await savedPlan.click()
+  await expect(page.getByText('SKU #35（已保存）', { exact: true })).toBeVisible()
+  await expect(mode).not.toBeChecked()
+})
 test('EPay has one entry and selects protocol-specific fields inside configuration', async ({
   page,
 }) => {

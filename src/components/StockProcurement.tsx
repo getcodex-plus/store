@@ -43,8 +43,7 @@ export function StockProcurement({
   const [catalog, setCatalog] = useState<Catalog>()
   const [page, setPage] = useState(1)
   const [productId, setProductId] = useState<string>()
-  const [skuId, setSkuId] = useState<number>()
-  const [purchaseAfterPayment, setPurchaseAfterPayment] = useState(false)
+  const [draft, setDraft] = useState<{ skuId: number; purchaseAfterPayment: boolean }>()
   const [quantity, setQuantity] = useState<number | null>(1)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -69,8 +68,7 @@ export function StockProcurement({
       const result = await api<Catalog>(`/admin/procurement/catalog?page=${next}`)
       setCatalog(result)
       setPage(next)
-      setSkuId(undefined)
-      setPurchaseAfterPayment(false)
+      setDraft(undefined)
     })
   const options =
     catalog?.items
@@ -84,8 +82,20 @@ export function StockProcurement({
             label: `${item.title?.['zh-CN'] || Object.values(item.title ?? {})[0] || item.id} · ${sku.sku_code} (#${sku.id}) · ${sku.price_amount} ${catalog.info.currency} · 库存 ${sku.stock_quantity === -1 ? '不限' : sku.stock_quantity}`,
           })),
       ) ?? []
-  const selected = options.find((option) => option.value === skuId)
   const mapping = overview?.mappings.find((item) => item.productId === productId)
+  const savedOption = options.find(
+    (option) =>
+      mapping?.skuId === option.value &&
+      mapping.integrationId === catalog?.integrationId &&
+      mapping.upstreamProductId === option.upstreamProductId,
+  )
+  const selected = draft ? options.find((option) => option.value === draft.skuId) : savedOption
+  const purchaseAfterPayment = draft?.purchaseAfterPayment ?? mapping?.purchaseAfterPayment ?? false
+  function selectProduct(value: string) {
+    setProductId(value)
+    setDraft(undefined)
+    requestKey.current = ''
+  }
   const submit = () =>
     run(async () => {
       if (!mapping || !quantity) return
@@ -112,6 +122,33 @@ export function StockProcurement({
         先在「支付与服务」启用 Dujiao-Next，再将自动发卡 SKU
         映射到本地充值套餐。进货从上游钱包扣款，不改变零售价。
       </p>
+      <h3>已保存的映射</h3>
+      <Table
+        rowKey="productId"
+        size="small"
+        scroll={{ x: 480 }}
+        loading={!overview && !error}
+        dataSource={overview?.mappings}
+        locale={{ emptyText: error && !overview ? '映射未加载' : '暂无已保存的映射' }}
+        pagination={{ pageSize: 5, hideOnSinglePage: true }}
+        columns={[
+          {
+            title: '本地套餐',
+            render: (_, item) => (
+              <Button type="link" disabled={busy} onClick={() => selectProduct(item.productId)}>
+                {products.find((product) => product.id === item.productId)?.name ?? item.productId}
+              </Button>
+            ),
+          },
+          { title: '上游商品 ID', dataIndex: 'upstreamProductId' },
+          { title: 'SKU ID', dataIndex: 'skuId' },
+          {
+            title: '采购模式',
+            render: (_, item) => (item.purchaseAfterPayment ? '付款后按单采购' : '手动进货'),
+          },
+        ]}
+      />
+      <h3 className="mt-20">配置映射</h3>
       <Space wrap>
         <Button loading={busy} onClick={() => void browse(1)}>
           读取上游目录
@@ -141,33 +178,32 @@ export function StockProcurement({
             value={productId}
             disabled={busy}
             options={products.map((item) => ({ value: item.id, label: item.name }))}
-            onChange={(value) => {
-              setProductId(value)
-              setPurchaseAfterPayment(false)
-              requestKey.current = ''
-            }}
+            onChange={selectProduct}
           />
-          <Select
+          <Select<number | string>
             aria-label="上游 SKU"
             placeholder="选择上游发卡 SKU"
             showSearch={{ optionFilterProp: 'label' }}
             style={{ minWidth: 240 }}
-            disabled={busy || !catalog}
-            value={skuId}
+            disabled={busy || !catalog || !productId || !overview}
+            value={selected?.value ?? (mapping && `SKU #${mapping.skuId}（已保存）`)}
             options={options}
             onChange={(value) => {
-              setSkuId(value)
-              setPurchaseAfterPayment(
-                mapping?.skuId === value &&
-                  mapping.integrationId === catalog?.integrationId &&
-                  mapping.purchaseAfterPayment,
-              )
+              if (typeof value === 'number')
+                setDraft({
+                  skuId: value,
+                  purchaseAfterPayment:
+                    value === savedOption?.value && !!mapping?.purchaseAfterPayment,
+                })
             }}
           />
           <Checkbox
             checked={purchaseAfterPayment}
             disabled={busy || !canWrite || !selected || !productId || demo}
-            onChange={(event) => setPurchaseAfterPayment(event.target.checked)}
+            onChange={(event) => {
+              if (selected)
+                setDraft({ skuId: selected.value, purchaseAfterPayment: event.target.checked })
+            }}
           >
             付款后按单采购（每单按上游现价扣款购买 1 个码）
           </Checkbox>
@@ -177,12 +213,13 @@ export function StockProcurement({
               void run(async () => {
                 await api('/admin/procurement/mapping', {
                   productId,
-                  skuId,
+                  skuId: selected!.value,
                   upstreamProductId: selected!.upstreamProductId,
                   integrationId: catalog!.integrationId,
                   purchaseAfterPayment,
                 })
                 await load()
+                setDraft(undefined)
               })
             }
           >
@@ -201,6 +238,7 @@ export function StockProcurement({
                 run(async () => {
                   await api('/admin/procurement/unmap', mapping)
                   await load()
+                  setDraft(undefined)
                 })
               }
             >
@@ -230,12 +268,13 @@ export function StockProcurement({
         </div>
       )}
       {demo && <p className="tiny muted">演示模式不会提交真实采购。</p>}
+      <h3 className="mt-20">采购记录</h3>
       <Table
         rowKey="id"
         size="small"
         scroll={{ x: 760 }}
-        className="mt-20"
         dataSource={overview?.purchases}
+        locale={{ emptyText: '暂无采购记录' }}
         pagination={{ pageSize: 5 }}
         columns={[
           { title: '采购单号', dataIndex: 'id' },
