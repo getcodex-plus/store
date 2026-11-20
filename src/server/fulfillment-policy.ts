@@ -11,6 +11,7 @@ import {
 
 export interface PricingSnapshot extends Partial<PricingRules> {
   mode: 'fixed' | 'markup'
+  procurement?: { integrationId: string; upstreamProductId: number; skuId: number }
   providerQuote?: ProviderMoney
   rules?: PricingRules
   rateE8?: number

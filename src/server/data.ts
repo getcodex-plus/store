@@ -164,6 +164,7 @@ export function canOfferRefill(record: OrderRecord) {
     record.kind !== 'purchase' ||
     record.status !== 'failed' ||
     record.completedAt ||
+    record.fulfillmentStatus === 'procurement_review' ||
     record.refundStatus ||
     !record.quoteId ||
     !record.aicdkIntegrationId

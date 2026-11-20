@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { ApiError, demo } from './config'
-import { db, transaction, uniqueConflict } from './db'
+import { db, transaction, uniqueConflict, type DbClient } from './db'
 import { advisoryLock, claimStockPurchase, lockIntegration } from './database-sql'
 import { integration } from './integrations/config'
 import { dujiaoClient, PurchaseRejection, upstreamId } from './integrations/dujiao'
@@ -28,6 +28,7 @@ export async function procurementOverview() {
       take: 50,
       select: {
         id: true,
+        orderId: true,
         productId: true,
         skuId: true,
         quantity: true,
@@ -50,7 +51,8 @@ export async function supplierCatalog(page: number) {
 }
 
 export async function saveStockMapping(raw: unknown, actor: string) {
-  const input = mappingInput.parse(raw)
+  const input = mappingInput.extend({ purchaseAfterPayment: z.boolean().default(false) }).parse(raw)
+  if (demo && input.purchaseAfterPayment) throw new ApiError(409, '演示模式不能启用付款后按单采购')
   const binding = await integration('dujiao-next')
   if (binding.id !== input.integrationId) throw new ApiError(409, '上游配置已变更，请刷新目录')
   const product = await dujiaoClient(binding).product(input.upstreamProductId)
@@ -76,7 +78,7 @@ export async function saveStockMapping(raw: unknown, actor: string) {
         data: {
           id: id('a_'),
           actor,
-          action: '保存进货映射',
+          action: input.purchaseAfterPayment ? '启用付款后按单采购' : '保存手动进货映射',
           target: `${input.productId}:${input.skuId}`,
         },
       })
@@ -86,6 +88,18 @@ export async function saveStockMapping(raw: unknown, actor: string) {
     if (uniqueConflict(error)) throw new ApiError(409, '此 SKU 已映射到其他套餐')
     throw error
   }
+}
+
+export async function paidOrderMapping(productId: string, client: DbClient = db) {
+  const mapping = await client.stockMapping.findFirst({
+    where: { productId, purchaseAfterPayment: true },
+    include: { integration: { select: { active: true, enabled: true } } },
+  })
+  if (!mapping) return undefined
+  if (!mapping.integration.active || !mapping.integration.enabled)
+    throw new ApiError(409, '此套餐供货配置已变更，请联系支持')
+  const { integrationId, upstreamProductId, skuId } = mapping
+  return { integrationId, upstreamProductId, skuId }
 }
 
 export async function queueStockPurchase(raw: unknown, actor: string) {
@@ -135,12 +149,63 @@ export async function removeStockMapping(raw: unknown, actor: string) {
 
 class DeliveryMismatch extends Error {}
 
+export async function resyncPaidPurchase(raw: unknown, actor: string) {
+  const { id: purchaseId } = z.object({ id: z.string().min(1) }).parse(raw)
+  if (demo) throw new ApiError(409, '演示模式不会向上游采购或扣款')
+  return transaction(async (client) => {
+    const purchase = await client.stockPurchase.findUnique({ where: { id: purchaseId } })
+    if (!purchase?.orderId || purchase.state !== 'review')
+      throw new ApiError(409, '只能核对待人工处理的按单采购')
+    const resumed = await client.order.updateMany({
+      where: {
+        id: purchase.orderId,
+        status: 'processing',
+        fulfillmentStatus: 'procurement_review',
+      },
+      data: { fulfillmentStatus: 'awaiting_procurement' },
+    })
+    if (!resumed.count) throw new ApiError(409, '原订单已处理或正在同步')
+    await client.stockPurchase.update({
+      where: { id: purchaseId },
+      data: {
+        state: purchase.upstreamOrderId ? 'polling' : 'queued',
+        nextRunAt: new Date(),
+        lastError: null,
+      },
+    })
+    await client.audit.create({
+      data: { id: id('a_'), actor, action: '核对原单采购', target: purchaseId },
+    })
+    return { saved: true }
+  })
+}
+
 export async function syncStockPurchase() {
   if (demo) return false
   const purchase = await transaction(claimStockPurchase)
   if (!purchase) return false
   const where = { id: purchase.id, attempts: purchase.attempts, state: purchase.state }
   const later = (seconds: number) => new Date(Date.now() + seconds * 1000)
+  const exhausted = purchase.orderId && purchase.attempts >= 60
+  const stop = (state: 'review' | 'rejected', lastError: string, upstreamOrderId?: number) =>
+    transaction(async (client) => {
+      const claimed = await client.stockPurchase.updateMany({
+        where,
+        data: { state, lastError, upstreamOrderId },
+      })
+      if (!claimed.count || !purchase.orderId) return
+      await client.order.updateMany({
+        where: {
+          id: purchase.orderId,
+          status: 'processing',
+          fulfillmentStatus: 'awaiting_procurement',
+        },
+        data:
+          state === 'rejected'
+            ? { status: 'failed', fulfillmentStatus: 'procurement_rejected' }
+            : { fulfillmentStatus: 'procurement_review' },
+      })
+    })
   try {
     const supplier = dujiaoClient(await integration('dujiao-next', purchase.integrationId))
     if (!purchase.upstreamOrderId) {
@@ -159,10 +224,7 @@ export async function syncStockPurchase() {
     const result = await supplier.order(purchase.upstreamOrderId)
     const status = result.status.trim().toLowerCase()
     if (['canceled', 'cancelled', 'refunded', 'partially_refunded'].includes(status)) {
-      await db.stockPurchase.updateMany({
-        where,
-        data: { state: 'review', lastError: status === 'cancelled' ? 'canceled' : status },
-      })
+      await stop('review', status === 'cancelled' ? 'canceled' : status)
     } else if (['delivered', 'completed', 'fulfilled'].includes(status)) {
       if (
         !result.fulfillment ||
@@ -199,25 +261,50 @@ export async function syncStockPurchase() {
           },
         )
         if (batch.duplicates) throw new DeliveryMismatch()
+        if (purchase.orderId) {
+          const order = await client.order.findUniqueOrThrow({ where: { id: purchase.orderId } })
+          if (!order.quoteId || order.productId !== purchase.productId) throw new DeliveryMismatch()
+          const ready = await client.order.updateMany({
+            where: {
+              id: order.id,
+              status: 'processing',
+              fulfillmentStatus: 'awaiting_procurement',
+            },
+            data: { status: 'needs_session', fulfillmentStatus: 'procured' },
+          })
+          if (!ready.count) throw new DeliveryMismatch()
+          const stock = await client.inventory.findFirstOrThrow({
+            where: { batchId: batch.batchId },
+          })
+          await client.inventory.update({ where: { id: stock.id }, data: { status: 'reserved' } })
+          const bound = await client.quote.updateMany({
+            where: { id: order.quoteId, productId: purchase.productId, inventoryId: null },
+            data: { inventoryId: stock.id },
+          })
+          if (!bound.count) throw new DeliveryMismatch()
+        }
         await client.stockPurchase.update({
           where: { id: purchase.id },
           data: { batchId: batch.batchId, lastError: null },
         })
       })
+    } else if (exhausted) {
+      await stop('review', 'delivery_pending')
     } else {
       await db.stockPurchase.updateMany({ where, data: { nextRunAt: later(15), lastError: null } })
     }
   } catch (error) {
-    const data =
-      error instanceof PurchaseRejection
-        ? { state: 'rejected', lastError: error.code, upstreamOrderId: error.orderId }
-        : error instanceof DeliveryMismatch
-          ? { state: 'review', lastError: 'delivery_mismatch' }
-          : {
-              nextRunAt: later(Math.min(300, 5 * 2 ** Math.min(purchase.attempts, 6))),
-              lastError: 'retry_pending',
-            }
-    await db.stockPurchase.updateMany({ where, data })
+    if (error instanceof PurchaseRejection) await stop('rejected', error.code, error.orderId)
+    else if (error instanceof DeliveryMismatch) await stop('review', 'delivery_mismatch')
+    else if (exhausted) await stop('review', 'outcome_unknown')
+    else
+      await db.stockPurchase.updateMany({
+        where,
+        data: {
+          nextRunAt: later(Math.min(300, 5 * 2 ** Math.min(purchase.attempts, 6))),
+          lastError: 'retry_pending',
+        },
+      })
   }
   return true
 }

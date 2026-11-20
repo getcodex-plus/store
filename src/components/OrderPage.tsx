@@ -204,12 +204,23 @@ function OrderContent({ id }: { id: string }) {
   const refundPending = order.refund && order.refund.status !== 'completed'
   const titles = {
     cancelled: '订单已取消，抵扣余额已退回。',
-    unpaid: '订单已准备好，完成付款即可继续。',
-    processing: order.refillCount
-      ? '正在原订单免费补充，无需再付款。'
-      : '已收到付款，正在为你充值。',
+    unpaid:
+      order.fulfillmentStatus === 'awaiting_procurement'
+        ? '付款后将为本单采购兑换码。'
+        : '订单已准备好，完成付款即可继续。',
+    processing:
+      order.fulfillmentStatus === 'awaiting_procurement'
+        ? '已收到付款，正在等待本单的兑换码。'
+        : order.fulfillmentStatus === 'procurement_review'
+          ? '供货结果待核对，请保留原单并联系支持，无需再次付款。'
+          : order.refillCount
+            ? '正在原订单免费补充，无需再付款。'
+            : '已收到付款，正在为你充值。',
     completed: order.kind === 'topup' ? '充值余额已到账。' : '充值完成，开始使用吧。',
-    needs_session: '需要更新账号信息，继续原订单。',
+    needs_session:
+      order.fulfillmentStatus === 'procured'
+        ? '兑换码已就绪，请提交原账号的会话信息开始充值。'
+        : '需要更新账号信息，继续原订单。',
     failed: '这笔订单需要进一步处理。',
     refunded: originalRefund ? '已退回原支付方式。' : '订单金额已退回本站钱包。',
   }
@@ -280,7 +291,10 @@ function OrderContent({ id }: { id: string }) {
                       ? '等待更新账号'
                       : order.kind === 'topup'
                         ? '余额入账'
-                        : '正在充值',
+                        : order.fulfillmentStatus === 'awaiting_procurement' ||
+                            order.fulfillmentStatus === 'procurement_review'
+                          ? '等待供货'
+                          : '正在充值',
                 },
                 { title: '完成' },
               ]}

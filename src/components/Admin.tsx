@@ -571,6 +571,18 @@ function AdminContent() {
             </Button>
           ) : !can('orders:write') ? (
             <span className="muted">只读</span>
+          ) : o.status === 'processing' &&
+            ['awaiting_procurement', 'procurement_review'].includes(o.fulfillmentStatus ?? '') ? (
+            o.fulfillmentStatus === 'procurement_review' &&
+            can('products:write') &&
+            can('integrations:read') &&
+            can('integrations:write') ? (
+              <Button type="link" onClick={() => mutate('procurement/resync', { id: o.id })}>
+                核对原采购单
+              </Button>
+            ) : (
+              <span className="muted">见商品管理的采购记录</span>
+            )
           ) : o.status === 'processing' ? (
             <Button type="link" onClick={() => mutate('orders/retry', { id: o.id })}>
               重新同步

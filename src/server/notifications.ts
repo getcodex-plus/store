@@ -6,7 +6,7 @@ import { checkRiskRate } from './risk'
 const labels: Record<string, string> = {
   cancelled: '订单已取消，已抵扣余额已退回',
   unpaid: '等待付款',
-  processing: '付款已收到，正在充值',
+  processing: '付款已收到，订单处理中',
   completed: '充值已完成',
   needs_session: '需要更新充值账号信息',
   failed: '需要人工协助处理',

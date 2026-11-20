@@ -388,6 +388,7 @@ model Order {
   quote                 Quote?            @relation(fields: [quoteId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   user                  User?             @relation("orders_user_idTousers", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   paymentEvents         PaymentEvent[]
+  stockPurchase         StockPurchase?
   walletEntries         WalletEntry[]
 
   @@index([userId, createdAt(sort: Desc)], map: "orders_user")
@@ -432,6 +433,7 @@ model Product {
 
 model StockMapping {
   productId         String      @id @map("product_id")
+  purchaseAfterPayment Boolean  @default(false) @map("purchase_after_payment")
   integrationId     String      @map("integration_id")
   upstreamProductId Int         @map("upstream_product_id")
   skuId             Int         @map("sku_id")
@@ -444,6 +446,8 @@ model StockMapping {
 
 model StockPurchase {
   id                String          @id
+  orderId           String?         @unique @map("order_id")
+  order             Order?          @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   productId         String          @map("product_id")
   integrationId     String          @map("integration_id")
   upstreamProductId Int             @map("upstream_product_id")

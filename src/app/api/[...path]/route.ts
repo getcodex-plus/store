@@ -45,6 +45,7 @@ import {
   saveStockMapping,
   removeStockMapping,
   queueStockPurchase,
+  resyncPaidPurchase,
 } from '../../../server/procurement'
 import type { Product } from '../../../types'
 import { authorize, mayGrant, permissions, type Permission } from '../../../server/rbac'
@@ -290,6 +291,7 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
         'admin/procurement/mapping': 'integrations:write',
         'admin/procurement/unmap': 'integrations:write',
         'admin/procurement/orders': 'integrations:write',
+        'admin/procurement/resync': 'integrations:write',
         'admin/products': 'products:write',
         'admin/coupons': 'coupons:write',
         'admin/inventory': 'products:write',
@@ -338,6 +340,8 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
         result = await removeStockMapping(data, admin.email)
       else if (path === 'admin/procurement/orders' && method === 'POST')
         result = await queueStockPurchase(data, admin.email)
+      else if (path === 'admin/procurement/resync' && method === 'POST')
+        result = await resyncPaidPurchase(data, admin.email)
       else if (path === 'admin/coupons' && method === 'POST')
         result = await saveAdminCoupon(admin.email, data, audit)
       else if (path === 'admin/integrations' && method === 'POST')

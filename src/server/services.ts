@@ -79,6 +79,7 @@ import {
   type PricingSnapshot,
 } from './fulfillment-policy'
 import { reservePlusDiscount } from './plus-discount'
+import { paidOrderMapping } from './procurement'
 import { createPayment, refundXorpay, type Receipt } from './integrations/payments'
 import { refundInputSchema, refundReviewDelayMs } from '../refunds'
 import { redemptionRequestId } from '../order-refill'
@@ -191,7 +192,10 @@ export async function quote(
   const product = productView(record)
   let amount = product.price
   let currentPlan: string | undefined
-  let pricingSnapshot: unknown = { mode: 'fixed', price: product.price }
+  let pricingSnapshot: PricingSnapshot & { price?: number; currency?: string } = {
+    mode: 'fixed',
+    price: product.price,
+  }
   let rate: ExchangeRate | undefined
   if (product.pricingMode !== 'fixed') throw new ApiError(409, '此商品尚未配置固定售价')
   if (product.priceCurrency === 'USD') {
@@ -222,7 +226,9 @@ export async function quote(
     const offer =
       product.plan === 'plus' ? check.subscription.offers?.plus_50_percent_discount : undefined
     const discountQuotes = offer?.eligible === true ? offer.quotes : undefined
+    const procurement = await paidOrderMapping(productId)
     const discountAvailable =
+      !procurement &&
       discountQuotes &&
       (await discountInventoryCountries(db, productId)).some((country) => discountQuotes[country])
     if (!discountAvailable) {
@@ -231,9 +237,10 @@ export async function quote(
         throw new ApiError(503, '账号适用性暂未确定，请稍后重新检查')
       if (!standardEligible) throw new ApiError(409, '该账号不符合所选套餐的购买条件')
     }
-    if (discountQuotes) {
+    if (procurement) pricingSnapshot.procurement = procurement
+    else if (discountQuotes) {
       pricingSnapshot = {
-        ...(pricingSnapshot as PricingSnapshot),
+        ...pricingSnapshot,
         plusDiscount: { quotes: discountQuotes, standardEligible },
       }
     }
@@ -248,6 +255,7 @@ export async function quote(
     productId,
     email: session.user.email.toLowerCase(),
     amount,
+    ...(pricingSnapshot.procurement ? { purchaseAfterPayment: true } : {}),
     currentPlan,
     targetPlan: product.plan,
     expiresAt: new Date(
@@ -473,40 +481,52 @@ export async function newOrder(
         if (!wallet || wallet.balance < preliminaryBalance)
           throw new ApiError(409, '钱包余额不足，请先充值或选择其他支付方式')
       }
-      const discounted = await reservePlusDiscount(
-        client,
-        quoteRecord.productId,
-        quoteRecord,
-        session,
-        binding!,
-      )
-      if (!discounted && quoteRecord.pricingSnapshot?.plusDiscount?.standardEligible === false)
-        throw new ApiError(409, '此套餐暂不可用，请重新检查账号后重试')
-      const stock = discounted?.stock ?? (await reserveInventory(client, quoteRecord.productId))
-      if (!stock) throw new ApiError(409, '此套餐暂时缺货，请稍后再试')
-      if (discounted) quoteRecord.pricingSnapshot = discounted.snapshot
-      const checked =
-        discounted?.checked ??
-        (await preflight(
-          openCredential(stock.code, 'inventory', stock.id),
+      const source = quoteRecord.pricingSnapshot?.procurement
+      if (source) {
+        const current = await paidOrderMapping(quoteRecord.productId, client)
+        if (
+          !current ||
+          current.integrationId !== source.integrationId ||
+          current.skuId !== source.skuId ||
+          current.upstreamProductId !== source.upstreamProductId
+        )
+          throw new ApiError(409, '此套餐供货配置已变更，请重新检查账号')
+      } else {
+        const discounted = await reservePlusDiscount(
+          client,
+          quoteRecord.productId,
+          quoteRecord,
           session,
           binding!,
-          fulfillmentBusiness(quoteRecord),
-        ))
-      if (checked.status !== 'ready')
-        throw new UpstreamError('PRICE_REFRESH_PENDING', checked.retry_after ?? 2, false)
-      validateFulfillment(checked, quoteRecord)
-      if (Date.parse(quoteRecord.expiresAt) <= Date.now())
-        throw new ApiError(409, '报价已过期，请重新检查账号')
-      await client.quote.update({
-        where: { id: quoteRecord.id },
-        data: {
-          inventoryId: stock.id,
-          ...(discounted ? { pricingSnapshot: jsonInput(discounted.snapshot) } : {}),
-          preflightToken: sealCredential(checked.preflight_token, 'preflight', quoteRecord.id),
-          preflightExpiresAt: new Date((await databaseNow(client)).getTime() + 9 * 60_000),
-        },
-      })
+        )
+        if (!discounted && quoteRecord.pricingSnapshot?.plusDiscount?.standardEligible === false)
+          throw new ApiError(409, '此套餐暂不可用，请重新检查账号后重试')
+        const stock = discounted?.stock ?? (await reserveInventory(client, quoteRecord.productId))
+        if (!stock) throw new ApiError(409, '此套餐暂时缺货，请稍后再试')
+        if (discounted) quoteRecord.pricingSnapshot = discounted.snapshot
+        const checked =
+          discounted?.checked ??
+          (await preflight(
+            openCredential(stock.code, 'inventory', stock.id),
+            session,
+            binding!,
+            fulfillmentBusiness(quoteRecord),
+          ))
+        if (checked.status !== 'ready')
+          throw new UpstreamError('PRICE_REFRESH_PENDING', checked.retry_after ?? 2, false)
+        validateFulfillment(checked, quoteRecord)
+        if (Date.parse(quoteRecord.expiresAt) <= Date.now())
+          throw new ApiError(409, '报价已过期，请重新检查账号')
+        await client.quote.update({
+          where: { id: quoteRecord.id },
+          data: {
+            inventoryId: stock.id,
+            ...(discounted ? { pricingSnapshot: jsonInput(discounted.snapshot) } : {}),
+            preflightToken: sealCredential(checked.preflight_token, 'preflight', quoteRecord.id),
+            preflightExpiresAt: new Date((await databaseNow(client)).getTime() + 9 * 60_000),
+          },
+        })
+      }
     }
     let reservedCoupon: Awaited<ReturnType<typeof reserveCouponInTransaction>> | undefined
     if (normalizedCouponCode && quoteRecord && productRecord) {
@@ -658,6 +678,9 @@ export async function newOrder(
           provider: externalAmount === 0 ? 'balance' : provider,
           integrationId: externalAmount === 0 ? null : revision,
           kind: quoteRecord ? 'purchase' : 'topup',
+          fulfillmentStatus: quoteRecord?.pricingSnapshot?.procurement
+            ? 'awaiting_procurement'
+            : null,
           requestHash,
           contactEmail,
           guestBrowserDigest: user ? null : browser,
@@ -701,14 +724,32 @@ export async function newOrder(
       throw new RiskRejection('order-assessment', orderRisk, facts, subjects, orderId)
     if (balanceAmount > 0)
       await walletChange(client, user!.id, -balanceAmount, 'purchase', order.id)
-    if (externalAmount === 0)
-      await client.job.createMany({
-        data: [{ id: id('job_'), orderId: order.id }],
-        skipDuplicates: true,
-      })
+    if (externalAmount === 0) await dispatchPaidOrder(client, order.id, quoteRecord)
     return order
   }, checkoutTransaction).catch(recordRiskRejection)
   return outcome
+}
+
+async function dispatchPaidOrder(client: DbClient, orderId: string, quote?: StoredQuote) {
+  const source = quote?.pricingSnapshot?.procurement
+  if (source && quote) {
+    if (demo) throw new ApiError(409, '演示模式不会向上游采购或扣款')
+    await client.stockPurchase.create({
+      data: {
+        ...source,
+        productId: quote.productId,
+        orderId,
+        id: orderId,
+        actor: 'system',
+        quantity: 1,
+      },
+    })
+  } else {
+    await client.job.createMany({
+      data: [{ id: id('job_'), orderId }],
+      skipDuplicates: true,
+    })
+  }
 }
 export async function accessibleOrder(user: User | null, browser: string, orderId: string) {
   const order = await db.order.findFirst({
@@ -831,10 +872,11 @@ export async function acceptPayment(provider: string, revision: string | null, r
         data: { status: 'processing', paymentId: receipt.transactionId },
       })
       await confirmCouponOrderPaid(client, order.id)
-      await client.job.createMany({
-        data: [{ id: id('job_'), orderId: order.id }],
-        skipDuplicates: true,
-      })
+      const stored =
+        order.fulfillmentStatus === 'awaiting_procurement'
+          ? await client.quote.findUniqueOrThrow({ where: { id: order.quoteId! } })
+          : null
+      await dispatchPaidOrder(client, order.id, stored ? quoteView(stored) : undefined)
     }
   })
 }
@@ -1624,6 +1666,8 @@ export async function confirmSession(
   const initial = await accessibleOrder(user, browser, orderId)
   if (session.user.email.toLowerCase() !== initial.email)
     throw new ApiError(400, '请使用原充值账号的信息')
+  if (['awaiting_procurement', 'procurement_review'].includes(initial.fulfillmentStatus ?? ''))
+    throw new ApiError(409, '本单尚未完成供货，请在到货后提交账号信息')
   // A lost response to a completed refresh does not require another mutation.
   if (initial.status === 'processing') return { resumed: true }
   if (initial.status !== 'needs_session') throw new ApiError(409, '当前订单不需要更新账号信息')
@@ -1699,6 +1743,7 @@ export async function confirmSession(
           data: {
             fulfillmentAttempt: { increment: 1 },
             submissionAttempted: false,
+            ...(order.fulfillmentStatus === 'procured' ? { fulfillmentStatus: null } : {}),
           },
         })
         await client.quote.update({

@@ -145,7 +145,7 @@ export async function refillOrder(
       record.submissionAttempted ||
       record.redemptionId ||
       record.redemptionVersion !== 0 ||
-      record.fulfillmentStatus ||
+      (record.fulfillmentStatus && record.fulfillmentStatus !== 'procured') ||
       resolution?.outcome !== 'failed'
     ) {
       throw new ApiError(409, '尚不能确认原兑换已终止，请联系支持，不要重复充值')

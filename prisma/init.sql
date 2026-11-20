@@ -883,6 +883,7 @@ ALTER TABLE ONLY withdrawals
 
 CREATE TABLE stock_mappings (
     product_id text PRIMARY KEY REFERENCES products(id),
+    purchase_after_payment boolean NOT NULL DEFAULT false,
     integration_id text NOT NULL REFERENCES integrations(id),
     upstream_product_id integer NOT NULL CHECK (upstream_product_id > 0),
     sku_id integer NOT NULL CHECK (sku_id > 0),
@@ -891,11 +892,13 @@ CREATE TABLE stock_mappings (
 
 CREATE TABLE stock_purchases (
     id text PRIMARY KEY,
+    order_id text UNIQUE REFERENCES orders(id),
     product_id text NOT NULL REFERENCES products(id),
     integration_id text NOT NULL REFERENCES integrations(id),
     upstream_product_id integer NOT NULL CHECK (upstream_product_id > 0),
     sku_id integer NOT NULL CHECK (sku_id > 0),
     quantity integer NOT NULL CHECK (quantity BETWEEN 1 AND 500),
+    CONSTRAINT stock_purchases_order_quantity_check CHECK (order_id IS NULL OR quantity = 1),
     actor text NOT NULL,
     state text NOT NULL DEFAULT 'queued' CHECK (state IN ('queued','polling','received','rejected','review')),
     upstream_order_id integer,

@@ -35,7 +35,8 @@ import { lockRow, reserveInventory } from './database-sql'
 import { fulfillOrder } from './fulfillment'
 import { resolveOrder } from './order-resolution'
 import { refillOrder } from './order-refill'
-import { saveIntegration } from './integrations/config'
+import { integration, saveIntegration } from './integrations/config'
+import { resyncPaidPurchase, syncStockPurchase } from './procurement'
 import { permissions } from './rbac'
 import type { User } from '../types'
 
@@ -163,6 +164,40 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
   })
   async function internal(orderId: string) {
     return paymentOrderView(await db.order.findUniqueOrThrow({ where: { id: orderId } }))
+  }
+  async function mappedProduct() {
+    const productId = id('mapped_')
+    await db.product.create({
+      data: {
+        id: productId,
+        name: 'Paid procurement',
+        subtitle: '',
+        description: '',
+        features: [],
+        price: 8800,
+        plan: 'pro20',
+      },
+    })
+    await saveIntegration(
+      {
+        provider: 'dujiao-next',
+        enabled: true,
+        public: { url: 'https://supplier.example' },
+        secrets: { apiKey: id(), apiSecret: id() },
+      },
+      'test',
+    )
+    const source = await integration('dujiao-next')
+    await db.stockMapping.create({
+      data: {
+        productId,
+        skuId: 81,
+        upstreamProductId: 42,
+        integrationId: source.id,
+        purchaseAfterPayment: true,
+      },
+    })
+    return productId
   }
   async function discountScenario(
     options: {
@@ -1475,5 +1510,146 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
     await importInventory('pro200', [code, code], user.email)
     expect(await db.inventory.count({ where: { fingerprint: row.fingerprint } })).toBe(1)
     expect(sealCredential(code, 'inventory', row.id)).not.toBe(row.code)
+  })
+  it('creates exactly one dedicated purchase after confirmed channel payment and redeems only its delivered card', async () => {
+    const productId = await mappedProduct()
+    await saveIntegration(
+      { provider: 'xorpay', enabled: true, public: { appId: 'test' }, secrets: { secret: id() } },
+      'test',
+    )
+    const fetcher = stub()
+    const unpaid = async () => {
+      const verified = await quote(productId, session, browser)
+      expect(verified.purchaseAfterPayment).toBe(true)
+      expect(JSON.stringify(verified)).not.toContain('integrationId')
+      return newOrder(null, browser, {
+        quoteId: verified.id,
+        session,
+        requestKey: id(),
+        channel: 'alipay',
+        contactEmail: email,
+      })
+    }
+    const abandoned = await unpaid()
+    await cancelOrder(null, browser, abandoned.id)
+    const order = await unpaid()
+    const receipt = {
+      paid: true,
+      transactionId: id(),
+      orderId: order.id,
+      amount: order.externalAmount,
+    }
+    const payment = await internal(order.id)
+    await acceptPayment('xorpay', payment.integrationId!, { ...receipt, paid: false })
+    expect(await syncStockPurchase()).toBe(false)
+    expect(fetcher.mock.calls.every(([url]) => url.endsWith('/account-checks'))).toBe(true)
+    await db.stockMapping.delete({ where: { productId } })
+    await Promise.all([
+      acceptPayment('xorpay', payment.integrationId!, receipt),
+      acceptPayment('xorpay', payment.integrationId!, receipt),
+    ])
+    expect(await db.stockPurchase.count({ where: { productId } })).toBe(1)
+    expect(await db.job.findUnique({ where: { orderId: order.id } })).toBeNull()
+    expect((await internal(order.id)).fulfillmentStatus).toBe('awaiting_procurement')
+
+    const card = id('paid_card_')
+    const delivered = (skuId: number) =>
+      Response.json({
+        ok: true,
+        order_id: 91,
+        status: 'completed',
+        fulfillment: { type: 'auto', status: 'delivered', payload: card },
+        items: [{ product_id: 42, sku_id: skuId, quantity: 1 }],
+      })
+    const supplier = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('timeout after submit'))
+      .mockResolvedValueOnce(Response.json({ ok: true, order_id: 91, status: 'paid' }))
+      .mockResolvedValueOnce(Response.json({ ok: true, order_id: 91, status: 'fulfilling' }))
+      .mockResolvedValueOnce(delivered(99))
+      .mockResolvedValueOnce(delivered(81))
+    vi.stubGlobal('fetch', supplier)
+    await syncStockPurchase()
+    await db.stockPurchase.update({
+      where: { orderId: order.id },
+      data: { nextRunAt: new Date(0) },
+    })
+    await syncStockPurchase()
+    expect(supplier.mock.calls[0][1].body).toBe(supplier.mock.calls[1][1].body)
+    expect(JSON.parse(supplier.mock.calls[0][1].body)).toEqual({
+      sku_id: 81,
+      quantity: 1,
+      downstream_order_no: `stock_${order.id}`,
+      trace_id: order.id,
+    })
+    await db.stockPurchase.update({ where: { orderId: order.id }, data: { attempts: 59 } })
+    await syncStockPurchase()
+    expect(await syncStockPurchase()).toBe(false)
+    expect(await db.stockPurchase.findUnique({ where: { orderId: order.id } })).toMatchObject({
+      state: 'review',
+      lastError: 'delivery_pending',
+    })
+    await resyncPaidPurchase({ id: order.id }, 'test')
+    await syncStockPurchase()
+    expect((await internal(order.id)).fulfillmentStatus).toBe('procurement_review')
+    expect(await db.inventory.count({ where: { productId } })).toBe(0)
+    await resyncPaidPurchase({ id: order.id }, 'test')
+    await Promise.all([syncStockPurchase(), syncStockPurchase()])
+    expect(supplier.mock.calls.slice(2).map(([url]) => new URL(url).pathname)).toEqual([
+      '/api/v1/upstream/orders/91',
+      '/api/v1/upstream/orders/91',
+      '/api/v1/upstream/orders/91',
+    ])
+    const bound = await db.quote.findUniqueOrThrow({
+      where: { id: payment.quoteId! },
+      include: { inventory: true },
+    })
+    expect(bound.inventory).toMatchObject({
+      status: 'reserved',
+      fingerprint: inventoryFingerprint(card),
+    })
+    expect(await transaction((client) => reserveInventory(client, productId))).toBeNull()
+    expect((await internal(order.id)).status).toBe('needs_session')
+    const recharge = stub()
+    await confirmSession(null, order.id, session, browser)
+    expect(
+      JSON.parse(
+        String(
+          vi.mocked(fetch).mock.calls.find(([url]) => String(url).endsWith('/previews'))?.[1]?.body,
+        ),
+      ).code,
+    ).toBe(card)
+    recharge.mockImplementation(async (url) =>
+      url.includes('/redemptions?') ? ok([]) : ok(remote(order.id, 'completed')),
+    )
+    expect(await fulfillOrder(order.id)).toBe(true)
+    expect((await internal(order.id)).status).toBe('completed')
+  })
+  it('queues balance purchases only once, rejects stale mappings, and leaves a definitive rejection for support', async () => {
+    const productId = await mappedProduct()
+    stub()
+    const verified = await quote(productId, session, browser)
+    const input = { quoteId: verified.id, channel: 'balance' as const, requestKey: id(), session }
+    await db.stockMapping.update({ where: { productId }, data: { purchaseAfterPayment: false } })
+    await expect(newOrder(user, browser, input)).rejects.toThrow('供货配置已变更')
+    await db.stockMapping.update({ where: { productId }, data: { purchaseAfterPayment: true } })
+    const [order, duplicate] = await Promise.all([
+      newOrder(user, browser, input),
+      newOrder(user, browser, input),
+    ])
+    expect(duplicate.id).toBe(order.id)
+    expect(await db.stockPurchase.count({ where: { orderId: order.id } })).toBe(1)
+    expect(await db.walletEntry.count({ where: { orderId: order.id } })).toBe(1)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce(Response.json({ ok: false, error_code: 'stock_unavailable' })),
+    )
+    await syncStockPurchase()
+    expect(await internal(order.id)).toMatchObject({
+      status: 'failed',
+      canRefill: false,
+      refund: null,
+    })
+    expect(await syncStockPurchase()).toBe(false)
   })
 })

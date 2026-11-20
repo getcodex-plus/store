@@ -26,6 +26,14 @@ export const orderResolutionSchema = z.object({
 
 export type OrderResolution = z.infer<typeof orderResolutionSchema>
 
-export function canResolveOrder(order: { kind: string; status: string }) {
-  return order.kind === 'purchase' && ['processing', 'needs_session'].includes(order.status)
+export function canResolveOrder(order: {
+  kind: string
+  status: string
+  fulfillmentStatus?: string | null
+}) {
+  return (
+    order.kind === 'purchase' &&
+    order.fulfillmentStatus !== 'awaiting_procurement' &&
+    ['processing', 'needs_session'].includes(order.status)
+  )
 }

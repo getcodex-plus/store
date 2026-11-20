@@ -102,6 +102,8 @@ export async function fulfillOrder(orderId: string): Promise<boolean> {
   )
     return true
   if (order.status !== 'processing') return false
+  if (['awaiting_procurement', 'procurement_review'].includes(order.fulfillmentStatus ?? ''))
+    return false
   if (demo) {
     await completeOrder(order.id)
     return true

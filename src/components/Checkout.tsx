@@ -626,6 +626,14 @@ function CheckoutContent({ productId }: { productId: string | null }) {
                 </Button>
               </p>
               {couponSection}
+              {quote.purchaseAfterPayment && (
+                <Alert
+                  showIcon
+                  type="info"
+                  title="付款后为本单采购兑换码"
+                  description="到货后需在原订单再次提交同一账号的会话信息，才能开始充值。无需再次付款。"
+                />
+              )}
               <h3 className="mt-24">{externalAmount === 0 ? '使用余额完成付款' : '支付方式'}</h3>
               {externalAmount > 0 && (
                 <PaymentOptions

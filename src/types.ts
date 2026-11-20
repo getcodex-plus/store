@@ -358,6 +358,7 @@ export interface AdminData {
   inventory: { productId: string; available: number; reserved: number; consumed: number }[]
 }
 export interface Quote {
+  purchaseAfterPayment?: boolean
   id: string
   productId: string
   email: string

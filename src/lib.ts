@@ -32,6 +32,10 @@ export function orderStatusLabel(order: Order) {
       text: order.refund?.destination === 'original' ? '已退款' : '已退回钱包',
       color: 'default',
     }
+  if (order.status === 'processing' && order.fulfillmentStatus === 'awaiting_procurement')
+    return { text: '已付款，待供货', color: 'processing' }
+  if (order.status === 'processing' && order.fulfillmentStatus === 'procurement_review')
+    return { text: '供货待核对', color: 'warning' }
   return statuses[order.status]
 }
 export const channels = {

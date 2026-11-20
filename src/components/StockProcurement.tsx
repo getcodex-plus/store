@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
-import { Alert, Button, Card, InputNumber, Popconfirm, Select, Space, Table } from 'antd'
+import { Alert, Button, Card, Checkbox, InputNumber, Popconfirm, Select, Space, Table } from 'antd'
 import { api } from '../lib'
 import type { Product } from '../types'
 import type { procurementOverview, supplierCatalog } from '../server/procurement'
@@ -16,10 +16,13 @@ const statusNames: Record<string, string> = {
 }
 const issueNames: Record<string, string> = {
   retry_pending: '暂未确认，等待重试',
+  delivery_pending: '交付超时，请核对上游原单',
+  outcome_unknown: '上游结果未确认，请核对原单',
   delivery_mismatch: '交付内容与采购单不符或卡密重复',
   insufficient_balance: '上游余额不足',
   payment_failed: '上游扣款失败',
   insufficient_stock: '上游库存不足',
+  stock_unavailable: '上游库存不可用',
   sku_unavailable: '上游 SKU 不可售',
   product_unavailable: '上游商品已下架',
   bad_request: '上游拒绝采购参数',
@@ -41,6 +44,7 @@ export function StockProcurement({
   const [page, setPage] = useState(1)
   const [productId, setProductId] = useState<string>()
   const [skuId, setSkuId] = useState<number>()
+  const [purchaseAfterPayment, setPurchaseAfterPayment] = useState(false)
   const [quantity, setQuantity] = useState<number | null>(1)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -66,6 +70,7 @@ export function StockProcurement({
       setCatalog(result)
       setPage(next)
       setSkuId(undefined)
+      setPurchaseAfterPayment(false)
     })
   const options =
     catalog?.items
@@ -138,6 +143,7 @@ export function StockProcurement({
             options={products.map((item) => ({ value: item.id, label: item.name }))}
             onChange={(value) => {
               setProductId(value)
+              setPurchaseAfterPayment(false)
               requestKey.current = ''
             }}
           />
@@ -149,8 +155,22 @@ export function StockProcurement({
             disabled={busy || !catalog}
             value={skuId}
             options={options}
-            onChange={setSkuId}
+            onChange={(value) => {
+              setSkuId(value)
+              setPurchaseAfterPayment(
+                mapping?.skuId === value &&
+                  mapping.integrationId === catalog?.integrationId &&
+                  mapping.purchaseAfterPayment,
+              )
+            }}
           />
+          <Checkbox
+            checked={purchaseAfterPayment}
+            disabled={busy || !canWrite || !selected || !productId || demo}
+            onChange={(event) => setPurchaseAfterPayment(event.target.checked)}
+          >
+            付款后按单采购（每单按上游现价扣款购买 1 个码）
+          </Checkbox>
           <Button
             disabled={busy || !canWrite || !productId || !selected}
             onClick={() =>
@@ -160,6 +180,7 @@ export function StockProcurement({
                   skuId,
                   upstreamProductId: selected!.upstreamProductId,
                   integrationId: catalog!.integrationId,
+                  purchaseAfterPayment,
                 })
                 await load()
               })
@@ -172,6 +193,7 @@ export function StockProcurement({
       {mapping && (
         <div className="mt-20">
           当前映射：上游商品 #{mapping.upstreamProductId} / SKU #{mapping.skuId}　
+          {mapping.purchaseAfterPayment ? '付款后按单采购' : '手动进货'}　
           <Space wrap>
             <Popconfirm
               title="移除此映射？已提交的采购不受影响。"
@@ -217,6 +239,10 @@ export function StockProcurement({
         pagination={{ pageSize: 5 }}
         columns={[
           { title: '采购单号', dataIndex: 'id' },
+          {
+            title: '来源',
+            render: (_, item) => (item.orderId ? `原单 ${item.orderId}` : '手动进货'),
+          },
           { title: '本地套餐', dataIndex: 'productId' },
           { title: 'SKU', dataIndex: 'skuId' },
           { title: '数量', dataIndex: 'quantity' },
@@ -232,6 +258,24 @@ export function StockProcurement({
                 .join(' · '),
           },
           { title: '入库批次', dataIndex: 'batchId' },
+          {
+            title: '核对',
+            render: (_, item) =>
+              item.orderId &&
+              item.state === 'review' && (
+                <Button
+                  disabled={!canWrite || demo || busy}
+                  onClick={() =>
+                    void run(async () => {
+                      await api('/admin/procurement/resync', { id: item.id })
+                      await load()
+                    })
+                  }
+                >
+                  重新同步原单
+                </Button>
+              ),
+          },
         ]}
       />
     </Card>

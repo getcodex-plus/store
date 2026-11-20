@@ -30,6 +30,7 @@ export type SupplierProduct = z.infer<typeof product>
 const rejections = [
   'insufficient_balance',
   'insufficient_stock',
+  'stock_unavailable',
   'product_unavailable',
   'sku_unavailable',
   'bad_request',
