@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Alert, Button, Card, Checkbox, InputNumber, Popconfirm, Select, Space, Table } from 'antd'
 import { api } from '../lib'
+import { createQueryGeneration } from '../query-generation'
 import type { Product } from '../types'
 import type { procurementOverview, supplierCatalog } from '../server/procurement'
 
@@ -58,8 +59,13 @@ export function StockProcurement({
     const tail = qs.toString()
     return api<Overview>(`/admin/procurement${tail ? `?${tail}` : ''}`)
   }
+  // Every refresh/filter change starts a new generation; responses from an older
+  // one are dropped instead of overwriting the current view.
+  const generation = useRef(createQueryGeneration())
   const load = async (state = stateFilter) => {
+    const mine = generation.current.start()
     const next = await query({ state })
+    if (!generation.current.isCurrent(mine)) return
     setOverview(next)
     setRows(next.purchases)
     setHasMore(next.hasMore)
@@ -131,7 +137,10 @@ export function StockProcurement({
   const loadMore = async () => {
     const last = rows[rows.length - 1]
     if (!last) return
+    const mine = generation.current.ticket()
     const next = await query({ state: stateFilter, before: last.id })
+    // A filter change or refresh while this page was in flight invalidates it.
+    if (!generation.current.isCurrent(mine)) return
     setRows((prev) => [...prev, ...next.purchases])
     setHasMore(next.hasMore)
   }
@@ -357,7 +366,7 @@ export function StockProcurement({
                 .filter(Boolean)
                 .join(' · '),
           },
-          { title: '重试次数', dataIndex: 'attempts' },
+          { title: '处理次数', dataIndex: 'attempts' },
           {
             title: '下次重试',
             render: (_, item) =>
