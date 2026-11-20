@@ -45,9 +45,8 @@ jobs:
       - run: bun run test
       - run: bun run build
       # Run the Playwright suite against the production build: Next dev compiles
-      # routes on first request and blows the 5s locator budget, which is what
-      # made it look red locally (56 passed / 0 failed on the production build
-      # vs 52/4 on dev).
+      # routes on first request, which blows the 5s locator budget and makes
+      # healthy pages look red.
       - name: Install Playwright browsers
         run: bunx playwright install --with-deps chromium
       - name: Run e2e suite
