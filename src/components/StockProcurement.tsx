@@ -1,7 +1,8 @@
 'use client'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Alert, Button, Card, Checkbox, InputNumber, Popconfirm, Select, Space, Table } from 'antd'
 import { api } from '../lib'
+import { createQueryGeneration } from '../query-generation'
 import type { Product } from '../types'
 import type { procurementOverview, supplierCatalog } from '../server/procurement'
 
@@ -47,11 +48,34 @@ export function StockProcurement({
   const [quantity, setQuantity] = useState<number | null>(1)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [stateFilter, setStateFilter] = useState<string>()
+  const [rows, setRows] = useState<Overview['purchases']>([])
+  const [hasMore, setHasMore] = useState(false)
   const requestKey = useRef('')
-  const load = async () => setOverview(await api<Overview>('/admin/procurement'))
-  useEffect(() => {
-    void load().catch((err: Error) => setError(err.message))
+  const activeFilter = useRef<string | undefined>(undefined)
+  const generation = useRef(createQueryGeneration())
+  const load = useCallback(async (before?: string) => {
+    const mine = before ? generation.current.ticket() : generation.current.start()
+    if (!before) setHasMore(false)
+    const params = new URLSearchParams()
+    if (activeFilter.current) params.set('state', activeFilter.current)
+    if (before) params.set('before', before)
+    try {
+      const next = await api<Overview>(`/admin/procurement${params.size ? `?${params}` : ''}`)
+      if (!generation.current.isCurrent(mine)) return
+      setOverview(next)
+      setRows((previous) => (before ? [...previous, ...next.purchases] : next.purchases))
+      setHasMore(next.hasMore)
+    } catch (err) {
+      if (generation.current.isCurrent(mine)) setError((err as Error).message)
+    }
   }, [])
+  useEffect(() => {
+    void load()
+    return () => {
+      generation.current.start()
+    }
+  }, [load])
   async function run(action: () => Promise<void>) {
     setBusy(true)
     setError('')
@@ -108,6 +132,9 @@ export function StockProcurement({
       requestKey.current = ''
       await load()
     })
+  // Counted by the server over the whole table: deriving it from the visible page
+  // made the alert vanish once 50 newer purchases pushed the review row off it.
+  const reviewCount = overview?.reviewCount ?? 0
   return (
     <Card
       title="上游进货与 SKU 映射"
@@ -269,11 +296,52 @@ export function StockProcurement({
       )}
       {demo && <p className="tiny muted">演示模式不会提交真实采购。</p>}
       <h3 className="mt-20">采购记录</h3>
+      <Space wrap className="mt-10">
+        <Select
+          aria-label="按状态筛选"
+          allowClear
+          placeholder="按状态筛选"
+          style={{ width: 180 }}
+          value={stateFilter}
+          onChange={(state: string | undefined) => {
+            activeFilter.current = state
+            setStateFilter(state)
+            setRows([])
+            setError('')
+            void load()
+          }}
+          options={Object.entries(statusNames).map(([value, label]) => ({ value, label }))}
+        />
+        {reviewCount > 0 && (
+          <Alert
+            type="warning"
+            showIcon
+            title={`${reviewCount} 张采购单需人工核对（review）`}
+            description={
+              <>
+                <div>
+                  手动进货（未关联买家订单）：核对上游是否已扣款；已交付就手工入库，未交付就退款。
+                </div>
+                <div>
+                  按单采购（关联买家订单）：先核对上游；已交付请用「重新同步原单」把卡绑定到买家订单，不要先导入公共库存——同一张卡再次同步会因批次重复回到 review。
+                </div>
+              </>
+            }
+          />
+        )}
+        {hasMore && (
+          <Button disabled={busy} onClick={() => void run(() => load(rows.at(-1)?.id))}>
+            加载更早的采购单
+          </Button>
+        )}
+      </Space>
       <Table
         rowKey="id"
         size="small"
-        scroll={{ x: 760 }}
-        dataSource={overview?.purchases}
+        scroll={{ x: 1000 }}
+        className="mt-10"
+        dataSource={rows}
+        rowClassName={(item) => (item.state === 'review' ? 'procurement-review-row' : '')}
         locale={{ emptyText: '暂无采购记录' }}
         pagination={{ pageSize: 5 }}
         columns={[
@@ -295,6 +363,18 @@ export function StockProcurement({
               ]
                 .filter(Boolean)
                 .join(' · '),
+          },
+          { title: '处理次数', dataIndex: 'attempts' },
+          {
+            title: '下次重试',
+            render: (_, item) =>
+              item.state === 'queued' || item.state === 'polling'
+                ? new Date(item.nextRunAt).toLocaleString('zh-CN')
+                : '—',
+          },
+          {
+            title: '创建时间',
+            render: (_, item) => new Date(item.createdAt).toLocaleString('zh-CN'),
           },
           { title: '入库批次', dataIndex: 'batchId' },
           {
