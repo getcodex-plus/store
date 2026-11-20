@@ -132,6 +132,29 @@ AICDK=$(q "select count(*) from integrations where provider='aicdk' and active;"
 [ "$AICDK" = "1" ] && pass "AICDK 已启用（注意：无公开文档，幂等/留存必须按附录 §8 实测）" \
                     || skip "AICDK 未启用（纯卡密库存模式）"
 
+# 渠道开关一致性：settings 里的买家可见渠道开着，就必须有能承接它的 provider
+# 集成（integration() 要求 active + enabled 双真，缺一个就 503）。不查这一条，
+# 买家会看到按钮、点下去拿到一个看不懂的错误。
+CH_ALIPAY=$(q "select coalesce(body->>'alipay','false') from settings where id=1;")
+CH_WECHAT=$(q "select coalesce(body->>'wechat','false') from settings where id=1;")
+CH_CRYPTO=$(q "select coalesce(body->>'crypto','false') from settings where id=1;")
+EPAY_ON=$(q "select count(*) from integrations where provider in ('xorpay','epay_v1','epay_v2') and active and enabled;")
+GMP_ON=$(q "select count(*) from integrations where provider='gmpay' and active and enabled;")
+if [ "$CH_ALIPAY" = "true" ] || [ "$CH_WECHAT" = "true" ]; then
+  if [ "${EPAY_ON:-0}" -gt 0 ]; then
+    pass "支付宝/微信渠道开着，且有启用的 xorpay/epay 集成可承接"
+  else
+    fail "settings.alipay/wechat 为真但没有启用的 xorpay/epay 集成：买家看到按钮、点击后 503"
+  fi
+fi
+if [ "$CH_CRYPTO" = "true" ]; then
+  if [ "${GMP_ON:-0}" -gt 0 ]; then
+    pass "USDT 渠道开着，且 GMPay 已启用"
+  else
+    fail "settings.crypto 为真但 GMPay 未启用：买家看到 USDT 按钮、点击后 503"
+  fi
+fi
+
 echo "== 3.5 回调域名的公网可解析性（GMPay 建单 10041 的唯一成因）=="
 # 上游 url_guard.go 的口径：notify_url 仅允许 http/https；host 不得是 localhost
 # 或私网/回环/链路本地 IP；域名必须在**下单那一刻**解析成功，且所有结果都是公网
