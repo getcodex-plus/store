@@ -112,7 +112,7 @@ esac
 [ -n "$KEY_SRC" ] && echo "        （必须另有独立离线第二份，且不得与数据库备份同机）"
 
 echo "== 3. 支付/上游集成 =="
-ACTIVE=$(q "select string_agg(provider,',' order by provider) from integrations where active;")
+ACTIVE=$(q "select string_agg(provider,',' order by provider) from integrations where active and enabled;") || exit 2
 
 # 严重度取决于「现在是否真的要收钱」。两个容易搞错的点：
 # 1. integrations.active 只表示「这份配置在生效」，操作员真正开关的是 enabled；
@@ -122,14 +122,18 @@ ACTIVE=$(q "select string_agg(provider,',' order by provider) from integrations 
 #    只看环境变量会把 live 当成 demo，把该 FAIL 的降级成 WARN 放过去。
 APP_MODE_VAL="${APP_MODE:-}"
 if [ -z "$APP_MODE_VAL" ] && [ -f .env ]; then
-  APP_MODE_VAL=$(grep -E '^APP_MODE=' .env | head -1 | cut -d= -f2-)
-  APP_MODE_VAL="${APP_MODE_VAL%\"}"; APP_MODE_VAL="${APP_MODE_VAL#\"}"
-  APP_MODE_VAL="${APP_MODE_VAL%\'}"; APP_MODE_VAL="${APP_MODE_VAL#\'}"
+  APP_MODE_VAL=$(sed -nE 's/^[[:space:]]*(export[[:space:]]+)?APP_MODE[[:space:]]*=[[:space:]]*//p' .env | tail -n 1 |
+    sed -E "s/[[:space:]]+#.*$//; s/[[:space:]]+$//; s/^\"(.*)\"$/\\1/; s/^'(.*)'$/\\1/")
 fi
-ENABLED=$(q "select string_agg(provider,',' order by provider) from integrations where active and enabled;")
-STRICT_PAY=0
-if [ "$APP_MODE_VAL" = "live" ]; then STRICT_PAY=1; fi
-case "$ENABLED" in *gmpay*|*xorpay*|*epay*) STRICT_PAY=1 ;; esac
+if [ -z "$APP_MODE_VAL" ]; then
+  if [ "$DEPLOY" = "container" ]; then APP_MODE_VAL=live; else APP_MODE_VAL=demo; fi
+fi
+case "$APP_MODE_VAL" in
+  live) STRICT_PAY=1 ;;
+  demo) STRICT_PAY=0 ;;
+  *) STRICT_PAY=1; fail "无法识别 APP_MODE，请明确设置为 live 或 demo" ;;
+esac
+case ",$ACTIVE," in *,gmpay,*|*,xorpay,*|*,epay_v1,*|*,epay_v2,*) STRICT_PAY=1 ;; esac
 payfail() {
   if [ "$STRICT_PAY" = "1" ]; then fail "$1"
   else warn "$1（当前未启用收款：demo/纯库存站暂不阻塞，转 live 前必须修）"; fi
@@ -137,7 +141,7 @@ payfail() {
 if [ -z "$ACTIVE" ]; then warn "没有任何启用中的集成（演示/纯库存站可接受，正式收款不可）"
 else pass "启用中：$ACTIVE"; fi
 
-GMP_URL=$(q "select coalesce(public->>'url','') from integrations where provider='gmpay' and active limit 1;")
+GMP_URL=$(q "select coalesce(public->>'url','') from integrations where provider='gmpay' and active and enabled limit 1;")
 if [ -z "$GMP_URL" ]; then skip "未启用 GMPay，跳过实现判定"
 elif [ -x "$(dirname "$0")/probe-gmpay-impl.sh" ]; then
   echo "  正在判定 GMPay 实现（只读两条 GET）..."
@@ -149,7 +153,7 @@ elif [ -x "$(dirname "$0")/probe-gmpay-impl.sh" ]; then
   esac
 else skip "probe-gmpay-impl.sh 不存在或不可执行"; fi
 
-AICDK=$(q "select count(*) from integrations where provider='aicdk' and active;")
+AICDK=$(q "select count(*) from integrations where provider='aicdk' and active and enabled;")
 [ "$AICDK" = "1" ] && pass "AICDK 已启用（注意：无公开文档，幂等/留存必须按附录 §8 实测）" \
                     || skip "AICDK 未启用（纯卡密库存模式）"
 
@@ -223,7 +227,7 @@ if [ -z "$APP_URL_VAL" ]; then
 else
   case "$APP_URL_VAL" in
     https://*) pass "APP_URL = ${APP_URL_VAL}（https）" ;;
-    http://*) if [ "$DEPLOY" = "container" ] || [ "${APP_MODE:-}" = "live" ]; then
+    http://*) if [ "$APP_MODE_VAL" = "live" ]; then
                 fail "APP_URL 是 http：live 模式启动即拒绝（config.ts 要求 https）"
               else warn "APP_URL 是 http：demo 可用，转 live 前必须换 https"; fi ;;
     *) payfail "APP_URL 不是 http/https 形态：${APP_URL_VAL}" ;;

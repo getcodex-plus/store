@@ -43,6 +43,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run check
       - run: bun run test
+      - run: bash tests/deployer-preflight.sh
       - run: bun run build
       # Run the Playwright suite against the production build: Next dev compiles
       # routes on first request, which blows the 5s locator budget and makes
