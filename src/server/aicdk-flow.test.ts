@@ -1608,12 +1608,12 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
       downstream_order_no: `stock_${order.id}`,
       trace_id: order.id,
     })
-    await db.stockPurchase.update({ where: { orderId: order.id }, data: { attempts: 59 } })
+    await db.stockPurchase.update({ where: { orderId: order.id }, data: { attempts: 119 } })
     await syncStockPurchase()
     expect(await syncStockPurchase()).toBe(false)
     expect(await db.stockPurchase.findUnique({ where: { orderId: order.id } })).toMatchObject({
       state: 'review',
-      lastError: 'delivery_pending',
+      lastError: 'stale_upstream',
     })
     await resyncPaidPurchase({ id: order.id }, 'test')
     await syncStockPurchase()

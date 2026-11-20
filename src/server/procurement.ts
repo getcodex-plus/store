@@ -208,7 +208,14 @@ export async function syncStockPurchase() {
   if (!purchase) return false
   const where = { id: purchase.id, attempts: purchase.attempts, state: purchase.state }
   const later = (seconds: number) => new Date(Date.now() + seconds * 1000)
-  const exhausted = purchase.orderId && purchase.attempts >= 60
+  // Two budgets, because the two phases fail differently. A created upstream order
+  // that never reaches `delivered` is stale after 120 polls (15s each ≈ 30 min). A
+  // purchase that keeps throwing before any order exists is exhausted after 20
+  // backoff rounds (5s→300s ≈ 25 min). The previous single
+  // `purchase.orderId && attempts >= 60` also silently meant "retry forever"
+  // whenever the purchase had no order yet, because the expression required it.
+  const stale = !!purchase.upstreamOrderId && purchase.attempts >= 120
+  const exhausted = purchase.attempts >= 20
   const stop = (state: 'review' | 'rejected', lastError: string, upstreamOrderId?: number) =>
     transaction(async (client) => {
       const claimed = await client.stockPurchase.updateMany({
@@ -310,15 +317,15 @@ export async function syncStockPurchase() {
           data: { batchId: batch.batchId, lastError: null },
         })
       })
-    } else if (exhausted) {
-      await stop('review', 'delivery_pending')
+    } else if (stale) {
+      await stop('review', 'stale_upstream')
     } else {
       await db.stockPurchase.updateMany({ where, data: { nextRunAt: later(15), lastError: null } })
     }
   } catch (error) {
     if (error instanceof PurchaseRejection) await stop('rejected', error.code, error.orderId)
     else if (error instanceof DeliveryMismatch) await stop('review', 'delivery_mismatch')
-    else if (exhausted) await stop('review', 'outcome_unknown')
+    else if (exhausted) await stop('review', 'retry_exhausted')
     else
       await db.stockPurchase.updateMany({
         where,

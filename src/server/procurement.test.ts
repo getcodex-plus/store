@@ -244,4 +244,58 @@ suite('downstream stock purchases', () => {
     const filtered = await procurementOverview({ state: 'review' })
     expect(filtered.purchases.map((item) => item.id)).toContain('sp_old_review')
   })
+
+  it('parks a purchase as stale when the created upstream order never delivers', async () => {
+    const purchase = await db.stockPurchase.create({
+      data: {
+        id: 'sp_stale',
+        productId: mapping.productId,
+        integrationId: mapping.integrationId,
+        upstreamProductId: 20,
+        skuId: 34,
+        quantity: 1,
+        actor,
+        state: 'polling',
+        upstreamOrderId: 92,
+        attempts: 119, // claimStockPurchase increments to 120 → stale
+        nextRunAt: new Date(0),
+      },
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ ok: true, status: 'paid', order_id: 92 })),
+    )
+
+    await syncStockPurchase()
+
+    expect(
+      await db.stockPurchase.findUniqueOrThrow({ where: { id: purchase.id } }),
+    ).toMatchObject({ state: 'review', lastError: 'stale_upstream' })
+  })
+
+  it('parks a purchase that keeps failing before any upstream order exists', async () => {
+    const purchase = await db.stockPurchase.create({
+      data: {
+        id: 'sp_failing',
+        productId: mapping.productId,
+        integrationId: mapping.integrationId,
+        upstreamProductId: 20,
+        skuId: 34,
+        quantity: 1,
+        actor,
+        state: 'queued',
+        // No upstreamOrderId and no orderId. The old `purchase.orderId && attempts >= 60`
+        // evaluated to null here, so a create() that kept throwing retried forever.
+        attempts: 19, // claimStockPurchase increments to 20 → exhausted
+        nextRunAt: new Date(0),
+      },
+    })
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('boom', { status: 500 })))
+
+    await syncStockPurchase()
+
+    expect(
+      await db.stockPurchase.findUniqueOrThrow({ where: { id: purchase.id } }),
+    ).toMatchObject({ state: 'review', lastError: 'retry_exhausted' })
+  })
 })
