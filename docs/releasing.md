@@ -65,6 +65,14 @@ Test 当前不自动运行 Playwright E2E，也不验证真实外部服务。容
 
 版本号以 Release Tag 为准，工作流不自动修改 `package.json`。需要保持包版本一致时，在触发 Release 前修改并提交。
 
+### GHCR 推送被拒绝
+
+如果日志先显示 `Login Succeeded!`，最后在 `pushing layers` 报 `permission_denied: read_package`，说明登录成功，但发布凭据无法访问目标包。工作流已声明 `packages: write`，这不能代替包本身对仓库的授权。
+
+1. 对于已有的 `store` 包，由包管理员打开 [Package settings](https://github.com/orgs/getcodex-plus/packages/container/store/settings) → **Manage Actions access**，确认当前 `getcodex-plus/store` 仓库的角色为 **Write**。仓库重建或迁移后应重新核对；无需将包改为公开。如果是首次创建包，则检查组织的包创建策略。
+2. 授权后，在原先失败的 **Docker** 运行中选择 **Re-run failed jobs**。它会用原 Tag 和提交重新发布，无需删除 Release 或移动 Tag。
+3. 只有必须使用独立发布账号时，才在仓库的 **Settings → Secrets and variables → Actions** 成对设置变量 `GHCR_USERNAME` 和密钥 `GHCR_TOKEN`。令牌使用该账号的 classic PAT，授予 `write:packages`，账号本身须对目标包有写权限；组织强制 SSO 时还需授权 SSO。两项均留空时仍使用短期 `GITHUB_TOKEN`。旧运行重试使用旧工作流，不会读取新增的凭据配置。
+
 ### 镜像标签
 
 镜像仓库：`ghcr.io/getcodex-plus/store`。

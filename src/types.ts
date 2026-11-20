@@ -239,6 +239,8 @@ export interface ReferralTier {
   rateBps: number
 }
 export interface Settings {
+  brandName?: string
+  brandLogo?: string
   rateBps: number
   referralTiers?: ReferralTier[]
   withdrawalChannels?: WithdrawalChannels

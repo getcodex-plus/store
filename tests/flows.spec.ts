@@ -497,13 +497,16 @@ test('admin configuration keeps secrets write-only and uses separate RBAC roles'
     .filter({ has: page.getByRole('heading', { name: 'AICDK 兑换服务' }) })
   await card.getByRole('button').click()
   const dialog = page.getByRole('dialog')
-  await dialog.getByPlaceholder('http://aicdk:8080').fill('http://aicdk.internal:8080')
+  const address = dialog.getByLabel('AICDK 地址')
+  await expect(address).toHaveValue('https://cdki.link')
+  await address.fill('http://aicdk.internal:8080')
   await dialog.getByLabel('开放 API Key').fill('test-only-write-only-key')
   await dialog.getByRole('switch').check()
   await dialog.getByRole('button', { name: '加密保存配置' }).click()
   await expect(dialog).toBeHidden()
   await card.getByRole('button').click()
   await expect(page.getByLabel('开放 API Key')).toHaveValue('')
+  await expect(address).toHaveValue('http://aicdk.internal:8080')
   await expect(page.getByLabel('开放 API Key')).toHaveAttribute(
     'placeholder',
     '已保存，留空保持不变',

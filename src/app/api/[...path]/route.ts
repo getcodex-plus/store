@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { tawkSettingsSchema } from '../../../tawk'
+import { brandLogoSchema, brandNameSchema, normalizeBrandLogo } from '../../../server/brand-logo'
 import { bodyText, failure, guard } from '../../../server/http'
 import { ApiError, demo } from '../../../server/config'
 import { browserDigest, currentUser, requireUser, requireRecent } from '../../../server/auth'
@@ -106,7 +107,7 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
     if (path === 'bootstrap' && method === 'GET') {
       await browserDigest()
       const [user, catalog, conf] = await Promise.all([currentUser(), products(), settings()])
-      const { upgradePricing: _pricing, ...publicSettings } = conf
+      const { brandLogo: _logo, upgradePricing: _pricing, ...publicSettings } = conf
       result = {
         mode: demo ? 'demo' : 'live',
         user,
@@ -422,6 +423,8 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
       } else if (path === 'admin/settings' && method === 'POST') {
         const conf = z
           .object({
+            brandName: brandNameSchema.optional(),
+            brandLogo: brandLogoSchema.optional(),
             rateBps: z.number().int().min(0).max(5000),
             referralTiers: referralTiersSchema.optional(),
             withdrawalChannels: withdrawalChannelsSchema.optional(),
@@ -458,6 +461,8 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
             }),
           })
           .parse(data)
+        const brandLogo =
+          conf.brandLogo === undefined ? undefined : await normalizeBrandLogo(conf.brandLogo)
         await transaction(async (client) => {
           await lockSettings(client)
           const current = settingsData(
@@ -470,7 +475,10 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
             where: { id: 1 },
             data: {
               body: jsonInput({
+                ...current,
                 ...conf,
+                brandName: conf.brandName ?? current.brandName,
+                brandLogo: brandLogo ?? current.brandLogo,
                 tawk: conf.tawk ?? current.tawk,
                 referralTiers,
                 withdrawalChannels: conf.withdrawalChannels ?? withdrawalChannels(current),
@@ -480,7 +488,7 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
               }),
             },
           })
-          await audit(admin.email, '更新返现与支付规则', 'settings', client)
+          await audit(admin.email, '更新网站设置', 'settings', client)
         })
         result = { saved: true }
       } else if (path === 'admin/inventory/batches' && method === 'GET') {

@@ -1338,7 +1338,7 @@ export async function adminData(
     totals.set(item.productId, total)
   }
   const inventory = [...totals.values()]
-  const { upgradePricing: _pricing, ...publicSettings } = conf
+  const { brandLogo: _logo, upgradePricing: _pricing, ...publicSettings } = conf
   let overview: AdminData['overview']
   if (section === 'overview') {
     const [userCount, paidPurchases, completedPurchaseCount, attentionOrderCount, dailyRevenue] =

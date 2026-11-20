@@ -15,6 +15,10 @@ import type { Bootstrap, CouponPreview } from '../types'
 import { api } from '../lib'
 import { attributionSource } from '../funnel-client'
 import { extractCouponParam, normalizeCouponCode } from '../coupons'
+import { defaultBrandName, type SiteBrand } from '../branding'
+
+const Branding = createContext<SiteBrand>({ name: defaultBrandName })
+export const useBrand = () => useContext(Branding)
 
 const COUPON_STORAGE_KEY = 'getgpt_coupon'
 const REFERRAL_STORAGE_KEY = 'getgpt_referral'
@@ -297,7 +301,15 @@ function StateProvider({ children, nonce }: { children: React.ReactNode; nonce?:
     </State.Provider>
   )
 }
-export function Providers({ children, nonce }: { children: React.ReactNode; nonce?: string }) {
+export function Providers({
+  children,
+  nonce,
+  brand,
+}: {
+  children: React.ReactNode
+  nonce?: string
+  brand: SiteBrand
+}) {
   return (
     <ConfigProvider
       locale={zhCN}
@@ -382,7 +394,9 @@ export function Providers({ children, nonce }: { children: React.ReactNode; nonc
       }}
     >
       <App>
-        <StateProvider nonce={nonce}>{children}</StateProvider>
+        <Branding.Provider value={brand}>
+          <StateProvider nonce={nonce}>{children}</StateProvider>
+        </Branding.Provider>
       </App>
     </ConfigProvider>
   )

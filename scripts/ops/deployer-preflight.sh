@@ -283,13 +283,11 @@ PY
   fi
 fi
 
-echo "== 4. 品牌残留（代理商自托管场景）=="
-if command -v grep >/dev/null && [ -d src ]; then
-  HITS=$(grep -rn 'GetCodex' src --include=*.ts --include=*.tsx 2>/dev/null | grep -vc '\.test\.' || true)
-  if [ "${HITS:-0}" -gt 0 ]; then
-    warn "src 下仍有 ${HITS} 处 GetCodex 字面量：代理商不改代码就顶着本仓库品牌卖货"
-  else pass "src 下无品牌字面量残留"; fi
-else skip "不在仓库根目录，跳过品牌扫描"; fi
+echo "== 4. 网站品牌（代理商自托管场景）=="
+BRAND=$(q "select body->>'brandName' from settings where id=1;")
+if [ -z "$BRAND" ] || [ "$BRAND" = "GetCodex Plus" ]; then
+  warn "仍使用默认站名；如需白牌，请在「网站设置 → 网站品牌」修改名称与 Logo"
+else pass "当前站名：${BRAND}"; fi
 
 echo
 if [ "$FAIL" -ne 0 ]; then echo "RESULT: FAILED — 存在必须修复项，不要转 live"; exit 1; fi

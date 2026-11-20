@@ -6,14 +6,16 @@ import { ProPlanCard } from '../components/ProPlanCard'
 import { Support } from '../components/Support'
 import { JsonLd } from '../components/JsonLd'
 import { pageMetadata, siteOrigin } from '../seo'
+import { siteBrand } from '../server/site-settings'
 export const dynamic = 'force-dynamic'
-export const metadata = pageMetadata(
-  'ChatGPT Plus / Pro 充值｜套餐价格',
-  '查看 ChatGPT 充值套餐与服务说明。为自己的账号充值，游客无需注册，先检查账号和价格，再付款并跟踪订单。',
-  '/',
-)
+export const generateMetadata = () =>
+  pageMetadata(
+    'ChatGPT Plus / Pro 充值｜套餐价格',
+    '查看 ChatGPT 充值套餐与服务说明。为自己的账号充值，游客无需注册，先检查账号和价格，再付款并跟踪订单。',
+    '/',
+  )
 export default async function Home() {
-  const catalog = await products()
+  const [catalog, brand] = await Promise.all([products(), siteBrand()])
   const proVariants = ['pro5', 'pro20', 'promax'].flatMap((plan) => {
     const product = catalog.find((p) => p.plan === plan)
     return product ? [product] : []
@@ -26,7 +28,7 @@ export default async function Home() {
         data={{
           '@context': 'https://schema.org',
           '@type': 'WebSite',
-          name: 'GetCodex Plus',
+          name: brand.name,
           url: siteOrigin(),
           inLanguage: 'zh-CN',
           description: '独立 ChatGPT 充值服务，与 OpenAI 无隶属关系。',

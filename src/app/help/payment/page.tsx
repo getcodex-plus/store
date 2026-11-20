@@ -2,13 +2,14 @@ import Link from 'next/link'
 import { pageMetadata } from '../../../seo'
 import { refundSummary } from '../../../product-copy'
 import { Support } from '../../../components/Support'
-import { publicSupport } from '../../../server/public-support'
+import { publicSupport } from '../../../server/site-settings'
 
-export const metadata = pageMetadata(
-  'ChatGPT 充值未到账怎么办｜付款、查单与退款',
-  '付款成功但 ChatGPT 尚未到账、订单需要更新账号信息、游客如何查单，以及退款去向与钱包退款说明。',
-  '/help/payment',
-)
+export const generateMetadata = () =>
+  pageMetadata(
+    'ChatGPT 充值未到账怎么办｜付款、查单与退款',
+    '付款成功但 ChatGPT 尚未到账、订单需要更新账号信息、游客如何查单，以及退款去向与钱包退款说明。',
+    '/help/payment',
+  )
 export default async function PaymentHelp() {
   const support = await publicSupport()
   return (

@@ -3,6 +3,7 @@ import { cache } from 'react'
 import { notFound } from 'next/navigation'
 import { products } from '../../../server/services'
 import { pageMetadata, siteOrigin } from '../../../seo'
+import { siteBrand } from '../../../server/site-settings'
 import { planBuyingAdvice, refundSummary } from '../../../product-copy'
 import { Support } from '../../../components/Support'
 import { JsonLd } from '../../../components/JsonLd'
@@ -23,7 +24,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 }
 export default async function Plan({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const product = await getProduct(id)
+  const [product, brand] = await Promise.all([getProduct(id), siteBrand()])
   if (!product) notFound()
   const url = `${siteOrigin()}/plans/${id}`
   const advice = planBuyingAdvice[product.plan]
@@ -47,7 +48,7 @@ export default async function Plan({ params }: { params: Promise<{ id: string }>
           name: product.name,
           description: product.description,
           url,
-          provider: { '@type': 'Organization', name: 'GetCodex Plus', url: siteOrigin() },
+          provider: { '@type': 'Organization', name: brand.name, url: siteOrigin() },
           ...(product.priceStatus !== 'pending'
             ? {
                 offers: {

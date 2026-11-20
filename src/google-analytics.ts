@@ -1,3 +1,5 @@
+import { defaultBrandName } from './branding'
+
 // Shared by the server layout and CSP: an empty or invalid ID disables GA.
 export function googleAnalyticsId(value: string | undefined) {
   const id = value?.trim()
@@ -19,7 +21,7 @@ const pages: Record<string, string> = {
   '/terms': '服务条款',
 }
 
-export function analyticsPage(pathname: string, origin: string) {
+export function analyticsPage(pathname: string, origin: string, brandName = defaultBrandName) {
   // Never forward arbitrary path segments, order IDs, query strings, hashes,
   // document titles, or form values. Unknown routes share a fixed fallback.
   const path = pathname.split(/[?#]/, 1)[0].replace(/\/$/, '') || '/'
@@ -37,7 +39,7 @@ export function analyticsPage(pathname: string, origin: string) {
       : route === '/orders/detail'
         ? '订单详情'
         : '页面未找到')
-  return { page_location: `${origin}${route}`, page_title: `${title} · GetCodex Plus` }
+  return { page_location: `${origin}${route}`, page_title: `${title} · ${brandName}` }
 }
 
 export function analyticsReferrer(referrer: string) {

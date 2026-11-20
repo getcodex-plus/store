@@ -74,13 +74,14 @@ describe('email provider dispatch', () => {
   })
 
   it('preserves the complete Unicode order notification and line breaks', async () => {
+    mocks.setting.mockResolvedValue({ body: { ...settings, brandName: '北辰商店' } })
     const fetcher = vi.fn().mockResolvedValue(Response.json(success))
     vi.stubGlobal('fetch', fetcher)
     const text = '订单号：o_123\n金额：¥10.00\n查看订单：https://example.com/orders/o_123'
     await sendEmail('buyer@example.com', '订单通知：充值已完成', text, 'event-123')
     expect(JSON.parse(fetcher.mock.calls[0][1].body)).toMatchObject({
       to: 'buyer@example.com',
-      subject: '订单通知：充值已完成',
+      subject: '北辰商店 订单通知：充值已完成',
       body: text,
     })
   })
@@ -137,7 +138,7 @@ describe('email provider dispatch', () => {
     await sendEmail('buyer@example.com', '测试', '正文', 'event-123')
     expect(mocks.integration).toHaveBeenCalledWith('resend')
     expect(mocks.resend).toHaveBeenCalledWith(
-      { from: config.from, to: ['buyer@example.com'], subject: '测试', text: '正文' },
+      { from: config.from, to: ['buyer@example.com'], subject: 'GetCodex Plus 测试', text: '正文' },
       { idempotencyKey: 'event-123', signal: expect.any(AbortSignal) },
     )
   })
@@ -152,7 +153,7 @@ describe('email provider dispatch', () => {
     expect(mocks.smtp).toHaveBeenCalledWith({
       from: config.from,
       to: 'buyer@example.com',
-      subject: '测试',
+      subject: 'GetCodex Plus 测试',
       text: '正文',
     })
   })

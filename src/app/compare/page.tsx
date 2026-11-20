@@ -6,11 +6,12 @@ import { Support } from '../../components/Support'
 import { PlanPrice } from '../../components/PlanPrice'
 
 export const dynamic = 'force-dynamic'
-export const metadata = pageMetadata(
-  'ChatGPT Go、Plus 与 Pro 套餐对比｜价格与选购建议',
-  '比较 ChatGPT Go、Plus 和 Pro 各档位的套餐内容、适合的用户与每月价格，按自己的使用需求选择。',
-  '/compare',
-)
+export const generateMetadata = () =>
+  pageMetadata(
+    'ChatGPT Go、Plus 与 Pro 套餐对比｜价格与选购建议',
+    '比较 ChatGPT Go、Plus 和 Pro 各档位的套餐内容、适合的用户与每月价格，按自己的使用需求选择。',
+    '/compare',
+  )
 export default async function Compare() {
   const planOrder = ['go', 'plus', 'pro5', 'pro20', 'promax']
   const catalog = (await products())

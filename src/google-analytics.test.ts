@@ -9,6 +9,7 @@ it('requires a GA4 measurement ID, never a GTM container or injected URL', () =>
 
 it('removes query strings, fragments, dynamic identifiers and unknown paths from page data', () => {
   const origin = 'https://shop.example'
+  expect(analyticsPage('/checkout', origin, '北辰商店').page_title).toBe('结算 · 北辰商店')
   expect(analyticsPage('/checkout?email=private@example.com#session-token', origin)).toEqual({
     page_location: `${origin}/checkout`,
     page_title: '结算 · GetCodex Plus',

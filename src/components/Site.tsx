@@ -13,25 +13,29 @@ import { authClient, authResult } from '../auth-client'
 import { signInOpaque } from '../opaque-client'
 import { useEffect, useState } from 'react'
 import { useBotCheck } from './BotCheck'
-import { useSite } from './Providers'
+import { useBrand, useSite } from './Providers'
 import { api } from '../lib'
 import { BrandMark } from './BrandMark'
+import { defaultBrandName } from '../branding'
 import { PasswordResetForm } from './PasswordResetForm'
 import { UserAvatar } from './UserAvatar'
 
 export function Brand({ light = false }: { light?: boolean }) {
+  const { name, logoUrl } = useBrand()
+  const [wordmark, badge] = name === defaultBrandName ? name.split(' ') : [name]
   return (
-    <Link
-      href="/"
-      className={`brand ${light ? 'brand-light' : ''}`}
-      aria-label="GetCodex Plus 首页"
-    >
+    <Link href="/" className={`brand ${light ? 'brand-light' : ''}`} aria-label={`${name} 首页`}>
       <span className="brand-mark">
-        <BrandMark symbolColor={light ? '#171717' : '#fff'} />
+        {logoUrl ? (
+          <img src={logoUrl} alt="" width={36} height={36} />
+        ) : (
+          <BrandMark symbolColor={light ? '#171717' : '#fff'} />
+        )}
       </span>
-      <span className="brand-wordmark">
-        GetCodex <span className="brand-plus">Plus</span>
+      <span className="brand-wordmark" title={name}>
+        {wordmark}
       </span>
+      {badge && <span className="brand-plus">{badge}</span>}
     </Link>
   )
 }
@@ -41,6 +45,7 @@ export function LoginDialog() {
 }
 
 function LoginDialogContent() {
+  const brand = useBrand()
   const { data, loginOpen, loginIntent, openLogin, refresh } = useSite()
   const { message } = App.useApp()
   const [form] = Form.useForm()
@@ -225,7 +230,7 @@ function LoginDialogContent() {
   }
   return (
     <Modal
-      title={recovery ? '重置登录密码' : '欢迎来到 GetCodex Plus'}
+      title={recovery ? '重置登录密码' : `欢迎来到 ${brand.name}`}
       open={loginOpen}
       onCancel={() => {
         openLogin(false)
@@ -602,6 +607,7 @@ export function SiteHeader() {
   )
 }
 export function SiteFooter({ supportEmail }: { supportEmail: string }) {
+  const brand = useBrand()
   const path = usePathname()
   const { data } = useSite()
   const email = data?.settings.supportEmail ?? supportEmail
@@ -623,7 +629,9 @@ export function SiteFooter({ supportEmail }: { supportEmail: string }) {
           <Link href="/privacy">隐私说明</Link>
           <Link href="/terms">服务说明</Link>
         </div>
-        <span className="footer-copy">© {new Date().getFullYear()} GetCodex Plus</span>
+        <span className="footer-copy">
+          © {new Date().getFullYear()} {brand.name}
+        </span>
       </div>
     </footer>
   )

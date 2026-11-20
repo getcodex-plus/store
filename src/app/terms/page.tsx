@@ -1,17 +1,20 @@
 import { pageMetadata } from '../../seo'
 import { refundSummary } from '../../product-copy'
 import { Support } from '../../components/Support'
-export const metadata = pageMetadata(
-  '服务说明｜交付、取消与退款',
-  '了解 GetCodex Plus 独立充值服务的购买条件、交付确认、订单取消、退款去向、钱包退款及邀请返现规则。',
-  '/terms',
-)
-export default function Terms() {
+import { siteBrand } from '../../server/site-settings'
+export const generateMetadata = () =>
+  pageMetadata(
+    '服务说明｜交付、取消与退款',
+    '了解本站独立充值服务的购买条件、交付确认、订单取消、退款去向、钱包退款及邀请返现规则。',
+    '/terms',
+  )
+export default async function Terms() {
+  const brand = await siteBrand()
   return (
     <main className="container prose-page">
       <h1>服务说明</h1>
       <p>
-        GetCodex Plus 是独立充值服务，与 OpenAI
+        {brand.name} 是独立充值服务，与 OpenAI
         无隶属关系。套餐服务及金额以付款前确认的订单内容为准。
       </p>
       <h2>购买与交付</h2>

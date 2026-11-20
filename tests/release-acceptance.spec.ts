@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { openAdminPage } from './admin-helpers'
+import { db } from '../src/server/db'
+import { jsonInput, settingsData } from '../src/server/data'
 
 async function loginAdmin(page: Page) {
   await page.getByRole('button', { name: '管理员登录' }).click()
@@ -14,6 +16,59 @@ async function loginAdmin(page: Page) {
     .click()
   await expect(page.getByRole('dialog')).toBeHidden()
 }
+
+test('brand settings update the storefront, metadata and enrollment without rebuilding', async ({
+  page,
+  browser,
+}) => {
+  const original = settingsData((await db.setting.findUniqueOrThrow({ where: { id: 1 } })).body)
+  const visitor = await browser.newContext()
+  const brandName = 'North Star 北辰商店'
+  try {
+    await page.goto('/admin')
+    await loginAdmin(page)
+    await openAdminPage(page, '网站设置')
+    await page.getByLabel('网站名称', { exact: true }).fill(brandName)
+    await page.locator('input[type=file]').setInputFiles('public/apple-touch-icon.png')
+    await expect(page.getByAltText('Logo 预览')).toBeVisible()
+    await page.getByRole('button', { name: '保存设置', exact: true }).click()
+    await expect(page.getByText(`${brandName} 控制台`, { exact: true }).first()).toBeVisible()
+    const registration = await page.request.get('/api/auth/passkey/generate-register-options')
+    expect(await registration.json()).toMatchObject({ rp: { name: brandName } })
+    const shop = await visitor.newPage()
+    await shop.goto('/')
+    await expect(shop).toHaveTitle(new RegExp(brandName))
+    await expect(shop.locator('meta[property="og:site_name"]')).toHaveAttribute(
+      'content',
+      brandName,
+    )
+    const jsonLd = await shop.locator('script[type="application/ld+json"]').first().textContent()
+    expect(JSON.parse(jsonLd!)).toMatchObject({ '@type': 'WebSite', name: brandName })
+    const wordmark = shop.getByRole('link', { name: `${brandName} 首页`, exact: true })
+    await expect(wordmark).toHaveCount(2)
+    const logoUrl = await wordmark.first().locator('img').getAttribute('src')
+    expect(logoUrl).toMatch(/^\/brand-logo\?v=/)
+    await expect(shop.locator('link[rel="icon"]')).toHaveAttribute('href', logoUrl!)
+    expect((await shop.request.get(logoUrl!)).headers()['content-type']).toBe('image/png')
+    const card = await shop.request.get('/opengraph-image')
+    expect(card.ok()).toBe(true)
+    expect((await card.body()).subarray(1, 4).toString()).toBe('PNG')
+    await shop
+      .getByRole('button', { name: /登录 \/ 注册/ })
+      .first()
+      .click()
+    await expect(shop.getByRole('dialog')).toContainText(`欢迎来到 ${brandName}`)
+    await page.getByRole('button', { name: '恢复默认 Logo' }).click()
+    await page.getByRole('button', { name: '保存设置', exact: true }).click()
+    await expect(page.getByText('已保存', { exact: true }).first()).toBeVisible()
+    await expect.poll(async () => (await page.request.get(logoUrl!)).status()).toBe(404)
+    await shop.reload()
+    await expect(wordmark.first().locator('svg')).toHaveCount(1)
+  } finally {
+    await visitor.close()
+    await db.setting.update({ where: { id: 1 }, data: { body: jsonInput(original) } })
+  }
+})
 
 test('admin sign-out clears loaded records and unsaved drafts before another session loads', async ({
   page,

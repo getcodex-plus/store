@@ -1,5 +1,6 @@
 import { isIP } from 'node:net'
 import { z } from 'zod'
+import { defaultAicdkUrl } from '../../integration-defaults'
 import { db, transaction, type DbClient } from '../db'
 import { stringRecord, jsonInput } from '../data'
 import { advisoryLock, lockIntegration, lockSettings } from '../database-sql'
@@ -185,6 +186,8 @@ export async function saveIntegration(input: z.infer<typeof integrationSchema>, 
       (!['true', 'false'].includes(fields.login) || !['true', 'false'].includes(fields.purchase))
     )
       throw new ApiError(400, '请选择需要开启安全验证的场景')
+    if (input.provider === 'aicdk' && !fields.url)
+      fields.url = (previous && stringRecord(previous.public).url) || defaultAicdkUrl
     if (input.provider === 'dujiao-next' && !fields.url && previous)
       fields.url = stringRecord(previous.public).url ?? ''
     if (fields.url) {

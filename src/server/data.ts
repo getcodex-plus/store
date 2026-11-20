@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import { tawkSettingsSchema } from '../tawk'
+import { defaultBrandName } from '../branding'
+import { brandLogoSchema, brandNameSchema } from './brand-logo'
 import { orderResolutionSchema } from '../order-resolution'
 import { refillHistorySchema } from '../order-refill'
 import { demo } from './config'
@@ -54,6 +56,8 @@ export function jsonInput(value: object): Prisma.InputJsonObject {
 export function settingsData(value: Prisma.JsonValue): Settings {
   return z
     .object({
+      brandName: brandNameSchema.catch(defaultBrandName),
+      brandLogo: brandLogoSchema.catch(''),
       rateBps: z.number(),
       settlementDays: z.number(),
       firstOrderOnly: z.boolean(),

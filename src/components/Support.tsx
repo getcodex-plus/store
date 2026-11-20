@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { publicSupport } from '../server/public-support'
+import { publicSupport } from '../server/site-settings'
 
 export async function Support({ guide = false }: { guide?: boolean }) {
   const { supportEmail: email, sessionGuideUrl } = await publicSupport()

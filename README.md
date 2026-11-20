@@ -55,6 +55,8 @@ bun run worker
 
 访问 **<http://localhost:3000>**，后台为 **<http://localhost:3000/admin>**。访问地址需与 `.env` 中的 `APP_URL` 一致。
 
+在 **后台 → 系统管理 → 网站设置 → 网站品牌** 修改站名、上传 PNG Logo，再点击「保存设置」。未配置时沿用 GetCodex Plus 和内置图标；修改无需重新构建或重启。
+
 默认 `APP_MODE=demo` 仅允许本地访问：模拟支付和兑换，不发送真实邮件，验证码显示在页面。使用 `ADMIN_EMAIL` 对应邮箱登录可体验后台。自动生成的演示密钥保存在 `.data/`。
 
 ## 部署到生产环境

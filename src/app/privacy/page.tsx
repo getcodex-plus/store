@@ -1,9 +1,10 @@
 import { pageMetadata } from '../../seo'
-export const metadata = pageMetadata(
-  '隐私说明｜账号信息与订单数据',
-  '了解 GetCodex Plus 对联系邮箱、账号会话信息、订单、支付记录、Cookie 和站内使用统计的处理方式。',
-  '/privacy',
-)
+export const generateMetadata = () =>
+  pageMetadata(
+    '隐私说明｜账号信息与订单数据',
+    '了解本站对联系邮箱、账号会话信息、订单、支付记录、Cookie 和站内使用统计的处理方式。',
+    '/privacy',
+  )
 export default function Privacy() {
   return (
     <main className="container prose-page">

@@ -17,6 +17,8 @@ import { clearLoginTurnstile, requireLoginTurnstile } from './login-turnstile'
 import { sendLoginEmail } from './integrations/email'
 import { opaqueAuth } from './opaque'
 import { clientIPOptions } from './client-ip'
+import { defaultBrandName } from '../branding'
+import { siteBrand } from './site-settings'
 
 type AuthAdapter = Parameters<typeof getCurrentAdapter>[0]
 async function hookAdapter(context?: { adapter: AuthAdapter }): Promise<AuthAdapter> {
@@ -39,7 +41,6 @@ function authSecret() {
 // Extend the official plugin's challenge flow to email OTP; never issue our own MFA tokens.
 // Covered by integration tests because upstream hook contracts may change on upgrades.
 const mfa = twoFactor({
-  issuer: 'GetCodex Plus',
   allowPasswordless: true,
   backupCodeOptions: { storeBackupCodes: 'encrypted', amount: 0 },
   otpOptions: {
@@ -203,6 +204,17 @@ const policy: BetterAuthPlugin = {
           }
         }),
       },
+      {
+        matcher: (ctx) =>
+          [
+            '/passkey/generate-register-options',
+            '/two-factor/enable',
+            '/two-factor/get-totp-uri',
+          ].includes(ctx.path ?? ''),
+        handler: createAuthMiddleware(async () => ({
+          context: { context: { appName: (await siteBrand()).name } },
+        })),
+      },
     ],
     after: [
       {
@@ -264,7 +276,7 @@ const authBudgets = Object.fromEntries(
   ),
 )
 export const auth = betterAuth({
-  appName: 'GetCodex Plus',
+  appName: defaultBrandName,
   baseURL: appUrl,
   secret: authSecret(),
   database: prismaAdapter(db, { provider: 'postgresql', transaction: true }),
@@ -406,7 +418,6 @@ export const auth = betterAuth({
     }),
     passkey({
       rpID: new URL(appUrl).hostname,
-      rpName: 'GetCodex Plus',
       origin: appUrl,
       authenticatorSelection: { residentKey: 'required', userVerification: 'required' },
       schema: { passkey: { modelName: 'authPasskey' } },

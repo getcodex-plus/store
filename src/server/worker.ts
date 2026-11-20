@@ -12,7 +12,7 @@ process.on('SIGINT', () => {
 process.on('SIGTERM', () => {
   stopping = true
 })
-console.log('GetCodex Plus worker running; mode:', demo ? 'demo' : 'live')
+console.log('Store worker running; mode:', demo ? 'demo' : 'live')
 const exchangeLoop = (async () => {
   while (!stopping) {
     try {

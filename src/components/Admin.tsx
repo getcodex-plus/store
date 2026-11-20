@@ -1,5 +1,6 @@
 'use client'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { authClient, authResult } from '../auth-client'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
@@ -43,17 +44,20 @@ import {
   TagOutlined,
 } from '@ant-design/icons'
 import { Brand } from './Site'
+import { BrandLogoField } from './BrandLogoField'
+import { defaultBrandName, maxBrandNameLength } from '../branding'
 import { UserAvatar } from './UserAvatar'
 import { WithdrawalEstimate } from './WithdrawalEstimate'
 import { RefundDialog } from './RefundDialog'
 import { OrderResolutionDialog } from './OrderResolutionDialog'
 import { canResolveOrder } from '../order-resolution'
+import { defaultAicdkUrl } from '../integration-defaults'
 import { InventoryImportDialog } from './InventoryImportDialog'
 import { InventoryManager } from './InventoryManager'
 import { StockProcurement } from './StockProcurement'
 import { CouponManager } from './CouponManager'
 import { ReferralTierEditor } from './ReferralTierEditor'
-import { useSite } from './Providers'
+import { useBrand, useSite } from './Providers'
 import { api, channels, dateTime, money, orderStatusLabel } from '../lib'
 import { refundNeedsReview } from '../refunds'
 import { defaultPaymentLimits, roundingOptions } from '../pricing'
@@ -155,15 +159,15 @@ const publicFields: Record<IntegrationKind, [string, string, string][]> = {
     ['url', '网关地址', 'https://pay.example.com'],
     ['pid', '商户 PID', '商户号'],
   ],
-  aicdk: [['url', 'AICDK 地址', 'http://aicdk:8080']],
+  aicdk: [['url', 'AICDK 地址', defaultAicdkUrl]],
   'dujiao-next': [['url', '上游站点地址', 'https://getcodex.plus']],
   smtp: [
     ['host', 'SMTP 主机', 'smtp.example.com'],
     ['port', 'SMTP 端口', '465'],
     ['user', 'SMTP 用户名', '账号'],
-    ['from', '发件地址', 'GetCodex Plus <hello@example.com>'],
+    ['from', '发件地址', '网站名称 <hello@example.com>'],
   ],
-  resend: [['from', '发件地址', 'GetCodex Plus <hello@example.com>']],
+  resend: [['from', '发件地址', '网站名称 <hello@example.com>']],
   sendflare: [['from', '发件地址', 'hello@example.com']],
   turnstile: [['siteKey', 'Site Key', 'Cloudflare 站点密钥']],
 }
@@ -193,6 +197,8 @@ export function Admin() {
 }
 
 function AdminContent() {
+  const brand = useBrand()
+  const router = useRouter()
   const { data: site, openLogin, refresh } = useSite()
   const { message } = App.useApp()
   const [data, setData] = useState<Data | null>(null)
@@ -317,7 +323,10 @@ function AdminContent() {
     setBusy(true)
     try {
       await api(`/admin/${path}`, body)
-      if (path === 'settings') settingsDirty.current = false
+      if (path === 'settings') {
+        settingsDirty.current = false
+        router.refresh()
+      }
       await load()
       await refresh()
       message.success('已保存')
@@ -355,9 +364,11 @@ function AdminContent() {
     integrationForm.setFieldsValue({
       enabled: current?.enabled ?? false,
       public:
-        current?.public ??
-        shared ??
-        (provider === 'dujiao-next' ? { url: 'https://getcodex.plus' } : {}),
+        provider === 'aicdk'
+          ? { url: current?.public.url || defaultAicdkUrl }
+          : (current?.public ??
+            shared ??
+            (provider === 'dujiao-next' ? { url: 'https://getcodex.plus' } : {})),
       secrets: {},
     })
     setEditIntegration(provider)
@@ -422,7 +433,7 @@ function AdminContent() {
       <Brand />
       <div className="admin-workspace">
         <span>工作空间</span>
-        <strong>GetCodex Plus 控制台</strong>
+        <strong>{brand.name} 控制台</strong>
       </div>
       <Menu
         theme="light"
@@ -1396,6 +1407,8 @@ function AdminContent() {
                       }
                       void mutate('settings', {
                         ...rest,
+                        brandLogo:
+                          rest.brandLogo === data.settings.brandLogo ? undefined : rest.brandLogo,
                         withdrawalChannels: { ...values.withdrawalChannels, rules },
                         paymentLimits: Object.fromEntries(
                           Object.entries(channelLimits).map(([key, value]) => {
@@ -1426,6 +1439,21 @@ function AdminContent() {
                       })
                     }}
                   >
+                    <h3>网站品牌</h3>
+                    <Form.Item
+                      name="brandName"
+                      label="网站名称"
+                      rules={[{ required: true, whitespace: true, message: '请填写网站名称' }]}
+                    >
+                      <Input maxLength={maxBrandNameLength} placeholder={defaultBrandName} />
+                    </Form.Item>
+                    <Form.Item
+                      name="brandLogo"
+                      label="网站 Logo"
+                      extra="用于页头、页脚、浏览器图标和分享卡片。请选择 PNG 图片，建议 180 × 180 像素，最大 64 KB。"
+                    >
+                      <BrandLogoField disabled={!can('settings:write')} />
+                    </Form.Item>
                     <h3>邀请返现</h3>
                     <p className="muted">
                       按已结算订单的联系邮箱去重统计有效邀请，游客也计入。可新增或删除等级，并设置名称、邀请门槛与返现比例（最高

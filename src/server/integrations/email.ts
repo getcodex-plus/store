@@ -4,18 +4,19 @@ import { integration } from './config'
 import { db } from '../db'
 import { settingsData } from '../data'
 import { ApiError } from '../config'
+import { defaultBrandName } from '../../branding'
 export async function sendLoginEmail(to: string, code: string, requestId: string) {
   return sendEmail(
     to,
-    'GetCodex Plus 登录验证码',
+    '登录验证码',
     `你的验证码是 ${code}，10 分钟内有效。请勿转发给他人。如果不是你本人操作，请忽略此邮件。`,
     `login-code/${requestId}`,
   )
 }
-export async function sendEmail(to: string, subject: string, text: string, requestId: string) {
-  const provider =
-    settingsData((await db.setting.findUniqueOrThrow({ where: { id: 1 } })).body).emailProvider ||
-    'resend'
+export async function sendEmail(to: string, title: string, text: string, requestId: string) {
+  const settings = settingsData((await db.setting.findUniqueOrThrow({ where: { id: 1 } })).body)
+  const subject = `${settings.brandName || defaultBrandName} ${title}`
+  const provider = settings.emailProvider || 'resend'
   const config = await integration(provider)
   if (provider === 'sendflare') {
     // Sendflare's API does not document an idempotency key; outbox retries may duplicate mail.

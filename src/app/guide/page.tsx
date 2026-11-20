@@ -1,11 +1,12 @@
 import Link from 'next/link'
 import { Support } from '../../components/Support'
 import { pageMetadata } from '../../seo'
-export const metadata = pageMetadata(
-  'ChatGPT 充值指南｜账号准备、付款与查单',
-  '了解 ChatGPT 充值的套餐选择、账号信息准备、付款确认和游客订单查询，以及退款方式。',
-  '/guide',
-)
+export const generateMetadata = () =>
+  pageMetadata(
+    'ChatGPT 充值指南｜账号准备、付款与查单',
+    '了解 ChatGPT 充值的套餐选择、账号信息准备、付款确认和游客订单查询，以及退款方式。',
+    '/guide',
+  )
 export default function Guide() {
   return (
     <main className="container prose-page">

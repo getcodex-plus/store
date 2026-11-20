@@ -13,7 +13,15 @@ declare global {
   }
 }
 
-export function GoogleAnalytics({ gaId, nonce }: { gaId: string; nonce?: string }) {
+export function GoogleAnalytics({
+  gaId,
+  brandName,
+  nonce,
+}: {
+  gaId: string
+  brandName: string
+  nonce?: string
+}) {
   const pathname = usePathname()
   const [enabled, setEnabled] = useState(false)
   const initialized = useRef(false)
@@ -31,7 +39,7 @@ export function GoogleAnalytics({ gaId, nonce }: { gaId: string; nonce?: string 
       window.dataLayer!.push(arguments)
     }
     const page = {
-      ...analyticsPage(pathname, window.location.origin),
+      ...analyticsPage(pathname, window.location.origin, brandName),
       page_referrer: previousLocation.current || analyticsReferrer(document.referrer),
     }
     // Set sanitized defaults before configuration, including for GA's automatic
@@ -50,7 +58,7 @@ export function GoogleAnalytics({ gaId, nonce }: { gaId: string; nonce?: string 
     previousPath.current = pathname
     previousLocation.current = page.page_location
     setEnabled(true)
-  }, [gaId, pathname])
+  }, [gaId, pathname, brandName])
 
   if (!enabled) return null
   return (

@@ -35,7 +35,7 @@ export async function deliverOrderEmail() {
           : ''
       await sendEmail(
         order.contactEmail,
-        `GetCodex Plus 订单通知：${labels[job.status] || '状态更新'}`,
+        `订单通知：${labels[job.status] || '状态更新'}`,
         `订单号：${job.orderId}\n状态：${labels[job.status] || job.status}\n应付金额：¥${(order.amount / 100).toFixed(2)}${couponLine}\n查看订单：${appUrl}/orders/${job.orderId}\n\n请使用下单时的浏览器打开；更换设备后，用本邮箱验证码登录即可查看。请勿转发验证码。`,
         job.id,
       )

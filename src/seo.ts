@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { siteBrand } from './server/site-settings'
 
 export function siteOrigin() {
   const raw = process.env.APP_URL || 'http://localhost:3000'
@@ -13,23 +14,29 @@ export function siteOrigin() {
   return url.origin
 }
 
-export function pageMetadata(title: string, description: string, path: string): Metadata {
+export async function pageMetadata(
+  title: string,
+  description: string,
+  path: string,
+): Promise<Metadata> {
+  const { name } = await siteBrand()
+  const brandedTitle = `${title} · ${name}`
   return {
-    title,
+    title: { absolute: brandedTitle },
     description,
     alternates: { canonical: path },
     openGraph: {
       type: 'website',
       locale: 'zh_CN',
-      siteName: 'GetCodex Plus',
-      title: `${title} · GetCodex Plus`,
+      siteName: name,
+      title: brandedTitle,
       description,
       url: path,
-      images: [{ url: '/opengraph-image', width: 1200, height: 630, alt: 'GetCodex Plus 充值' }],
+      images: [{ url: '/opengraph-image', width: 1200, height: 630, alt: `${name} 充值` }],
     },
     twitter: {
       card: 'summary_large_image',
-      title: `${title} · GetCodex Plus`,
+      title: brandedTitle,
       description,
       images: ['/opengraph-image'],
     },
