@@ -324,7 +324,9 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
           adminQuerySchema.parse(Object.fromEntries(request.nextUrl.searchParams)),
         )
       else if (path === 'admin/procurement' && method === 'GET')
-        result = await procurementOverview()
+        result = await procurementOverview(
+          Object.fromEntries(request.nextUrl.searchParams),
+        )
       else if (path === 'admin/procurement/catalog' && method === 'GET')
         result = await supplierCatalog(
           z.coerce

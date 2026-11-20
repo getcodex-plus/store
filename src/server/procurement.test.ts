@@ -196,4 +196,52 @@ suite('downstream stock purchases', () => {
       queueStockPurchase({ ...request, requestKey: crypto.randomUUID() }, actor),
     ).rejects.toThrow('重新确认')
   })
+
+  it('keeps the review alert and filter working when newer purchases fill a page', async () => {
+    // One unresolved review row, then 50 newer rows. With the old fixed
+    // `take: 50` both the alert count and the filter derived from the visible
+    // page, so this row disappeared from both.
+    const base = Date.now() - 86_400_000
+    await db.stockPurchase.create({
+      data: {
+        id: 'sp_old_review',
+        productId: mapping.productId,
+        integrationId: mapping.integrationId,
+        upstreamProductId: 20,
+        skuId: 34,
+        quantity: 1,
+        actor,
+        state: 'review',
+        lastError: 'stale_upstream',
+        attempts: 120,
+        createdAt: new Date(base),
+        nextRunAt: new Date(base),
+      },
+    })
+    await db.stockPurchase.createMany({
+      data: Array.from({ length: 50 }, (_, index) => ({
+        id: `sp_new_${index}`,
+        productId: mapping.productId,
+        integrationId: mapping.integrationId,
+        upstreamProductId: 20,
+        skuId: 34,
+        quantity: 1,
+        actor,
+        state: 'received',
+        attempts: 1,
+        createdAt: new Date(base + 60_000 + index * 1000),
+        nextRunAt: new Date(base + 60_000 + index * 1000),
+      })),
+    })
+
+    const overview = await procurementOverview()
+    expect(overview.reviewCount).toBeGreaterThanOrEqual(1)
+    // The review row is older than the whole first page, which is exactly the
+    // case that used to hide it.
+    expect(overview.purchases.map((item) => item.id)).not.toContain('sp_old_review')
+    expect(overview.hasMore).toBe(true)
+
+    const filtered = await procurementOverview({ state: 'review' })
+    expect(filtered.purchases.map((item) => item.id)).toContain('sp_old_review')
+  })
 })

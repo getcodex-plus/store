@@ -20,12 +20,24 @@ const purchaseInput = mappingInput.extend({
   quantity: z.number().int().min(1).max(inventoryImportLimit),
 })
 
-export async function procurementOverview() {
-  const [mappings, purchases] = await Promise.all([
+const procurementQuery = z.object({
+  state: z.enum(['queued', 'polling', 'review', 'rejected', 'received']).optional(),
+  before: z.string().min(1).max(64).optional(),
+})
+
+export async function procurementOverview(raw?: unknown) {
+  const filter = procurementQuery.parse(raw ?? {})
+  const where = filter.state ? { state: filter.state } : {}
+  const [mappings, rows, reviewCount] = await Promise.all([
     db.stockMapping.findMany({ orderBy: { productId: 'asc' } }),
     db.stockPurchase.findMany({
-      orderBy: { createdAt: 'desc' },
-      take: 50,
+      where,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      // One row past the page so the client can tell whether older records exist;
+      // a fixed `take: 50` alone hides any review row that 50 newer purchases
+      // pushed off the end, and "需人工核对" then silently looks empty.
+      take: 51,
+      ...(filter.before ? { cursor: { id: filter.before }, skip: 1 } : {}),
       select: {
         id: true,
         orderId: true,
@@ -42,8 +54,15 @@ export async function procurementOverview() {
         createdAt: true,
       },
     }),
+    // Counted over the whole table, never over the visible page.
+    db.stockPurchase.count({ where: { state: 'review' } }),
   ])
-  return { mappings, purchases }
+  return {
+    mappings,
+    purchases: rows.slice(0, 50),
+    hasMore: rows.length > 50,
+    reviewCount,
+  }
 }
 
 export async function supplierCatalog(page: number) {

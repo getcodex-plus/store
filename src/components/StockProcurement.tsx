@@ -48,11 +48,26 @@ export function StockProcurement({
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [stateFilter, setStateFilter] = useState<string>()
+  const [rows, setRows] = useState<Overview['purchases']>([])
+  const [hasMore, setHasMore] = useState(false)
   const requestKey = useRef('')
-  const load = async () => setOverview(await api<Overview>('/admin/procurement'))
+  const query = async (params: { state?: string; before?: string }) => {
+    const qs = new URLSearchParams()
+    if (params.state) qs.set('state', params.state)
+    if (params.before) qs.set('before', params.before)
+    const tail = qs.toString()
+    return api<Overview>(`/admin/procurement${tail ? `?${tail}` : ''}`)
+  }
+  const load = async (state = stateFilter) => {
+    const next = await query({ state })
+    setOverview(next)
+    setRows(next.purchases)
+    setHasMore(next.hasMore)
+  }
   useEffect(() => {
-    void load().catch((err: Error) => setError(err.message))
-  }, [])
+    void load(stateFilter).catch((err: Error) => setError(err.message))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stateFilter])
   async function run(action: () => Promise<void>) {
     setBusy(true)
     setError('')
@@ -109,11 +124,17 @@ export function StockProcurement({
       requestKey.current = ''
       await load()
     })
-  const purchases = overview?.purchases ?? []
-  const reviewCount = purchases.filter((item) => item.state === 'review').length
-  const visiblePurchases = stateFilter
-    ? purchases.filter((item) => item.state === stateFilter)
-    : purchases
+  // Counted by the server over the whole table: deriving it from the visible page
+  // made the alert vanish once 50 newer purchases pushed the review row off it.
+  const reviewCount = overview?.reviewCount ?? 0
+  const visiblePurchases = rows
+  const loadMore = async () => {
+    const last = rows[rows.length - 1]
+    if (!last) return
+    const next = await query({ state: stateFilter, before: last.id })
+    setRows((prev) => [...prev, ...next.purchases])
+    setHasMore(next.hasMore)
+  }
   return (
     <Card
       title="上游进货与 SKU 映射"
@@ -288,8 +309,23 @@ export function StockProcurement({
           <Alert
             type="warning"
             showIcon
-            title={`${reviewCount} 张采购单需人工核对（review）：上游可能已扣款但未交付，请核对后手工入库或退款`}
+            title={`${reviewCount} 张采购单需人工核对（review）`}
+            description={
+              <>
+                <div>
+                  手动进货（未关联买家订单）：核对上游是否已扣款；已交付就手工入库，未交付就退款。
+                </div>
+                <div>
+                  按单采购（关联买家订单）：先核对上游；已交付请用「重新同步原单」把卡绑定到买家订单，不要先导入公共库存——同一张卡再次同步会因批次重复回到 review。
+                </div>
+              </>
+            }
           />
+        )}
+        {hasMore && (
+          <Button disabled={busy} onClick={() => void run(loadMore)}>
+            加载更早的采购单
+          </Button>
         )}
       </Space>
       <Table
