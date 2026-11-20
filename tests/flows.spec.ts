@@ -430,6 +430,69 @@ test('procurement requires an admin, defaults off and never charges a supplier i
   expect((await purchase.json()).error).toContain('演示模式')
   expect((await (await page.request.get('/api/admin/procurement')).json()).purchases).toEqual([])
 })
+for (const pending of ['first page', 'older page']) {
+  test(`procurement ignores a late ${pending} after switching filters`, async ({ page }) => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let waiting = false
+    await page.route(/\/api\/admin\/procurement(?:\?.*)?$/, async (route) => {
+      const { searchParams } = new URL(route.request().url())
+      const state = searchParams.get('state')
+      const older = searchParams.has('before')
+      if (!state && (pending === 'first page' || older)) {
+        waiting = true
+        await gate
+      }
+      await route.fulfill({
+        json: {
+          mappings: [],
+          reviewCount: 1,
+          hasMore: !state && !older,
+          purchases: [
+            {
+              id: state ? 'filtered-review' : 'unfiltered-received',
+              state: state ?? 'received',
+              createdAt: new Date().toISOString(),
+            },
+          ],
+        },
+      })
+    })
+    try {
+      await page.goto('/')
+      await login(page, 'admin@example.com')
+      await page.goto('/admin')
+      await openAdminPage(page, '商品管理')
+      if (pending === 'older page')
+        await page.getByRole('button', { name: '加载更早的采购单' }).click()
+      await expect.poll(() => waiting).toBe(true)
+      await page.getByLabel('按状态筛选').click()
+      await page
+        .locator('.ant-select-dropdown:visible')
+        .getByText('需人工核对', { exact: true })
+        .click()
+      await expect(page.getByText('filtered-review')).toBeVisible()
+      const finished = page.waitForEvent('requestfinished', (request) => {
+        const url = new URL(request.url())
+        return url.pathname === '/api/admin/procurement' && !url.searchParams.has('state')
+      })
+      release()
+      await finished
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+          ),
+      )
+      await expect(page.getByText('filtered-review')).toBeVisible()
+      await expect(page.getByText('unfiltered-received')).toHaveCount(0)
+    } finally {
+      release()
+    }
+  })
+}
 test('saved procurement mappings reopen without a catalog and drafts do not cross plans', async ({
   page,
 }) => {
