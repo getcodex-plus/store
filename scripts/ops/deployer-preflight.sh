@@ -113,6 +113,18 @@ esac
 
 echo "== 3. 支付/上游集成 =="
 ACTIVE=$(q "select string_agg(provider,',' order by provider) from integrations where active;")
+
+# 严重度取决于「现在是否真的要收钱」：未启用任何支付集成、也不是 live 的
+# demo/纯库存站，回调域名不可解析或渠道缺集成都不会造成损失；转 live 或启用了
+# 收款就必须是 FAIL。否则本地开发默认 .env 一跑 preflight 就整体 FAILED，这个
+# 检查会被当成噪音关掉。
+STRICT_PAY=0
+if [ "${APP_MODE:-}" = "live" ]; then STRICT_PAY=1; fi
+case "$ACTIVE" in *gmpay*|*xorpay*|*epay*) STRICT_PAY=1 ;; esac
+payfail() {
+  if [ "$STRICT_PAY" = "1" ]; then fail "$1"
+  else warn "$1（当前未启用收款：demo/纯库存站暂不阻塞，转 live 前必须修）"; fi
+}
 if [ -z "$ACTIVE" ]; then warn "没有任何启用中的集成（演示/纯库存站可接受，正式收款不可）"
 else pass "启用中：$ACTIVE"; fi
 
@@ -135,23 +147,31 @@ AICDK=$(q "select count(*) from integrations where provider='aicdk' and active;"
 # 渠道开关一致性：settings 里的买家可见渠道开着，就必须有能承接它的 provider
 # 集成（integration() 要求 active + enabled 双真，缺一个就 503）。不查这一条，
 # 买家会看到按钮、点下去拿到一个看不懂的错误。
+# 法币必须按 settings.fiatProvider 选中的那一个精确匹配：newOrder() 直接取
+# conf.fiatProvider 对应的集成，没有任何 fallback，所以「启用了 epay_v1、选中的
+# 却是 xorpay」在体检里通过、真实下单照样 503。
 CH_ALIPAY=$(q "select coalesce(body->>'alipay','false') from settings where id=1;")
 CH_WECHAT=$(q "select coalesce(body->>'wechat','false') from settings where id=1;")
 CH_CRYPTO=$(q "select coalesce(body->>'crypto','false') from settings where id=1;")
-EPAY_ON=$(q "select count(*) from integrations where provider in ('xorpay','epay_v1','epay_v2') and active and enabled;")
+FIAT=$(q "select coalesce(body->>'fiatProvider','xorpay') from settings where id=1;")
+case "$FIAT" in
+  xorpay|epay_v1|epay_v2) ;;
+  *) payfail "settings.fiatProvider 值异常（${FIAT}）：newOrder() 会拿它去查集成，下单必失败" ;;
+esac
+FIAT_ON=$(q "select count(*) from integrations where provider='${FIAT}' and active and enabled;")
 GMP_ON=$(q "select count(*) from integrations where provider='gmpay' and active and enabled;")
 if [ "$CH_ALIPAY" = "true" ] || [ "$CH_WECHAT" = "true" ]; then
-  if [ "${EPAY_ON:-0}" -gt 0 ]; then
-    pass "支付宝/微信渠道开着，且有启用的 xorpay/epay 集成可承接"
+  if [ "${FIAT_ON:-0}" -gt 0 ]; then
+    pass "支付宝/微信渠道开着，选中的法币网关 ${FIAT} 已启用"
   else
-    fail "settings.alipay/wechat 为真但没有启用的 xorpay/epay 集成：买家看到按钮、点击后 503"
+    payfail "settings.alipay/wechat 为真但选中的法币网关 ${FIAT} 未启用（active+enabled 缺一不可）：买家看到按钮、点击后 503"
   fi
 fi
 if [ "$CH_CRYPTO" = "true" ]; then
   if [ "${GMP_ON:-0}" -gt 0 ]; then
     pass "USDT 渠道开着，且 GMPay 已启用"
   else
-    fail "settings.crypto 为真但 GMPay 未启用：买家看到 USDT 按钮、点击后 503"
+    payfail "settings.crypto 为真但 GMPay 未启用：买家看到 USDT 按钮、点击后 503"
   fi
 fi
 
@@ -180,16 +200,6 @@ if [ -z "$APP_URL_VAL" ] && [ -f .env ]; then
   APP_URL_VAL=$(grep -E '^APP_URL=' .env | head -1 | cut -d= -f2-)
 fi
 APP_URL_VAL="${APP_URL_VAL%\"}"; APP_URL_VAL="${APP_URL_VAL#\"}"; APP_URL_VAL="${APP_URL_VAL%\'}"; APP_URL_VAL="${APP_URL_VAL#\'}"
-# 严重度取决于「现在是否真的要收钱」：未启用任何支付集成、也不是 live 的
-# demo/纯库存站，localhost 回调不会造成损失；转 live 或启用了收款就必须是 FAIL。
-# 否则本地开发默认 .env 一跑 preflight 就整体 FAILED，这个检查会被当成噪音关掉。
-STRICT35=0
-if [ "${APP_MODE:-}" = "live" ]; then STRICT35=1; fi
-case "$ACTIVE" in *gmpay*|*xorpay*|*epay*) STRICT35=1 ;; esac
-p3fail() {
-  if [ "$STRICT35" = "1" ]; then fail "$1"
-  else warn "$1（当前未启用收款：demo/纯库存站暂不阻塞，转 live 前必须修）"; fi
-}
 if [ -z "$APP_URL_VAL" ]; then
   if [ "$ACTIVE" = "gmpay" ] || [ "${ACTIVE#*gmpay}" != "$ACTIVE" ]; then
     fail "APP_URL 未设置：默认落到 http://localhost:3000，网关一定回 400/10041，建单必失败"
@@ -200,7 +210,7 @@ else
     http://*) if [ "$DEPLOY" = "container" ] || [ "${APP_MODE:-}" = "live" ]; then
                 fail "APP_URL 是 http：live 模式启动即拒绝（config.ts 要求 https）"
               else warn "APP_URL 是 http：demo 可用，转 live 前必须换 https"; fi ;;
-    *) p3fail "APP_URL 不是 http/https 形态：${APP_URL_VAL}" ;;
+    *) payfail "APP_URL 不是 http/https 形态：${APP_URL_VAL}" ;;
   esac
   HOSTPORT="${APP_URL_VAL#*://}"
   HOST="${HOSTPORT%%/*}"
@@ -208,20 +218,20 @@ else
   HOST=$(printf '%s' "$HOST" | tr 'A-Z' 'a-z')
   case "$HOST" in
     ""|localhost|*.localhost|*.local|*.internal)
-      p3fail "回调 host = ${HOST:-空}：上游 url_guard 直接拒（localhost/内网域名），建单必 400/10041" ;;
+      payfail "回调 host = ${HOST:-空}：上游 url_guard 直接拒（localhost/内网域名），建单必 400/10041" ;;
     *)
       if printf '%s' "$HOST" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
         if is_public_v4 "$HOST"; then
           warn "回调 host 是裸公网 IP ${HOST}：上游放行，但换 IP 即失效，建议用域名"
         else
-          p3fail "回调 host = ${HOST} 是私网/回环 IP：上游 url_guard 直接拒，建单必 400/10041"
+          payfail "回调 host = ${HOST} 是私网/回环 IP：上游 url_guard 直接拒，建单必 400/10041"
         fi
       else
         RESOLVED=$( (getent hosts "$HOST" 2>/dev/null | awk '{print $1}') || true )
         [ -z "$RESOLVED" ] && RESOLVED=$( (dig +short "$HOST" A 2>/dev/null; dig +short "$HOST" AAAA 2>/dev/null) | grep -v '\.$' || true )
         RESOLVED=$(printf '%s\n' "$RESOLVED" | sed '/^$/d' | sort -u)
         if [ -z "$RESOLVED" ]; then
-          p3fail "回调 host = ${HOST} 解析不到任何地址：网关在下单那一刻会回 400/10041（保留 TLD 如 .test/.invalid 也不解析）"
+          payfail "回调 host = ${HOST} 解析不到任何地址：网关在下单那一刻会回 400/10041（保留 TLD 如 .test/.invalid 也不解析）"
         else
           BAD=""
           while IFS= read -r IP; do
@@ -235,7 +245,7 @@ else
 $RESOLVED
 EOF
           if [ -n "$BAD" ]; then
-            p3fail "回调 host = ${HOST} 解析到内网地址（${BAD# }）：上游 url_guard 要求全部结果是公网地址，建单必 400/10041"
+            payfail "回调 host = ${HOST} 解析到内网地址（${BAD# }）：上游 url_guard 要求全部结果是公网地址，建单必 400/10041"
           else
             pass "回调 host = ${HOST} 解析到公网地址（$(printf '%s' "$RESOLVED" | tr '\n' ' ')）"
           fi
