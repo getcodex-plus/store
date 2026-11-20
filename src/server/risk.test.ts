@@ -9,6 +9,7 @@ vi.hoisted(() => {
   }
 })
 import { db, transaction } from './db'
+import { appUrl } from './config'
 import { id } from './crypto'
 import { prepareTestDatabase, cleanupTestDatabase } from './database-test-support'
 import {
@@ -168,7 +169,7 @@ suite('Risk persistence and concurrency', () => {
             JSON.stringify({
               success: true,
               action: 'purchase',
-              hostname: 'localhost',
+              hostname: new URL(appUrl).hostname,
             }),
           ),
       ),
