@@ -593,6 +593,14 @@
       "definition": "text|true|"
     },
     {
+      "key": "inventory_replacements.order_id",
+      "definition": "text|false|"
+    },
+    {
+      "key": "inventory_replacements.order_round",
+      "definition": "integer|false|"
+    },
+    {
       "key": "inventory_replacements.preview",
       "definition": "jsonb|true|"
     },
@@ -2043,6 +2051,10 @@
       "definition": "NOT NULL inventory_id"
     },
     {
+      "key": "inventory_replacements.inventory_replacements_order_id_fkey",
+      "definition": "FOREIGN KEY (order_id) REFERENCES orders(id)"
+    },
+    {
       "key": "inventory_replacements.inventory_replacements_pkey",
       "definition": "PRIMARY KEY (id)"
     },
@@ -3127,6 +3139,10 @@
     {
       "key": "inventory_replacements.inventory_replacements_inventory_id_key",
       "definition": "CREATE UNIQUE INDEX inventory_replacements_inventory_id_key ON inventory_replacements USING btree (inventory_id)"
+    },
+    {
+      "key": "inventory_replacements.inventory_replacements_order_round_key",
+      "definition": "CREATE UNIQUE INDEX inventory_replacements_order_round_key ON inventory_replacements USING btree (order_id, order_round)"
     },
     {
       "key": "inventory_replacements.inventory_replacements_pkey",

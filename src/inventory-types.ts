@@ -6,6 +6,18 @@ export const inventoryStatusLabels = {
 } as const
 
 export type InventoryStatus = keyof typeof inventoryStatusLabels
+export type InventoryReleaseRound = {
+  round: number
+  inventoryId: string
+  state: 'awaiting_refund' | 'held' | 'pending' | 'review' | 'completed'
+  canReconcile?: boolean
+  upstreamCodeId?: string
+}
+export function visibleReleaseRounds(rounds: InventoryReleaseRound[] = [], canStart: boolean) {
+  return rounds.filter(
+    (entry) => canStart || (entry.state !== 'held' && entry.state !== 'awaiting_refund'),
+  )
+}
 export type InventoryItem = {
   id: string
   productId: string
@@ -17,6 +29,8 @@ export type InventoryItem = {
   status: InventoryStatus
   createdAt: string
   manageable: boolean
+  orderReplacement?: boolean
+  release?: InventoryReleaseRound & { orderId: string }
   replacementState?: 'pending' | 'review' | 'completed'
   replacementUpstreamCodeId?: string
 }

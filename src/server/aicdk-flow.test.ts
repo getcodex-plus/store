@@ -36,6 +36,8 @@ import { lockRow, reserveInventory } from './database-sql'
 import { fulfillOrder } from './fulfillment'
 import { resolveOrder } from './order-resolution'
 import { refillOrder } from './order-refill'
+import { releaseOrderInventory } from './order-inventory'
+import { changeInventory, inventoryList, inventoryQuerySchema } from './inventory'
 import { integration, saveIntegration } from './integrations/config'
 import { resyncPaidPurchase, syncStockPurchase } from './procurement'
 import { permissions } from './rbac'
@@ -677,11 +679,11 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
       return fetcher
     }
 
-    it('replays concurrent clicks without another debit, releases only verified stock, and fulfills the new round once', async () => {
+    it('replays concurrent clicks without another debit, keeps the old card held, and fulfills the new round once', async () => {
       const { apply, order, originalId, productId, stored } = await fixture(2)
       const fetcher = upstream(order.id)
       await Promise.all([apply(), apply(), apply()])
-      expect(fetcher.mock.calls).toHaveLength(4)
+      expect(fetcher.mock.calls).toHaveLength(3)
       const current = await db.order.findUniqueOrThrow({ where: { id: order.id } })
       expect(current).toMatchObject({
         status: 'processing',
@@ -692,15 +694,13 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
         submissionAttempted: false,
       })
       expect(adminOrderView(current).refillHistory).toMatchObject([
-        { disposition: 'returned', inventoryId: originalId, redemptionId: stored.redemptionId },
+        { disposition: 'held', inventoryId: originalId, redemptionId: stored.redemptionId },
       ])
       expect(orderView(current)).not.toHaveProperty('refillHistory')
       expect(await db.inventory.findUniqueOrThrow({ where: { id: originalId } })).toMatchObject({
-        status: 'available',
+        status: 'reserved',
       })
-      expect(await transaction((client) => reserveInventory(client, productId))).toMatchObject({
-        id: originalId,
-      })
+      expect(await transaction((client) => reserveInventory(client, productId))).toBeNull()
       const key = `${order.id}-r1`
       const submit = vi
         .fn()
@@ -725,6 +725,198 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
       expect(
         await db.emailOutbox.count({ where: { orderId: order.id, status: 'completed' } }),
       ).toBe(1)
+    })
+
+    describe('manual inventory release', () => {
+      const metadata = {
+        product_id: 'p200',
+        product_name: 'Pro',
+        plan: 'pro_200',
+        expires_at: null,
+      }
+      const enable = (enabled: boolean) => db.$executeRaw`
+        UPDATE settings SET body=jsonb_set(body,'{manualInventoryRelease}',to_jsonb(${enabled}::boolean)) WHERE id=1`
+      afterEach(() => enable(false).then(() => {}))
+      function action(orderId: string, inventoryId: string, round = 0, reconcile = false) {
+        return releaseOrderInventory(
+          { id: orderId, inventoryId, round, confirmed: true, reconcile },
+          'operator',
+        )
+      }
+      function mockReplacement(orderId: string) {
+        const fetcher = upstream(orderId)
+        const base = fetcher.getMockImplementation()!
+        const result = {
+          ...metadata,
+          id: id(),
+          old_code_id: id(),
+          new_code_id: id(),
+          new_code: id('new_code_'),
+        }
+        fetcher.mockImplementation((url) =>
+          url.endsWith('/replacements') ? Promise.resolve(ok(result)) : base(url),
+        )
+        return fetcher
+      }
+      it('keeps the original card until refund, then rotates once on concurrent manual releases', async () => {
+        const { order, originalId, productId } = await fixture(1)
+        const fetcher = mockReplacement(order.id)
+        const release = () => action(order.id, originalId)
+        await expect(release()).rejects.toThrow('未开启')
+        expect(fetcher).not.toHaveBeenCalled()
+        await enable(true)
+        const query = inventoryQuerySchema.parse({ productId })
+        expect((await inventoryList(query)).items[0].release).toBeUndefined()
+        expect((await inventoryList(query, true)).items[0].release).toMatchObject({
+          orderId: order.id,
+          round: 0,
+          state: 'awaiting_refund',
+        })
+        await expect(release()).rejects.toThrow('退款完成后')
+        await expect(action(order.id, originalId, 0, true)).rejects.toThrow('退款完成后')
+        expect(fetcher).not.toHaveBeenCalled()
+        expect(await internal(order.id)).toMatchObject({ status: 'failed', canRefill: true })
+        expect(await db.inventory.findUniqueOrThrow({ where: { id: originalId } })).toMatchObject({
+          status: 'reserved',
+          enabled: true,
+        })
+        await refundFailedOrder(order.id, 'operator')
+        await enable(false)
+        await expect(release()).rejects.toThrow('未开启')
+        await expect(action(order.id, originalId, 0, true)).rejects.toThrow('未找到原置换请求')
+        expect(fetcher).not.toHaveBeenCalled()
+        await enable(true)
+        const [first, second] = await Promise.all([release(), release()])
+        expect(second).toEqual(first)
+        expect(fetcher.mock.calls.filter(([url]) => url.endsWith('/replacements'))).toHaveLength(1)
+        expect(await db.inventory.findUniqueOrThrow({ where: { id: originalId } })).toMatchObject({
+          enabled: false,
+        })
+        expect(await internal(order.id)).toMatchObject({ status: 'refunded', canRefill: false })
+        await enable(false)
+        expect(
+          (await inventoryList(query, true)).items.find((item) => item.id === originalId)?.release,
+        ).toMatchObject({ state: 'completed', orderId: order.id })
+      })
+      it('does not release on refund, stale input, unconfirmed redemption, or during refund review', async () => {
+        const { order, originalId } = await fixture(1, true)
+        await enable(true)
+        const fetcher = mockReplacement(order.id)
+        const manual = { destination: 'original', automatic: false }
+        await refundFailedOrder(order.id, 'operator', { ...manual, reserveManual: true })
+        await expect(action(order.id, originalId)).rejects.toThrow('退款完成后')
+        await refundFailedOrder(order.id, 'operator', {
+          ...manual,
+          reconcile: true,
+          note: '渠道确认已全额退回',
+        })
+        await expect(action(order.id, originalId, 1)).rejects.toThrow('不允许释放')
+        await expect(action(order.id, 'different-card')).rejects.toThrow('绑定已变化')
+        for (const result of [
+          remote(order.id, 'failed', 3),
+          remote(order.id, 'queued', 5),
+          remote(order.id, 'completed', 6),
+        ]) {
+          fetcher.mockResolvedValueOnce(ok(result))
+          await expect(action(order.id, originalId)).rejects.toThrow('上游未确认')
+        }
+        expect(await db.inventoryReplacement.count({ where: { inventoryId: originalId } })).toBe(0)
+        expect(fetcher.mock.calls.some(([url]) => url.endsWith('/replacements/previews'))).toBe(
+          false,
+        )
+        await action(order.id, originalId)
+        expect(await internal(order.id)).toMatchObject({ status: 'refunded', canRefill: false })
+      })
+      it('finds a held historical round in card management without touching the live refill card', async () => {
+        const { order, originalId, apply, productId } = await fixture(2)
+        await enable(true)
+        const fetcher = mockReplacement(order.id)
+        await apply()
+        const query = inventoryQuerySchema.parse({ productId })
+        await expect(action(order.id, originalId)).rejects.toThrow('退款完成后')
+        await db.order.update({
+          where: { id: order.id },
+          data: { status: 'failed', fulfillmentStatus: 'failed' },
+        })
+        await refundFailedOrder(order.id, 'operator', {
+          destination: 'wallet',
+          automatic: false,
+          round: 1,
+        })
+        const cards = await inventoryList(query, true)
+        const original = cards.items.find((row) => row.id === originalId)!
+        expect(original.release).toMatchObject({ orderId: order.id, round: 0 })
+        const active = cards.items.find((row) => row.id !== originalId)!
+        expect(active.release).toMatchObject({ round: 1, state: 'held' })
+        const base = fetcher.getMockImplementation()!
+        fetcher.mockImplementation((url) =>
+          url.endsWith('/replacements') ? Promise.reject(new Error('timeout')) : base(url),
+        )
+        await expect(action(order.id, originalId)).rejects.toThrow('核对释放结果')
+        const request = await db.inventoryReplacement.findUniqueOrThrow({
+          where: { inventoryId: originalId },
+        })
+        await expect(
+          changeInventory({ action: 'replace', id: originalId }, 'operator'),
+        ).rejects.toThrow('原订单')
+        await enable(false)
+        await expect(action(order.id, originalId)).rejects.toThrow('未开启')
+        await expect(action(order.id, active.id, 1, true)).rejects.toThrow('未找到原置换请求')
+        const pending = (await inventoryList(query, true)).items.find(
+          (item) => item.id === originalId,
+        )!
+        expect(pending.release).toMatchObject({ state: 'pending', canReconcile: true })
+        fetcher.mockImplementation(base)
+        await action(order.id, originalId, 0, true)
+        expect(
+          await db.inventoryReplacement.findUniqueOrThrow({ where: { inventoryId: originalId } }),
+        ).toMatchObject({ id: request.id, state: 'completed' })
+        expect(await db.inventory.findUniqueOrThrow({ where: { id: active.id } })).toMatchObject({
+          status: 'reserved',
+        })
+      })
+      it('keeps the upstream review reference readable without enabling release or revealing codes', async () => {
+        const { order, originalId } = await fixture(1)
+        const fetcher = upstream(order.id)
+        const base = fetcher.getMockImplementation()!
+        const upstreamCodeId = id('new_')
+        fetcher.mockImplementation((url) =>
+          url.endsWith('/replacements')
+            ? Promise.resolve(
+                ok({
+                  ...metadata,
+                  id: id(),
+                  old_code_id: id(),
+                  new_code_id: upstreamCodeId,
+                  secret_returned_once: true,
+                }),
+              )
+            : base(url),
+        )
+        await refundFailedOrder(order.id, 'operator')
+        await enable(true)
+        await expect(action(order.id, originalId)).rejects.toThrow('到 AICDK 核对')
+        await enable(false)
+        const lookup = (permission: string) =>
+          adminData(
+            { ...user, permissions: [permission] },
+            {
+              section: permission === 'wallet:read' ? 'wallet' : 'orders',
+              page: 1,
+              search: order.id,
+            },
+          )
+        const [reader, finance] = await Promise.all([lookup('orders:read'), lookup('wallet:read')])
+        expect(reader.orders[0]?.inventoryReleaseRounds).toEqual([
+          { inventoryId: originalId, round: 0, state: 'review', upstreamCodeId },
+        ])
+        expect(finance.orders[0]?.id).toBe(order.id)
+        expect(finance.orders[0]?.inventoryReleaseRounds).toBeUndefined()
+        expect(await db.inventory.findUniqueOrThrow({ where: { id: originalId } })).toMatchObject({
+          status: 'reserved',
+          enabled: false,
+        })
+      })
     })
 
     it('holds an unverified old card and resumes a renewed session under the refill request ID', async () => {

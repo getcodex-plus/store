@@ -25,6 +25,7 @@ import {
   type InventoryStatus,
 } from '../inventory-types'
 import type { Product } from '../types'
+import { InventoryReleaseAction } from './InventoryReleaseAction'
 
 const colors = {
   available: 'success',
@@ -36,6 +37,8 @@ export function InventoryManager({
   view,
   products,
   canWrite,
+  canStartRelease,
+  canManageRelease,
   refreshKey,
   onChanged,
   batchFilter,
@@ -44,6 +47,8 @@ export function InventoryManager({
   view: 'inventory' | 'batches'
   products: Product[]
   canWrite: boolean
+  canStartRelease: boolean
+  canManageRelease: boolean
   refreshKey: number
   onChanged: () => Promise<void>
   batchFilter: { id: string; name: string } | null
@@ -271,7 +276,7 @@ export function InventoryManager({
                   render: (_, item) => (
                     <div>
                       <Tag color={colors[item.status]}>{inventoryStatusLabels[item.status]}</Tag>
-                      {item.replacementState && (
+                      {item.replacementState && !item.release && (
                         <div className="tiny muted">
                           {item.replacementState === 'completed'
                             ? '已更换'
@@ -301,9 +306,17 @@ export function InventoryManager({
                   title: '操作',
                   width: 180,
                   render: (_, item) =>
-                    !canWrite ? (
+                    item.release && (canStartRelease || item.replacementState) ? (
+                      <InventoryReleaseAction
+                        orderId={item.release.orderId}
+                        entry={item.release}
+                        canManage={canManageRelease}
+                        maskedCode={item.maskedCode}
+                        onRefresh={onChanged}
+                      />
+                    ) : !canWrite ? (
                       '只读'
-                    ) : item.replacementState === 'pending' ? (
+                    ) : item.replacementState === 'pending' && !item.orderReplacement ? (
                       <Button
                         type="link"
                         disabled={busy || loading}
@@ -319,7 +332,7 @@ export function InventoryManager({
                         {item.status === 'consumed' ? '已使用' : '已锁定'}
                       </span>
                     ) : (
-                      <Space>
+                      <Space wrap size={0}>
                         {item.status === 'disabled' ? (
                           <Button
                             type="link"
@@ -348,6 +361,19 @@ export function InventoryManager({
                         >
                           更换
                         </Button>
+                        <Popconfirm
+                          title="标记此卡密为已使用？"
+                          description="仅改本站库存，不会向上游兑换。标记后不能恢复销售。"
+                          okText="标记已使用"
+                          cancelText="取消"
+                          onConfirm={() =>
+                            change({ action: 'consume', id: item.id, confirmed: true })
+                          }
+                        >
+                          <Button type="link" danger disabled={busy || loading}>
+                            标记已使用
+                          </Button>
+                        </Popconfirm>
                       </Space>
                     ),
                 },

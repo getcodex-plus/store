@@ -63,6 +63,7 @@ import { adminQuerySchema } from '../../../server/admin-query'
 import { accountHistory, accountHistoryQuery } from '../../../server/account-history'
 import { resolveOrder } from '../../../server/order-resolution'
 import { refillOrder } from '../../../server/order-refill'
+import { releaseOrderInventory } from '../../../server/order-inventory'
 import { previewCoupon, saveAdminCoupon } from '../../../server/coupons'
 
 export const runtime = 'nodejs'
@@ -108,7 +109,12 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
     if (path === 'bootstrap' && method === 'GET') {
       await browserDigest()
       const [user, catalog, conf] = await Promise.all([currentUser(), products(), settings()])
-      const { brandLogo: _logo, upgradePricing: _pricing, ...publicSettings } = conf
+      const {
+        brandLogo: _logo,
+        upgradePricing: _pricing,
+        manualInventoryRelease: _release,
+        ...publicSettings
+      } = conf
       result = {
         mode: demo ? 'demo' : 'live',
         user,
@@ -304,6 +310,7 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
         'admin/orders/retry': 'orders:write',
         'admin/orders/refund': 'orders:write',
         'admin/orders/resolve': 'orders:write',
+        'admin/orders/release-inventory': 'orders:write',
         'admin/roles': 'roles:write',
         'admin/user-roles': 'roles:write',
       }
@@ -401,6 +408,9 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
           await audit(admin.email, '分配用户角色', input.userId, client)
         })
         result = { saved: true }
+      } else if (path === 'admin/orders/release-inventory' && method === 'POST') {
+        await requireRecent(admin)
+        result = await releaseOrderInventory(data, admin.email)
       } else if (path === 'admin/orders/resolve' && method === 'POST') {
         await requireRecent(admin)
         result = await resolveOrder(z.object({ id: z.string() }).parse(data).id, admin.email, data)
@@ -430,6 +440,7 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
         const conf = z
           .object({
             brandName: brandNameSchema.optional(),
+            manualInventoryRelease: z.boolean().optional(),
             brandLogo: brandLogoSchema.optional(),
             rateBps: z.number().int().min(0).max(5000),
             referralTiers: referralTiersSchema.optional(),
@@ -506,6 +517,7 @@ async function handle(request: NextRequest, context: { params: Promise<{ path: s
         authorize(admin, 'products:read')
         result = await inventoryList(
           inventoryQuerySchema.parse(Object.fromEntries(request.nextUrl.searchParams)),
+          admin.permissions.includes('orders:read') || admin.permissions.includes('orders:write'),
         )
       } else if (path === 'admin/inventory/change' && method === 'POST') {
         await requireRecent(admin)

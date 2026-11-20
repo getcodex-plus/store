@@ -158,7 +158,7 @@ export async function refillOrder(
       where: { id: quote.inventoryId },
       include: {
         batch: { select: { enabled: true } },
-        replacement: { select: { id: true } },
+        replacement: { select: { orderId: true, orderRound: true } },
         quotes: {
           where: { id: { not: quote.id }, order: { is: { status: { not: 'cancelled' } } } },
           take: 1,
@@ -166,25 +166,29 @@ export async function refillOrder(
         },
       },
     })
+    const released =
+      original.replacement?.orderId === orderId && original.replacement.orderRound === input.round
     if (
-      original.status !== 'reserved' ||
+      (!released && original.status !== 'reserved') ||
       original.productId !== quote.productId ||
       original.discountCountry !== country ||
-      original.replacement ||
+      (original.replacement && !released) ||
       original.quotes.length
     )
       throw new ApiError(409, '原卡状态与订单不符，请联系支持核对')
     let available = false
-    try {
-      const eligibility = await previewReplacement(
-        openCredential(original.code, 'inventory', original.id),
-        config,
-      )
-      available =
-        eligibility.plan === aicdkPlan(quote.targetPlan) &&
-        (!eligibility.expires_at || Date.parse(eligibility.expires_at) > Date.now())
-    } catch (error) {
-      if (!(error instanceof UpstreamError)) throw error
+    if (!spare && !released) {
+      try {
+        const eligibility = await previewReplacement(
+          openCredential(original.code, 'inventory', original.id),
+          config,
+        )
+        available =
+          eligibility.plan === aicdkPlan(quote.targetPlan) &&
+          (!eligibility.expires_at || Date.parse(eligibility.expires_at) > Date.now())
+      } catch (error) {
+        if (!(error instanceof UpstreamError)) throw error
+      }
     }
     const stock =
       spare ??
@@ -209,7 +213,7 @@ export async function refillOrder(
       version: previous?.version ?? record.redemptionVersion,
       outcome,
       inventoryId: original.id,
-      disposition: !spare ? 'reused' : available ? 'returned' : 'held',
+      disposition: !spare ? 'reused' : 'held',
       nextInventoryId: stock.id,
       resolution,
     }
@@ -221,11 +225,8 @@ export async function refillOrder(
         preflightExpiresAt: new Date(now.getTime() + 9 * 60_000),
       },
     })
-    if (spare)
-      await client.inventory.update({
-        where: { id: original.id },
-        data: { status: available ? 'available' : 'reserved', reservedUntil: null },
-      })
+    if (spare && !released && original.reservedUntil)
+      await client.inventory.update({ where: { id: original.id }, data: { reservedUntil: null } })
     await client.order.update({
       where: { id: orderId },
       data: {

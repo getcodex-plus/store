@@ -5,6 +5,7 @@ import { defaultBrandName } from '../branding'
 import { brandLogoSchema, brandNameSchema } from './brand-logo'
 import { orderResolutionSchema } from '../order-resolution'
 import { refillHistorySchema } from '../order-refill'
+import type { InventoryReleaseRound } from '../inventory-types'
 import { demo } from './config'
 import type {
   Product as ProductRecord,
@@ -57,6 +58,7 @@ export function settingsData(value: Prisma.JsonValue): Settings {
   return z
     .object({
       brandName: brandNameSchema.catch(defaultBrandName),
+      manualInventoryRelease: z.boolean().default(false),
       brandLogo: brandLogoSchema.catch(''),
       rateBps: z.number(),
       settlementDays: z.number(),
@@ -177,13 +179,79 @@ export function canOfferRefill(record: OrderRecord) {
     : ['failed', 'cancelled'].includes(record.fulfillmentStatus ?? '')
 }
 
-export function adminOrderView(record: OrderRecord): AdminOrder {
+export const releaseRelations = {
+  quote: { select: { inventoryId: true } },
+  inventoryReleases: {
+    select: { inventoryId: true, orderRound: true, state: true, upstreamCodeId: true },
+  },
+} as const
+
+type OrderWithRelease = OrderRecord &
+  Partial<Prisma.OrderGetPayload<{ include: typeof releaseRelations }>>
+
+export function hasCompletedInventoryRefund(record: Pick<OrderRecord, 'status' | 'refundStatus'>) {
+  return record.status === 'refunded' && record.refundStatus === 'completed'
+}
+
+export function inventoryReleaseRounds(
+  record: OrderWithRelease,
+  history = refillHistorySchema.parse(record.refillHistory),
+): InventoryReleaseRound[] {
+  const rounds = new Map<number, InventoryReleaseRound>()
+  if (
+    !demo &&
+    record.aicdkIntegrationId &&
+    record.kind === 'purchase' &&
+    ['failed', 'refunded'].includes(record.status) &&
+    record.fulfillmentStatus !== 'redemption_conflict' &&
+    !(
+      record.fulfillmentResolution &&
+      orderResolutionSchema.parse(record.fulfillmentResolution).conflict
+    )
+  ) {
+    const state = hasCompletedInventoryRefund(record) ? 'held' : 'awaiting_refund'
+    history.forEach((entry, round) => {
+      if (
+        entry.disposition === 'held' &&
+        !entry.resolution?.conflict &&
+        entry.inventoryId !== record.quote?.inventoryId
+      )
+        rounds.set(round, { round, inventoryId: entry.inventoryId, state })
+    })
+    if (record.quote?.inventoryId)
+      rounds.set(history.length, {
+        round: history.length,
+        inventoryId: record.quote.inventoryId,
+        state,
+      })
+  }
+  for (const release of record.inventoryReleases ?? []) {
+    if (release.orderRound === null) continue
+    const candidate = rounds.get(release.orderRound)
+    const state = z.enum(['pending', 'review', 'completed']).parse(release.state)
+    rounds.set(release.orderRound, {
+      inventoryId: release.inventoryId,
+      round: release.orderRound,
+      state,
+      ...(state === 'pending' && {
+        canReconcile: candidate?.state === 'held' && candidate.inventoryId === release.inventoryId,
+      }),
+      ...(state === 'review' &&
+        release.upstreamCodeId && { upstreamCodeId: release.upstreamCodeId }),
+    })
+  }
+  return [...rounds.values()].sort((first, second) => first.round - second.round)
+}
+
+export function adminOrderView(record: OrderWithRelease): AdminOrder {
+  const history = refillHistorySchema.parse(record.refillHistory)
   return {
     ...orderView(record),
     ipAddress: record.ipAddress,
     provider: z.enum(['xorpay', 'gmpay', 'epay_v1', 'epay_v2', 'balance']).parse(record.provider),
     resolutionRevision: orderResolutionRevision(record),
-    refillHistory: refillHistorySchema.parse(record.refillHistory),
+    refillHistory: history,
+    inventoryReleaseRounds: inventoryReleaseRounds(record, history),
     fulfillmentResolution: record.fulfillmentResolution
       ? orderResolutionSchema.parse(record.fulfillmentResolution)
       : null,

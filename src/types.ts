@@ -12,6 +12,7 @@ export interface OrderRefund {
   completedAt: string | null
 }
 export interface AdminOrder extends Order {
+  inventoryReleaseRounds?: import('./inventory-types').InventoryReleaseRound[]
   ipAddress: string | null
   provider: PaymentProvider
   resolutionRevision: string
@@ -239,6 +240,7 @@ export interface ReferralTier {
   rateBps: number
 }
 export interface Settings {
+  manualInventoryRelease?: boolean
   brandName?: string
   brandLogo?: string
   rateBps: number

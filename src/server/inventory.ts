@@ -5,6 +5,7 @@ import { id } from './crypto'
 import { lockRow } from './database-sql'
 import { openCredential } from './credential-storage'
 import { replaceInventory } from './inventory-replacement'
+import { inventoryReleaseRounds, releaseRelations, settingsData } from './data'
 import type { InventoryBatchList, InventoryList, InventoryStatus } from '../inventory-types'
 
 const itemId = z.string().min(1).max(64)
@@ -17,6 +18,7 @@ export const inventoryQuerySchema = z.object({
 })
 export const inventoryChangeSchema = z.discriminatedUnion('action', [
   z.object({ action: z.enum(['enable', 'disable']), ids: z.array(itemId).min(1).max(100) }),
+  z.strictObject({ action: z.literal('consume'), id: itemId, confirmed: z.literal(true) }),
   z.object({ action: z.literal('enable-batch'), batchId: itemId }),
   z.object({ action: z.literal('disable-batch'), batchId: itemId }),
   z.object({
@@ -40,6 +42,7 @@ const statusOf = (item: { status: string; enabled: boolean }) =>
 
 export async function inventoryList(
   input: z.infer<typeof inventoryQuerySchema>,
+  includeRelease = false,
 ): Promise<InventoryList> {
   const scope: Prisma.InventoryWhereInput = {
     ...(input.productId ? { productId: input.productId } : {}),
@@ -73,7 +76,7 @@ export async function inventoryList(
           skip: (input.page - 1) * 20,
           include: {
             batch: { select: { name: true, enabled: true } },
-            replacement: { select: { state: true, upstreamCodeId: true } },
+            replacement: { select: { state: true, upstreamCodeId: true, orderId: true } },
             quotes: { where: attachedOrder, select: { id: true }, take: 1 },
           },
         }),
@@ -86,6 +89,41 @@ export async function inventoryList(
       ])
       const counts = emptyCounts()
       for (const group of groups) counts[statusOf(group)] += group._count._all
+      const releaseByCard = new Map<string, InventoryList['items'][number]['release']>()
+      const settings =
+        includeRelease && records.some((item) => item.status === 'reserved')
+          ? await client.setting.findUnique({ where: { id: 1 } })
+          : null
+      const allowNew = !!settings && settingsData(settings.body).manualInventoryRelease
+      const releaseCardIds = includeRelease
+        ? records
+            .filter((item) => item.replacement?.orderId || (allowNew && item.status === 'reserved'))
+            .map((item) => item.id)
+        : []
+      if (releaseCardIds.length) {
+        const orders = await client.order.findMany({
+          where: {
+            OR: [
+              { inventoryReleases: { some: { inventoryId: { in: releaseCardIds } } } },
+              { quote: { inventoryId: { in: releaseCardIds } } },
+              ...releaseCardIds.map((inventoryId) => ({
+                refillHistory: { array_contains: [{ inventoryId, disposition: 'held' }] },
+              })),
+            ],
+          },
+          include: releaseRelations,
+        })
+        for (const order of orders)
+          for (const candidate of inventoryReleaseRounds(order)) {
+            if (!releaseCardIds.includes(candidate.inventoryId)) continue
+            releaseByCard.set(
+              candidate.inventoryId,
+              releaseByCard.has(candidate.inventoryId)
+                ? undefined
+                : { ...candidate, orderId: order.id },
+            )
+          }
+      }
       return {
         total,
         counts,
@@ -102,6 +140,8 @@ export async function inventoryList(
           replacementState: item.replacement?.state as
             'pending' | 'review' | 'completed' | undefined,
           replacementUpstreamCodeId: item.replacement?.upstreamCodeId ?? undefined,
+          orderReplacement: !!item.replacement?.orderId,
+          release: releaseByCard.get(item.id),
           manageable: item.status === 'available' && item.quotes.length === 0 && !item.replacement,
         })),
       }
@@ -189,7 +229,7 @@ export async function changeInventory(input: z.infer<typeof inventoryChangeSchem
       })
       return { saved: true }
     }
-    const ids = [...new Set(input.ids)].sort()
+    const ids = input.action === 'consume' ? [input.id] : [...new Set(input.ids)].sort()
     // Same locks as checkout allocation; sorted ids prevent bulk-action deadlocks.
     for (const itemId of ids) await lockRow(client, 'inventory', itemId)
     const items = await client.inventory.findMany({
@@ -206,13 +246,18 @@ export async function changeInventory(input: z.infer<typeof inventoryChangeSchem
       throw new ApiError(409, '换码中的或已更换的旧码不能启用或停用')
     await client.inventory.updateMany({
       where: { id: { in: ids } },
-      data: { enabled: input.action === 'enable' },
+      data:
+        input.action === 'consume'
+          ? { status: 'consumed', reservedUntil: null }
+          : { enabled: input.action === 'enable' },
     })
     await client.audit.create({
       data: {
         id: id('a_'),
         actor,
-        action: input.action === 'enable' ? '启用兑换码' : '停用兑换码',
+        action: { enable: '启用兑换码', disable: '停用兑换码', consume: '手动标记兑换码已使用' }[
+          input.action
+        ],
         target: ids.join(','),
       },
     })

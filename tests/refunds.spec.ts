@@ -3,6 +3,7 @@ import { expect, test } from '@playwright/test'
 import { db, Prisma } from '../src/server/db'
 import { id } from '../src/server/crypto'
 import type { AdminOrder } from '../src/types'
+import type { InventoryReleaseRound } from '../src/inventory-types'
 
 test.afterAll(async () => {
   await db.$disconnect()
@@ -75,11 +76,33 @@ test('admin refunds enforce channel capabilities, required notes and split amoun
     },
   })
   const manualOrderId = orders[1].id
+  let releaseEnabled = true
+  let releaseState: InventoryReleaseRound['state'] = 'held'
+  function withRelease(order: AdminOrder) {
+    if (order.id !== manualOrderId) return
+    order.inventoryReleaseRounds = [
+      {
+        round: 0,
+        inventoryId: 'mock-stock',
+        state: order.refund?.status === 'completed' ? releaseState : 'awaiting_refund',
+        canReconcile: releaseState === 'pending',
+        upstreamCodeId: releaseState === 'review' ? 'upstream-reference-123' : undefined,
+      },
+    ]
+  }
   await page.route('**/api/admin?*', async (route) => {
     const response = await route.fetch()
     const data = await response.json()
     const eligible = data.orders?.find((order: AdminOrder) => order.id === manualOrderId)
     if (eligible && !eligible.refund) eligible.canRefill = true
+    data.settings.manualInventoryRelease = releaseEnabled
+    if (eligible) withRelease(eligible)
+    await route.fulfill({ response, json: data })
+  })
+  await page.route('**/api/admin/orders/refund', async (route) => {
+    const response = await route.fetch()
+    const data = await response.json()
+    if (data.order) withRelease(data.order)
     await route.fulfill({ response, json: data })
   })
   await page.goto('/admin')
@@ -100,10 +123,13 @@ test('admin refunds enforce channel capabilities, required notes and split amoun
   await expect(row('xorpay')).toContainText('已退款')
 
   await row('epay_v1').getByRole('button', { name: '处理退款' }).click()
+  await expect(dialog).toContainText('退款完成后可手动释放')
+  await expect(dialog.getByRole('button', { name: '手动释放卡密' })).toHaveCount(0)
   await expect(automatic).toBeDisabled()
   await expect(automatic).not.toBeChecked()
   await dialog.getByRole('button', { name: '先锁定手动退款' }).click()
   await expect(dialog).toContainText('手动退款已锁定，本单不能再补充')
+  await expect(dialog.getByRole('button', { name: '手动释放卡密' })).toHaveCount(0)
   const reconcileManual = dialog.getByRole('button', { name: '确认渠道已退款并登记' })
   await expect(reconcileManual).toBeDisabled()
   await dialog.getByRole('textbox', { name: '核实备注' }).fill('   ')
@@ -112,11 +138,11 @@ test('admin refunds enforce channel capabilities, required notes and split amoun
   const note = '已在微信商户后台退回 ¥60.00，退款单号 UI-fixture'
   await dialog.getByRole('textbox', { name: '核实备注' }).fill(note)
   await reconcileManual.click()
-  await expect(dialog).toBeHidden()
-  await row('epay_v1').getByRole('button', { name: '退款记录' }).click()
+  await expect(dialog.getByRole('button', { name: '手动释放卡密' })).toBeVisible()
   await expect(dialog).toContainText(note)
   await expect(dialog).toContainText('手动退款登记')
   await dialog.getByRole('button', { name: '关闭', exact: true }).click()
+  releaseEnabled = false
 
   await row('gmpay').getByRole('button', { name: '处理退款' }).click()
   await page.setViewportSize({ width: 390, height: 844 })
@@ -179,4 +205,40 @@ test('admin refunds enforce channel capabilities, required notes and split amoun
     refundResolvedBy: 'admin@example.com',
     refundResolutionNote: '渠道后台核实已全额退款，退款单号 fixture-reviewed',
   })
+  await expect(row('epay_v1').getByRole('button', { name: '手动释放卡密' })).toHaveCount(0)
+  releaseEnabled = true
+  await page.route('**/api/admin/orders/release-inventory', async (route) => {
+    const pending = releaseState === 'pending'
+    expect(route.request().postDataJSON()).toEqual({
+      id: manualOrderId,
+      round: 0,
+      inventoryId: 'mock-stock',
+      confirmed: true,
+      ...(pending && { reconcile: true }),
+    })
+    if (!pending) {
+      releaseState = 'pending'
+      releaseEnabled = false
+      await route.fulfill({ status: 409, json: { error: '请使用「核对释放结果」继续原请求' } })
+    } else {
+      releaseState = 'completed'
+      await route.fulfill({ json: { saved: true } })
+    }
+  })
+  await page.getByRole('button', { name: /刷新$/ }).click()
+  await expect(row('epay_v1').getByRole('button', { name: '手动释放卡密' })).toBeVisible()
+  await row('epay_v1').getByRole('button', { name: '退款记录' }).click()
+  await dialog.getByRole('button', { name: '手动释放卡密' }).click()
+  await page.getByRole('button', { name: '确认置换并释放' }).click()
+  await dialog.getByRole('button', { name: '核对释放结果' }).click()
+  await page.getByRole('button', { name: '核对原请求' }).click()
+  await expect(dialog.getByText('已置换入库')).toBeVisible()
+  await dialog.getByRole('button', { name: '关闭', exact: true }).click()
+  await expect(row('epay_v1')).toContainText('已置换入库')
+  releaseState = 'review'
+  await page.getByRole('button', { name: /刷新$/ }).click()
+  await row('epay_v1').getByRole('button', { name: '退款记录' }).click()
+  await expect(dialog).toContainText('旧卡已锁定，新卡未入库')
+  await expect(dialog).toContainText('upstream-reference-123')
+  await expect(dialog.getByRole('button', { name: '手动释放卡密' })).toHaveCount(0)
 })

@@ -1,9 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { openAdminPage } from './admin-helpers'
 
-test('CSV batches supply independently and keep editable notes without exposing codes', async ({
-  page,
-}) => {
+test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await page
     .getByRole('button', { name: /登录 \/ 注册/ })
@@ -22,6 +20,77 @@ test('CSV batches supply independently and keep editable notes without exposing 
     .click()
   await expect(page.getByRole('dialog')).toBeHidden()
   await page.goto('/admin')
+})
+
+test('card management requires confirmation before marking a free card used', async ({ page }) => {
+  const origin = process.env.E2E_BASE_URL || 'http://localhost:3000'
+  const batchName = `manual-${Date.now()}`
+  const response = await page.request.post('/api/admin/inventory', {
+    headers: { Origin: origin, 'X-GetGPT-Request': '1' },
+    data: { productId: 'plus', codes: [`${batchName}-card`], batchName },
+  })
+  expect(response.ok()).toBe(true)
+  await openAdminPage(page, '兑换码管理')
+  const card = page.getByRole('row').filter({ hasText: batchName })
+  await card.getByRole('button', { name: '标记已使用' }).click()
+  await expect(card).toContainText('可用')
+  await page.locator('.ant-popconfirm').getByRole('button', { name: '标记已使用' }).click()
+  await expect(card).toContainText('已使用（Used）')
+  await expect(card.getByRole('button', { name: '启用' })).toHaveCount(0)
+})
+
+test('narrow inventory confirmation identifies the masked card and Enter cancels by default', async ({
+  page,
+}) => {
+  await page.route('**/api/admin?*', async (route) => {
+    const response = await route.fetch()
+    const body = await response.json()
+    body.settings.manualInventoryRelease = true
+    await route.fulfill({ response, json: body })
+  })
+  const inventoryId = 'inventory-ui-refunded'
+  await page.route('**/api/admin/inventory?*', (route) =>
+    route.fulfill({
+      json: {
+        total: 1,
+        counts: { reserved: 1, disabled: 0, available: 0, consumed: 0 },
+        items: [
+          {
+            id: inventoryId,
+            productId: 'plus',
+            maskedCode: '•••• 4821',
+            status: 'reserved',
+            batchEnabled: true,
+            batchName: '测试批次',
+            manageable: false,
+            createdAt: new Date().toISOString(),
+            release: { inventoryId, round: 0, orderId: 'refunded-ui-order', state: 'held' },
+          },
+        ],
+      },
+    }),
+  )
+  let requests = 0
+  await page.route('**/api/admin/orders/release-inventory', (route) => {
+    requests++
+    return route.fulfill({ json: { saved: true } })
+  })
+  await openAdminPage(page, '兑换码管理')
+  await page.getByRole('button', { name: /刷新$/ }).click()
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByRole('button', { name: '手动释放卡密' }).press('Enter')
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toContainText('原卡：•••• 4821')
+  await expect(dialog).toContainText('refunded-ui-order')
+  await expect(dialog.getByRole('button', { name: /取\s*消/ })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(dialog).toBeHidden()
+  expect(requests).toBe(0)
+})
+
+test('CSV batches supply independently and keep editable notes without exposing codes', async ({
+  page,
+}) => {
   await openAdminPage(page, '导入批次')
   const token = Date.now()
   const codes = [`csv-code-${token}-0001`, `csv-code-${token}-0002`]

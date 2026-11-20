@@ -4,6 +4,8 @@ import { Alert, App, Button, Checkbox, Form, Input, Modal, Radio, Tag } from 'an
 import type { AdminOrder } from '../types'
 import { api, channels, dateTime, money, orderStatusLabel } from '../lib'
 import { refundNeedsReview, supportsAutomaticRefund } from '../refunds'
+import { InventoryReleaseAction } from './InventoryReleaseAction'
+import { visibleReleaseRounds } from '../inventory-types'
 
 const providers = {
   xorpay: 'XorPay',
@@ -15,10 +17,14 @@ const providers = {
 
 export function RefundDialog({
   order,
+  canStartRelease,
+  canManageRelease,
   onClose,
   onRefresh,
 }: {
   order: AdminOrder
+  canStartRelease: boolean
+  canManageRelease: boolean
   onClose: () => void
   onRefresh: () => Promise<void>
 }) {
@@ -39,6 +45,7 @@ export function RefundDialog({
     return () => clearInterval(timer)
   }, [order.refund?.status])
   const completed = order.status === 'refunded'
+  const rounds = visibleReleaseRounds(order.inventoryReleaseRounds, canStartRelease)
   const destination = order.refund?.destination ?? (completed ? 'wallet' : draftDestination)
   const started = !!order.refund
   const reconcile = !!order.refund && refundNeedsReview(order.refund, now)
@@ -68,7 +75,7 @@ export function RefundDialog({
     setBusy(true)
     setError('')
     try {
-      const result = await api<{ refunded: boolean }>('/admin/orders/refund', {
+      const result = await api<{ refunded: boolean; order: AdminOrder }>('/admin/orders/refund', {
         id: order.id,
         destination,
         automatic: auto,
@@ -81,7 +88,8 @@ export function RefundDialog({
       await onRefresh()
       if (result.refunded) {
         message.success(original ? '已退回原支付方式，记录已保存' : '订单金额已退回站内余额')
-        onClose()
+        if (!visibleReleaseRounds(result.order.inventoryReleaseRounds, canStartRelease).length)
+          onClose()
       }
     } catch (e) {
       setError((e as Error).message)
@@ -129,6 +137,22 @@ export function RefundDialog({
         <span>{order.contactEmail}</span>
       </div>
       {error && <Alert className="mb-24" type="error" showIcon title={error} />}
+      {rounds.length > 0 && (
+        <div className="refund-record">
+          <strong>订单卡密</strong>
+          <p>退款不会自动释放卡密。</p>
+          {rounds.map((entry) => (
+            <InventoryReleaseAction
+              key={entry.round}
+              orderId={order.id}
+              entry={entry}
+              canManage={canManageRelease}
+              showRound={rounds.length > 1 || entry.round > 0}
+              onRefresh={onRefresh}
+            />
+          ))}
+        </div>
+      )}
       {order.fulfillmentResolution?.conflict && (
         <Alert
           className="mb-24"

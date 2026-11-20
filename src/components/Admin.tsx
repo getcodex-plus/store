@@ -54,6 +54,8 @@ import { canResolveOrder } from '../order-resolution'
 import { defaultAicdkUrl } from '../integration-defaults'
 import { InventoryImportDialog } from './InventoryImportDialog'
 import { InventoryManager } from './InventoryManager'
+import { InventoryReleaseAction } from './InventoryReleaseAction'
+import { visibleReleaseRounds } from '../inventory-types'
 import { StockProcurement } from './StockProcurement'
 import { CouponManager } from './CouponManager'
 import { ReferralTierEditor } from './ReferralTierEditor'
@@ -494,6 +496,8 @@ function AdminContent() {
     setSearch(value)
     setListPage(1)
   }
+  const canManageRelease = can('orders:write')
+  const canStartRelease = canManageRelease && !!data?.settings.manualInventoryRelease
   const orderColumns = [
     {
       title: '订单',
@@ -604,6 +608,18 @@ function AdminContent() {
               补充记录（{o.refillCount}）
             </Button>
           )}
+          {visibleReleaseRounds(o.inventoryReleaseRounds, canStartRelease).map(
+            (entry, _, rounds) => (
+              <InventoryReleaseAction
+                key={entry.round}
+                orderId={o.id}
+                entry={entry}
+                canManage={canManageRelease}
+                showRound={rounds.length > 1 || entry.round > 0}
+                onRefresh={load}
+              />
+            ),
+          )}
         </Space>
       ),
     },
@@ -632,7 +648,7 @@ function AdminContent() {
                 <p>
                   原卡：
                   {entry.disposition === 'held'
-                    ? '保持锁定，需核对'
+                    ? '本轮未将旧码回库，释放情况见订单卡密记录'
                     : entry.disposition === 'returned'
                       ? '已核实可用，退回库存'
                       : '已核实可用，继续用于本单'}
@@ -666,6 +682,8 @@ function AdminContent() {
           <RefundDialog
             key={refundOrderId}
             order={data.orders.find((order) => order.id === refundOrderId)!}
+            canStartRelease={canStartRelease}
+            canManageRelease={canManageRelease}
             onClose={() => setRefundOrderId(null)}
             onRefresh={async () => {
               await load()
@@ -1100,6 +1118,8 @@ function AdminContent() {
                   products={data.products}
                   canWrite={can('products:write')}
                   refreshKey={refreshKey}
+                  canStartRelease={canStartRelease}
+                  canManageRelease={canManageRelease}
                   batchFilter={batchFilter}
                   onBatchFilter={(batch) => {
                     setBatchFilter(batch)
@@ -1465,6 +1485,15 @@ function AdminContent() {
                       extra="用于页头、页脚、浏览器图标和分享卡片。请选择 PNG 图片，建议 180 × 180 像素，最大 64 KB。"
                     >
                       <BrandLogoField disabled={!can('settings:write')} />
+                    </Form.Item>
+                    <h3>订单库存</h3>
+                    <Form.Item
+                      name="manualInventoryRelease"
+                      label="允许手动释放订单卡密"
+                      valuePropName="checked"
+                      extra="开启后，管理员可在退款完成后手动置换卡密。退款不会自动回库；关闭开关不影响查看记录或核对已发起的请求。"
+                    >
+                      <Switch />
                     </Form.Item>
                     <h3>邀请返现</h3>
                     <p className="muted">

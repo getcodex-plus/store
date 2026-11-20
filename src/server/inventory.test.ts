@@ -12,7 +12,13 @@ import { db, transaction } from './db'
 import { id } from './crypto'
 import { cleanupTestDatabase, prepareTestDatabase } from './database-test-support'
 import { importInventory } from './credential-storage'
-import { changeInventory, inventoryBatches, inventoryList, inventoryQuerySchema } from './inventory'
+import {
+  changeInventory,
+  inventoryBatches,
+  inventoryChangeSchema,
+  inventoryList,
+  inventoryQuerySchema,
+} from './inventory'
 import { reserveInventory } from './database-sql'
 import { adminData } from './services'
 import { seedDatabase } from '../../scripts/seed'
@@ -221,6 +227,21 @@ suite('inventory batches and allocation in PostgreSQL', () => {
     expect(new Set(allocations.map((item) => item?.batchId))).toEqual(
       new Set([null, batch.batchId]),
     )
+  })
+
+  it('marks a free card used only after confirmation and never re-enables it', async () => {
+    const p = await product()
+    await importInventory(p.id, [id('manual_')], actor)
+    const item = (await inventoryList(inventoryQuerySchema.parse({ productId: p.id }))).items[0]
+    expect(inventoryChangeSchema.safeParse({ action: 'consume', id: item.id }).success).toBe(false)
+    await changeInventory({ action: 'consume', id: item.id, confirmed: true }, actor)
+    await expect(changeInventory({ action: 'enable', ids: [item.id] }, actor)).rejects.toThrow(
+      '已使用',
+    )
+    expect(await transaction((client) => reserveInventory(client, p.id))).toBeNull()
+    expect(
+      (await inventoryList(inventoryQuerySchema.parse({ productId: p.id }))).counts.consumed,
+    ).toBe(1)
   })
 
   it('uses pagination and status/product filters across more than one page', async () => {

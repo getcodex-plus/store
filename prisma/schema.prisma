@@ -276,6 +276,9 @@ model Inventory {
 model InventoryReplacement {
   id                     String      @id
   inventoryId            String      @unique @map("inventory_id")
+  orderId                String?     @map("order_id")
+  orderRound             Int?        @map("order_round")
+  order                  Order?      @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   integrationId          String      @map("integration_id")
   state                  String      @default("pending")
   preview                Json
@@ -288,6 +291,7 @@ model InventoryReplacement {
   integration            Integration @relation(fields: [integrationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   replacementInventory   Inventory?  @relation("ReplacementResult", fields: [replacementInventoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
+  @@unique([orderId, orderRound], map: "inventory_replacements_order_round_key")
   @@map("inventory_replacements")
 }
 
@@ -325,6 +329,7 @@ model Job {
 }
 
 model Order {
+  inventoryReleases   InventoryReplacement[]
   id                  String         @id
   userId              String?        @map("user_id")
   quoteId             String?        @unique @map("quote_id")

@@ -31,6 +31,7 @@ import {
   walletEntryView,
   auditView,
   settingsData,
+  releaseRelations,
   jsonInput,
 } from './data'
 import {
@@ -1343,7 +1344,12 @@ export async function adminData(
         ),
       products(true),
       db.order
-        .findMany({ orderBy, where: orderWhere, ...window(['orders', 'wallet'].includes(section)) })
+        .findMany({
+          orderBy,
+          where: orderWhere,
+          ...window(['orders', 'wallet'].includes(section)),
+          include: releaseRelations,
+        })
         .then((records) => records.map(adminOrderView)),
       db.commission
         .findMany({ orderBy, ...window(section === 'referral') })
@@ -1438,12 +1444,14 @@ export async function adminData(
     orders: can('orders:read')
       ? orders
       : can('wallet:read')
-        ? orders.filter(
-            (o) =>
-              o.kind === 'topup' ||
-              o.balanceAmount > 0 ||
-              (o.status === 'refunded' && o.refund?.destination === 'wallet'),
-          )
+        ? orders
+            .filter(
+              (o) =>
+                o.kind === 'topup' ||
+                o.balanceAmount > 0 ||
+                (o.status === 'refunded' && o.refund?.destination === 'wallet'),
+            )
+            .map((order) => ({ ...order, inventoryReleaseRounds: undefined }))
         : [],
     coupons: can('coupons:read') ? couponResult.rows : [],
     commissions: can('referral:read') ? commissions : [],
@@ -1650,7 +1658,9 @@ export async function refundFailedOrder(
       }
     })
   }
-  const order = adminOrderView(await db.order.findUniqueOrThrow({ where: { id: orderId } }))
+  const order = adminOrderView(
+    await db.order.findUniqueOrThrow({ where: { id: orderId }, include: releaseRelations }),
+  )
   return { refunded: order.status === 'refunded', order }
 }
 export async function confirmSession(

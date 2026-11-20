@@ -910,6 +910,11 @@ CREATE TABLE stock_purchases (
 );
 CREATE INDEX stock_purchases_state_next_run_at_idx ON stock_purchases(state, next_run_at);
 
+ALTER TABLE inventory_replacements
+  ADD COLUMN order_id text REFERENCES orders(id),
+  ADD COLUMN order_round integer;
+CREATE UNIQUE INDEX inventory_replacements_order_round_key ON inventory_replacements(order_id, order_round);
+
 -- Migration ledger (appended 2026-11-19). Records which numbered SQL file under
 -- prisma/migrations has been applied. Written only by `bun run db:migrate`;
 -- never edited by hand. Kept out of prisma/database-contract.json on purpose:
