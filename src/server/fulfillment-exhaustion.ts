@@ -1,4 +1,5 @@
-import { db, transaction } from './db'
+import { transaction } from './db'
+import { lockRow } from './database-sql'
 import { id } from './crypto'
 
 // Delivery attempts before a paid order is handed to a human. With the existing
@@ -19,15 +20,27 @@ export function fulfillmentRetryExhausted(attempts: number) {
 // money: no wallet refund, no channel refund. The buyer is notified by the
 // existing order_email_outbox trigger the moment status becomes 'failed'; this
 // function must not send mail itself.
-export async function exhaustFulfillment(orderId: string, lastError: string) {
+export async function exhaustFulfillment(orderId: string, lastError: string, lease: string) {
   return transaction(async (client) => {
+    await lockRow(client, 'orders', orderId)
     const order = await client.order.findUnique({
       where: { id: orderId },
-      select: { id: true, status: true, contactEmail: true },
+      select: { status: true, fulfillmentStatus: true, contactEmail: true },
     })
     // Idempotent: only a still-in-progress order is moved. completed / refunded /
     // cancelled / already failed are left untouched.
-    if (!order || order.status !== 'processing') return false
+    if (
+      !order ||
+      order.status !== 'processing' ||
+      order.fulfillmentStatus === 'redemption_conflict'
+    )
+      return false
+
+    const closed = await client.job.updateMany({
+      where: { orderId, lease, done: false },
+      data: { done: true, lease: null, lockedUntil: null, lastError },
+    })
+    if (!closed.count) return false
 
     await client.order.update({
       where: { id: orderId },
@@ -36,11 +49,6 @@ export async function exhaustFulfillment(orderId: string, lastError: string) {
         failureReason: 'fulfillment_retry_exhausted',
         fulfillmentStatus: 'failed',
       },
-    })
-    // Keep the job row: it is the evidence trail for why the order failed.
-    await client.job.updateMany({
-      where: { orderId },
-      data: { done: true, lockedUntil: null, lastError },
     })
     await client.audit.create({
       data: {

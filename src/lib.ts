@@ -36,6 +36,8 @@ export function orderStatusLabel(order: Order) {
     return { text: '已付款，待供货', color: 'processing' }
   if (order.status === 'processing' && order.fulfillmentStatus === 'procurement_review')
     return { text: '供货待核对', color: 'warning' }
+  if (order.status === 'processing' && order.fulfillmentStatus === 'redemption_conflict')
+    return { text: '兑换待核对', color: 'warning' }
   return statuses[order.status]
 }
 export const channels = {

@@ -115,6 +115,25 @@ const order = {
   createdAt: new Date().toISOString(),
 }
 
+test('a stopped redemption tells the buyer to contact support instead of waiting for delivery', async ({
+  page,
+}) => {
+  await page.route('**/api/orders/o_release_payment', (route) =>
+    route.fulfill({
+      json: {
+        ...order,
+        kind: 'purchase',
+        status: 'processing',
+        fulfillmentStatus: 'redemption_conflict',
+      },
+    }),
+  )
+  await page.goto('/orders/o_release_payment')
+  await expect(page.getByRole('heading', { name: '兑换结果需要人工核对。' })).toBeVisible()
+  await expect(page.getByText('请保留原订单并联系支持，不要重复下单或付款。')).toBeVisible()
+  await expect(page.getByText('正在充值', { exact: true })).toHaveCount(0)
+})
+
 test('slow order responses finish before another background poll starts', async ({ page }) => {
   await page.clock.install()
   let requests = 0

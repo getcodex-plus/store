@@ -33,6 +33,7 @@ const rejections = [
   'stock_unavailable',
   'product_unavailable',
   'sku_unavailable',
+  'invalid_order_key',
   'bad_request',
   'payment_failed',
 ] as const

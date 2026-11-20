@@ -1,4 +1,5 @@
 import { db, transaction, upstreamTransaction, type DbClient } from './db'
+import { markRedemptionConflict } from './database-sql'
 import { redemptionRequestId } from '../order-refill'
 import { paymentOrderView, quoteView } from './data'
 import { demo } from './config'
@@ -30,6 +31,7 @@ async function needSession(order: PaymentOrder, tx?: DbClient) {
         status: 'processing',
         redemptionId: null,
         fulfillmentAttempt: order.fulfillmentAttempt,
+        fulfillmentStatus: order.fulfillmentStatus ?? null,
       },
       data: { status: 'needs_session', submissionAttempted: false },
     })
@@ -43,6 +45,16 @@ async function needSession(order: PaymentOrder, tx?: DbClient) {
   else await transaction(update)
 }
 
+async function parkRedemptionConflict(client: DbClient, order: PaymentOrder) {
+  const marked = await markRedemptionConflict(client, order.id, order.refillCount ?? 0)
+  if (!marked) return false
+  await client.job.updateMany({
+    where: { orderId: order.id },
+    data: { done: true, lease: null, lockedUntil: null, lastError: 'REDEMPTION_CONFLICT' },
+  })
+  return true
+}
+
 async function recordResult(
   client: DbClient,
   record: OrderRecord,
@@ -52,6 +64,8 @@ async function recordResult(
 ) {
   const current = paymentOrderView(record)
   if (redemptionRequestId(current.id, current.refillCount) !== requestId) return false
+  if (record.fulfillmentStatus === 'redemption_conflict' && !record.fulfillmentResolution)
+    return true
   validateFulfillment(result, quote, requestId)
   if (record.fulfillmentResolution) {
     if (
@@ -102,6 +116,7 @@ export async function fulfillOrder(orderId: string): Promise<boolean> {
   )
     return true
   if (order.status !== 'processing') return false
+  if (order.fulfillmentStatus === 'redemption_conflict') return true
   if (['awaiting_procurement', 'procurement_review'].includes(order.fulfillmentStatus ?? ''))
     return false
   if (demo) {
@@ -116,9 +131,16 @@ export async function fulfillOrder(orderId: string): Promise<boolean> {
   const quote = storedQuote ? quoteView(storedQuote) : null
   if (!quote) throw new UpstreamError('UPSTREAM_INVALID_RESPONSE', 30, true)
   const requestId = redemptionRequestId(order.id, order.refillCount)
-  const result = order.redemptionId
-    ? await getRedemption(order.redemptionId, binding)
-    : await findRedemption(requestId, binding)
+  let result: Redemption | undefined
+  try {
+    result = order.redemptionId
+      ? await getRedemption(order.redemptionId, binding)
+      : await findRedemption(requestId, binding)
+  } catch (error) {
+    if (error instanceof UpstreamError && error.code === 'REDEMPTION_CONFLICT')
+      return transaction((client) => parkRedemptionConflict(client, order))
+    throw error
+  }
   if (!result) {
     const expired = !quote.preflightExpiresAt || Date.parse(quote.preflightExpiresAt) <= Date.now()
     if ((!quote.preflightToken || expired) && !order.submissionAttempted) {
@@ -134,6 +156,7 @@ export async function fulfillOrder(orderId: string): Promise<boolean> {
         status: 'processing',
         redemptionId: null,
         fulfillmentAttempt: order.fulfillmentAttempt,
+        fulfillmentStatus: order.fulfillmentStatus ?? null,
       },
       data: { submissionAttempted: true },
     })
@@ -145,6 +168,7 @@ export async function fulfillOrder(orderId: string): Promise<boolean> {
       const current = await lockOrderForCompletion(client, order.id)
       if (!current || !['processing', 'needs_session'].includes(current.status))
         return { done: true }
+      if (current.fulfillmentStatus === 'redemption_conflict') return { done: true }
       if (
         current.status !== 'processing' ||
         current.fulfillmentAttempt !== order.fulfillmentAttempt ||
@@ -176,7 +200,17 @@ export async function fulfillOrder(orderId: string): Promise<boolean> {
             'SESSION_TOKEN_EXPIRED',
           ].includes(error.code)
         ) {
-          const recovered = await findRedemption(requestId, binding)
+          let recovered: Redemption | undefined
+          try {
+            recovered = await findRedemption(requestId, binding)
+          } catch (recoverError) {
+            if (
+              recoverError instanceof UpstreamError &&
+              recoverError.code === 'REDEMPTION_CONFLICT'
+            )
+              return { done: await parkRedemptionConflict(client, order) }
+            throw recoverError
+          }
           if (!recovered) {
             await needSession(order, client)
             return { done: true }

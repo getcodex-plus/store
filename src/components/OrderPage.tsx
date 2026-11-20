@@ -200,6 +200,7 @@ function OrderContent({ id }: { id: string }) {
       </main>
     )
   const st = orderStatusLabel(order)
+  const redemptionConflict = order.fulfillmentStatus === 'redemption_conflict'
   const originalRefund = order.refund?.destination === 'original'
   const refundPending = order.refund && order.refund.status !== 'completed'
   const titles = {
@@ -208,8 +209,9 @@ function OrderContent({ id }: { id: string }) {
       order.fulfillmentStatus === 'awaiting_procurement'
         ? '付款后将为本单采购兑换码。'
         : '订单已准备好，完成付款即可继续。',
-    processing:
-      order.fulfillmentStatus === 'awaiting_procurement'
+    processing: redemptionConflict
+      ? '兑换结果需要人工核对。'
+      : order.fulfillmentStatus === 'awaiting_procurement'
         ? '已收到付款，正在等待本单的兑换码。'
         : order.fulfillmentStatus === 'procurement_review'
           ? '供货结果待核对，请保留原单并联系支持，无需再次付款。'
@@ -294,7 +296,9 @@ function OrderContent({ id }: { id: string }) {
                         : order.fulfillmentStatus === 'awaiting_procurement' ||
                             order.fulfillmentStatus === 'procurement_review'
                           ? '等待供货'
-                          : '正在充值',
+                          : redemptionConflict
+                            ? '等待人工核对'
+                            : '正在充值',
                 },
                 { title: '完成' },
               ]}
@@ -409,15 +413,19 @@ function OrderContent({ id }: { id: string }) {
             </div>
           )}
           {order.status === 'processing' &&
-            ['requires_action', 'uncertain'].includes(order.fulfillmentStatus || '') && (
+            ['requires_action', 'uncertain', 'redemption_conflict'].includes(
+              order.fulfillmentStatus || '',
+            ) && (
               <Alert
                 className="mt-24"
                 type="warning"
                 showIcon
                 title={
-                  order.fulfillmentStatus === 'requires_action'
-                    ? '本次充值需要进一步处理'
-                    : '正在核对本次充值结果'
+                  order.fulfillmentStatus === 'redemption_conflict'
+                    ? '本次充值需要人工核对'
+                    : order.fulfillmentStatus === 'requires_action'
+                      ? '本次充值需要进一步处理'
+                      : '正在核对本次充值结果'
                 }
                 description="请保留原订单并联系支持，不要重复下单或付款。"
               />

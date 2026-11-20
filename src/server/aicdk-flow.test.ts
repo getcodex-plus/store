@@ -12,6 +12,7 @@ vi.hoisted(() => {
   }
 })
 import { db, Prisma, transaction } from './db'
+import { redemptionRequestId } from '../order-refill'
 import { userView, paymentOrderView, adminOrderView, orderView } from './data'
 import { id } from './crypto'
 import {
@@ -346,6 +347,109 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
     expect(
       (await db.inventory.findUniqueOrThrow({ where: { id: stored.inventoryId! } })).status,
     ).toBe('consumed')
+  })
+
+  it('stops for a human when upstream reports more than one redemption and closes the job', async () => {
+    const { buy, fetcher } = await discountScenario()
+    const order = await buy()
+    // Two DIFFERENT redemptions that both carry this order's real request id.
+    // (Using a foreign client_request_id would test the "belongs to someone
+    // else" branch instead of the duplicate branch.)
+    const requestId = redemptionRequestId(order.id, order.refillCount ?? 0)
+    const redemption = (id: string) => ({
+      id,
+      status: 'completed' as const,
+      client_request_id: requestId,
+      account_email: email,
+      quote: {
+        amount_minor: 900,
+        currency: 'USD',
+        business: 'plus_50_percent_discount',
+        target_plan: 'plus',
+      },
+      version: 1,
+    })
+    const started = gate()
+    const finish = gate()
+    fetcher
+      .mockImplementationOnce(async () => {
+        started.release()
+        await finish.promise
+        return ok([redemption('remote_dup_1')])
+      })
+      .mockResolvedValueOnce(ok([redemption('remote_dup_1'), redemption('remote_dup_2')]))
+    const pending = fulfillOrder(order.id)
+    await started.promise
+    try {
+      expect(await fulfillOrder(order.id)).toBe(true)
+    } finally {
+      finish.release()
+      await pending
+    }
+
+    const after = await db.order.findUniqueOrThrow({ where: { id: order.id } })
+    // A local mark, not the provider's requires_action: manual_review orders keep
+    // their read-only poll and must not be parked by us.
+    expect(after.fulfillmentStatus).toBe('redemption_conflict')
+    expect(after.status).toBe('processing')
+    // The job must actually be closed, otherwise the worker re-claims it forever.
+    const job = await db.job.findFirstOrThrow({ where: { orderId: order.id } })
+    expect(job.done).toBe(true)
+
+    const callsAfterFirstRun = fetcher.mock.calls.length
+    await fulfillOrder(order.id)
+    expect(fetcher.mock.calls.length).toBe(callsAfterFirstRun)
+  })
+
+  it('keeps polling a redemption the provider put into manual review', async () => {
+    const { buy, fetcher } = await discountScenario()
+    const order = await buy()
+    const requestId = redemptionRequestId(order.id, order.refillCount ?? 0)
+    // Already submitted: the order points at an upstream redemption. Our schema
+    // maps the provider's manual_review to requires_action, which used to be a
+    // hard stop in the worker — the order would then never settle even after the
+    // provider finished it.
+    await db.order.update({
+      where: { id: order.id },
+      data: { redemptionId: 'remote_manual', redemptionVersion: 1 },
+    })
+
+    // Upstream bumps `version` on every state change; a same-version flip is
+    // treated as tampering by recordResult.
+    let status: 'manual_review' | 'completed' = 'manual_review'
+    let version = 1
+    fetcher.mockImplementation(async (url: string) => {
+      if (/\/redemptions\/[^/?]+$/.test(url))
+        return ok({
+          id: 'remote_manual',
+          client_request_id: requestId,
+          account_email: email,
+          version,
+          status,
+          quote: {
+            amount_minor: 900,
+            currency: 'USD',
+            business: 'plus_50_percent_discount',
+            target_plan: 'plus',
+          },
+        })
+      throw new Error(`unexpected ${url}`)
+    })
+
+    await fulfillOrder(order.id).catch(() => undefined)
+    // The read-only poll ran: parking on requires_action would have skipped it.
+    expect(
+      fetcher.mock.calls.some(([url]) => String(url).includes('/redemptions/remote_manual')),
+    ).toBe(true)
+    expect((await db.order.findUniqueOrThrow({ where: { id: order.id } })).status).toBe(
+      'processing',
+    )
+
+    // Upstream finishes on its own; the next poll settles the paid order.
+    status = 'completed'
+    version = 2
+    await fulfillOrder(order.id)
+    expect((await db.order.findUniqueOrThrow({ where: { id: order.id } })).status).toBe('completed')
   })
 
   it.each([false, null])(
@@ -843,6 +947,54 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
         { outcome: 'cancelled', resolution: { note: 'verified ticket' } },
       ])
       expect(JSON.stringify(orderView(row))).not.toContain('verified ticket')
+    })
+
+    it('does not park a fresh refill when a late lookup reports a conflict', async () => {
+      const { apply, order } = await fixture(2)
+      const before = await db.order.update({
+        where: { id: order.id },
+        data: {
+          status: 'processing',
+          redemptionId: null,
+          fulfillmentStatus: 'uncertain',
+          redemptionVersion: 0,
+        },
+      })
+      const started = gate()
+      const finish = gate()
+      const fetcher = upstream(order.id)
+      fetcher.mockImplementationOnce(async () => {
+        started.release()
+        await finish.promise
+        // Two distinct redemptions for the round that is about to be failed by a
+        // human. By the time this lands, the order runs a new round.
+        return ok([
+          remote(order.id, 'completed', 1),
+          { ...remote(order.id, 'completed', 2), id: 'ord_late_duplicate' },
+        ])
+      })
+      const running = fulfillOrder(order.id)
+      await started.promise
+      try {
+        await resolveOrder(order.id, 'operator', {
+          outcome: 'failed',
+          note: 'verified ticket',
+          confirmed: true,
+          expectedRevision: adminOrderView(before).resolutionRevision,
+        })
+        fetcher.mockResolvedValueOnce(ok([remote(order.id, 'cancelled', 3)]))
+        await apply()
+      } finally {
+        finish.release()
+      }
+      await running
+
+      const row = await db.order.findUniqueOrThrow({ where: { id: order.id } })
+      // The late conflict belongs to the failed round: the refill must stay live
+      // and its job must remain claimable.
+      expect(row.fulfillmentStatus).not.toBe('redemption_conflict')
+      const job = await db.job.findFirst({ where: { orderId: order.id } })
+      expect(job?.done).toBe(false)
     })
 
     it('serializes a refund against a refill and blocks a refunded order', async () => {
@@ -1582,12 +1734,12 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
       downstream_order_no: `stock_${order.id}`,
       trace_id: order.id,
     })
-    await db.stockPurchase.update({ where: { orderId: order.id }, data: { attempts: 59 } })
+    await db.stockPurchase.update({ where: { orderId: order.id }, data: { attempts: 119 } })
     await syncStockPurchase()
     expect(await syncStockPurchase()).toBe(false)
     expect(await db.stockPurchase.findUnique({ where: { orderId: order.id } })).toMatchObject({
       state: 'review',
-      lastError: 'delivery_pending',
+      lastError: 'stale_upstream',
     })
     await resyncPaidPurchase({ id: order.id }, 'test')
     await syncStockPurchase()

@@ -75,12 +75,10 @@ export async function tick() {
     // Budget is per order, not per attempt type: a permanent upstream error
     // (deactivated account, delisted product, bad parameters) must eventually
     // become a human task instead of retrying every 5 minutes forever.
-    const state = await db.order.findUnique({
-      where: { id: job.orderId },
-      select: { status: true },
-    })
-    if (state?.status === 'processing' && fulfillmentRetryExhausted(job.attempts + 1)) {
-      await exhaustFulfillment(job.orderId, code)
+    if (
+      fulfillmentRetryExhausted(job.attempts + 1) &&
+      (await exhaustFulfillment(job.orderId, code, lease))
+    ) {
       return true
     }
     const wait = safe?.retryAfter ?? Math.min(300, 5 * 2 ** Math.min(job.attempts, 6))

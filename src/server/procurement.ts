@@ -208,7 +208,20 @@ export async function syncStockPurchase() {
   if (!purchase) return false
   const where = { id: purchase.id, attempts: purchase.attempts, state: purchase.state }
   const later = (seconds: number) => new Date(Date.now() + seconds * 1000)
-  const exhausted = purchase.orderId && purchase.attempts >= 60
+  // Two budgets, because the two phases fail differently.
+  //
+  // Before an upstream order exists, every claim is a failed attempt: 20 backoff
+  // rounds (5s→300s ≈ 25 min) then a human. The old
+  // `purchase.orderId && attempts >= 60` also required `orderId` — null while no
+  // order is linked — so a create() that kept throwing retried forever.
+  //
+  // Once an upstream order exists, `attempts` keeps incrementing on every healthy
+  // poll, so it must NOT be charged against a failure budget (a 19-poll order
+  // hitting one 502 would otherwise jump straight to a human). That phase is
+  // bounded by elapsed polling instead: 120 polls at 15s ≈ 30 min, then
+  // stale_upstream.
+  const exhausted = !purchase.upstreamOrderId && purchase.attempts >= 20
+  const stale = !!purchase.upstreamOrderId && purchase.attempts >= 120
   const stop = (state: 'review' | 'rejected', lastError: string, upstreamOrderId?: number) =>
     transaction(async (client) => {
       const claimed = await client.stockPurchase.updateMany({
@@ -310,15 +323,19 @@ export async function syncStockPurchase() {
           data: { batchId: batch.batchId, lastError: null },
         })
       })
-    } else if (exhausted) {
-      await stop('review', 'delivery_pending')
+    } else if (stale) {
+      await stop('review', 'stale_upstream')
     } else {
       await db.stockPurchase.updateMany({ where, data: { nextRunAt: later(15), lastError: null } })
     }
   } catch (error) {
     if (error instanceof PurchaseRejection) await stop('rejected', error.code, error.orderId)
     else if (error instanceof DeliveryMismatch) await stop('review', 'delivery_mismatch')
-    else if (exhausted) await stop('review', 'outcome_unknown')
+    // The exception path needs its own terminal bound too: once an upstream order
+    // exists `exhausted` is always false, so without `stale` a purchase that keeps
+    // answering 5xx would retry forever and never reach a human.
+    else if (stale || exhausted)
+      await stop('review', purchase.upstreamOrderId ? 'stale_upstream' : 'retry_exhausted')
     else
       await db.stockPurchase.updateMany({
         where,
