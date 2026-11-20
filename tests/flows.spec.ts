@@ -436,11 +436,16 @@ for (const pending of ['first page', 'older page']) {
     const gate = new Promise<void>((resolve) => {
       release = resolve
     })
+    let showFiltered!: () => void
+    const filterGate = new Promise<void>((resolve) => {
+      showFiltered = resolve
+    })
     let waiting = false
     await page.route(/\/api\/admin\/procurement(?:\?.*)?$/, async (route) => {
       const { searchParams } = new URL(route.request().url())
       const state = searchParams.get('state')
       const older = searchParams.has('before')
+      if (state) await filterGate
       if (!state && (pending === 'first page' || older)) {
         waiting = true
         await gate
@@ -473,6 +478,9 @@ for (const pending of ['first page', 'older page']) {
         .locator('.ant-select-dropdown:visible')
         .getByText('需人工核对', { exact: true })
         .click()
+      await expect(page.getByText('unfiltered-received')).toHaveCount(0)
+      await expect(page.getByRole('button', { name: '加载更早的采购单' })).toHaveCount(0)
+      showFiltered()
       await expect(page.getByText('filtered-review')).toBeVisible()
       const finished = page.waitForEvent('requestfinished', (request) => {
         const url = new URL(request.url())
@@ -490,6 +498,7 @@ for (const pending of ['first page', 'older page']) {
       await expect(page.getByText('unfiltered-received')).toHaveCount(0)
     } finally {
       release()
+      showFiltered()
     }
   })
 }
