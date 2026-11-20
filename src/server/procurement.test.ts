@@ -245,6 +245,47 @@ suite('downstream stock purchases', () => {
     expect(filtered.purchases.map((item) => item.id)).toContain('sp_old_review')
   })
 
+  it('does not spend the failure budget on a healthy poll that hits one 502', async () => {
+    // The order already exists upstream, so `attempts` keeps ticking on every
+    // healthy poll. Charging those against the failure budget would hand a
+    // perfectly healthy purchase to a human the first time upstream hiccups.
+    const purchase = await db.stockPurchase.create({
+      data: {
+        id: 'sp_transient',
+        productId: mapping.productId,
+        integrationId: mapping.integrationId,
+        upstreamProductId: 20,
+        skuId: 34,
+        quantity: 2,
+        actor,
+        state: 'polling',
+        upstreamOrderId: 92, // matches the delivered() fixture's items
+        attempts: 30, // well past the 20-round failure budget
+        nextRunAt: new Date(0),
+      },
+    })
+    let calls = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        calls += 1
+        if (calls === 1) return new Response('boom', { status: 502 })
+        return delivered('PROC-TRANSIENT1\nPROC-TRANSIENT2')
+      }),
+    )
+
+    await syncStockPurchase()
+    expect(
+      await db.stockPurchase.findUniqueOrThrow({ where: { id: purchase.id } }),
+    ).toMatchObject({ state: 'polling' })
+
+    await db.stockPurchase.update({ where: { id: purchase.id }, data: { nextRunAt: new Date(0) } })
+    await syncStockPurchase()
+    expect(
+      await db.stockPurchase.findUniqueOrThrow({ where: { id: purchase.id } }),
+    ).toMatchObject({ state: 'received' })
+  })
+
   it('parks a purchase as stale when the created upstream order never delivers', async () => {
     const purchase = await db.stockPurchase.create({
       data: {

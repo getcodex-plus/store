@@ -36,13 +36,9 @@ function paidOrder(id: string, extra: Record<string, unknown> = {}) {
   }
 }
 
-describe('fulfillment retry exhaustion', () => {
-  beforeAll(async () => {
-    await prepareTestDatabase()
-  })
-  afterAll(async () => {
-    await cleanupTestDatabase()
-  })
+// Pure budget arithmetic runs everywhere — no database needed, so a plain
+// `bun run test` still exercises the cap.
+describe('fulfillment retry cap', () => {
 
   it('treats the 20th attempt as exhausted and never means unlimited', () => {
     expect(fulfillmentRetryExhausted(0)).toBe(false)
@@ -67,6 +63,18 @@ describe('fulfillment retry exhaustion', () => {
       if (saved === undefined) delete process.env.FULFILLMENT_MAX_ATTEMPTS
       else process.env.FULFILLMENT_MAX_ATTEMPTS = saved
     }
+  })
+})
+
+// The hand-off touches Postgres, so it follows the project convention: run only
+// when a dedicated test database is supplied.
+const suite = process.env.TEST_DATABASE_URL ? describe : describe.skip
+suite('fulfillment hand-off', () => {
+  beforeAll(async () => {
+    await prepareTestDatabase()
+  })
+  afterAll(async () => {
+    await cleanupTestDatabase()
   })
 
   it('moves a stuck order to failed, closes the job and records an audit line', async () => {
@@ -111,14 +119,16 @@ describe('fulfillment retry exhaustion', () => {
     expect(audits.map((entry) => entry.action)).toContain('通知未发送：缺少联系邮箱')
   })
 
-  it('does not send the buyer mail itself (the email outbox owns that)', async () => {
+  it('queues the buyer email through the outbox trigger', async () => {
     await db.order.create({ data: paidOrder('o_outbox', { contactEmail: 'buyer@example.com' }) })
+    const before = await db.emailOutbox.count({ where: { orderId: 'o_outbox' } })
 
     await exhaustFulfillment('o_outbox', 'X')
 
-    // exhaustFulfillment only flips status; mail is produced by the order email
-    // trigger. Asserting this keeps a future edit from double-notifying buyers.
-    const audits = await db.audit.findMany({ where: { target: 'o_outbox' } })
-    expect(audits.map((entry) => entry.action)).not.toContain('通知未发送：缺少联系邮箱')
+    // The status flip is what queues the buyer email; this function never talks
+    // to the mail provider itself. Counting the new outbox episode is the real
+    // boundary — checking for a missing audit line proved nothing either way.
+    const after = await db.emailOutbox.count({ where: { orderId: 'o_outbox' } })
+    expect(after).toBe(before + 1)
   })
 })

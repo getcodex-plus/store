@@ -1406,7 +1406,9 @@ export async function adminData(
                   { fulfillmentResolution: { path: ['conflict'], not: Prisma.AnyNull } },
                   {
                     status: 'processing',
-                    fulfillmentStatus: { in: ['requires_action', 'uncertain'] },
+                    fulfillmentStatus: {
+                      in: ['requires_action', 'uncertain', 'redemption_conflict'],
+                    },
                   },
                 ],
               },

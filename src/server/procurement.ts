@@ -208,14 +208,20 @@ export async function syncStockPurchase() {
   if (!purchase) return false
   const where = { id: purchase.id, attempts: purchase.attempts, state: purchase.state }
   const later = (seconds: number) => new Date(Date.now() + seconds * 1000)
-  // Two budgets, because the two phases fail differently. A created upstream order
-  // that never reaches `delivered` is stale after 120 polls (15s each ≈ 30 min). A
-  // purchase that keeps throwing before any order exists is exhausted after 20
-  // backoff rounds (5s→300s ≈ 25 min). The previous single
-  // `purchase.orderId && attempts >= 60` also silently meant "retry forever"
-  // whenever the purchase had no order yet, because the expression required it.
+  // Two budgets, because the two phases fail differently.
+  //
+  // Before an upstream order exists, every claim is a failed attempt: 20 backoff
+  // rounds (5s→300s ≈ 25 min) then a human. The old
+  // `purchase.orderId && attempts >= 60` also required `orderId` — null while no
+  // order is linked — so a create() that kept throwing retried forever.
+  //
+  // Once an upstream order exists, `attempts` keeps incrementing on every healthy
+  // poll, so it must NOT be charged against a failure budget (a 19-poll order
+  // hitting one 502 would otherwise jump straight to a human). That phase is
+  // bounded by elapsed polling instead: 120 polls at 15s ≈ 30 min, then
+  // stale_upstream.
+  const exhausted = !purchase.upstreamOrderId && purchase.attempts >= 20
   const stale = !!purchase.upstreamOrderId && purchase.attempts >= 120
-  const exhausted = purchase.attempts >= 20
   const stop = (state: 'review' | 'rejected', lastError: string, upstreamOrderId?: number) =>
     transaction(async (client) => {
       const claimed = await client.stockPurchase.updateMany({

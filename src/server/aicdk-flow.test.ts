@@ -12,6 +12,7 @@ vi.hoisted(() => {
   }
 })
 import { db, Prisma, transaction } from './db'
+import { redemptionRequestId } from '../order-refill'
 import { userView, paymentOrderView, adminOrderView, orderView } from './data'
 import { id } from './crypto'
 import {
@@ -348,30 +349,88 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
     ).toBe('consumed')
   })
 
-  it('stops for a human when upstream reports more than one redemption and never resubmits', async () => {
+  it('stops for a human when upstream reports more than one redemption and closes the job', async () => {
     const { buy, fetcher } = await discountScenario()
     const order = await buy()
-    const duplicated = {
-      id: 'remote_duplicate',
+    // Two DIFFERENT redemptions that both carry this order's real request id.
+    // (Using a foreign client_request_id would test the "belongs to someone
+    // else" branch instead of the duplicate branch.)
+    const requestId = redemptionRequestId(order.id, order.refillCount ?? 0)
+    const redemption = (id: string) => ({
+      id,
       status: 'completed' as const,
-      client_request_id: 'a'.repeat(16),
+      client_request_id: requestId,
       account_email: email,
       quote: { amount_minor: 2000, currency: 'USD', business: 'recharge', target_plan: 'plus' },
       version: 1,
-    }
-    // Two redemptions for one request is definitive ambiguity: retrying would
-    // add a third one upstream, so the worker must mark the order for a human
-    // and stop touching the provider.
+    })
     fetcher.mockImplementation(async (url: string) => {
-      if (url.includes('/redemptions?')) return ok([duplicated, duplicated])
+      if (url.includes('/redemptions?')) return ok([redemption('remote_dup_1'), redemption('remote_dup_2')])
       throw new Error('must not call upstream again after a redemption conflict')
     })
+
     expect(await fulfillOrder(order.id)).toBe(true)
+
     const after = await db.order.findUniqueOrThrow({ where: { id: order.id } })
-    expect(after.fulfillmentStatus).toBe('requires_action')
+    // A local mark, not the provider's requires_action: manual_review orders keep
+    // their read-only poll and must not be parked by us.
+    expect(after.fulfillmentStatus).toBe('redemption_conflict')
+    // The job must actually be closed, otherwise the worker re-claims it forever.
+    const job = await db.job.findFirstOrThrow({ where: { orderId: order.id } })
+    expect(job.done).toBe(true)
+
     const callsAfterFirstRun = fetcher.mock.calls.length
     await fulfillOrder(order.id)
     expect(fetcher.mock.calls.length).toBe(callsAfterFirstRun)
+  })
+
+  it('keeps polling a redemption the provider put into manual review', async () => {
+    const { buy, fetcher } = await discountScenario()
+    const order = await buy()
+    const requestId = redemptionRequestId(order.id, order.refillCount ?? 0)
+    // Already submitted: the order points at an upstream redemption. Our schema
+    // maps the provider's manual_review to requires_action, which used to be a
+    // hard stop in the worker — the order would then never settle even after the
+    // provider finished it.
+    await db.order.update({
+      where: { id: order.id },
+      data: { redemptionId: 'remote_manual', redemptionVersion: 1 },
+    })
+
+    // Upstream bumps `version` on every state change; a same-version flip is
+    // treated as tampering by recordResult.
+    let status: 'manual_review' | 'completed' = 'manual_review'
+    let version = 1
+    fetcher.mockImplementation(async (url: string) => {
+      if (/\/redemptions\/[^/?]+$/.test(url))
+        return ok({
+          id: 'remote_manual',
+          client_request_id: requestId,
+          account_email: email,
+          version,
+          status,
+          quote: {
+            amount_minor: 900,
+            currency: 'USD',
+            business: 'plus_50_percent_discount',
+            target_plan: 'plus',
+          },
+        })
+      throw new Error(`unexpected ${url}`)
+    })
+
+    await fulfillOrder(order.id).catch(() => undefined)
+    // The read-only poll ran: parking on requires_action would have skipped it.
+    expect(
+      fetcher.mock.calls.some(([url]) => String(url).includes('/redemptions/remote_manual')),
+    ).toBe(true)
+    expect((await db.order.findUniqueOrThrow({ where: { id: order.id } })).status).toBe('processing')
+
+    // Upstream finishes on its own; the next poll settles the paid order.
+    status = 'completed'
+    version = 2
+    await fulfillOrder(order.id)
+    expect((await db.order.findUniqueOrThrow({ where: { id: order.id } })).status).toBe('completed')
   })
 
   it.each([false, null])(

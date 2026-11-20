@@ -102,11 +102,14 @@ export async function fulfillOrder(orderId: string): Promise<boolean> {
   )
     return true
   if (order.status !== 'processing') return false
-  // requires_action is a stop state: the provider (or our own conflict detector)
-  // already decided a human must look at this order, so the worker must not call
-  // upstream for it again.
+  // awaiting_procurement / procurement_review wait on other systems; those are
+  // local marks. redemption_conflict is our own stop mark: upstream already holds
+  // more than one redemption, so no further submission is safe.
+  // requires_action is deliberately NOT here: the provider uses it for
+  // manual_review, and such a redemption has an id and can still complete
+  // upstream, so those orders keep their read-only poll.
   if (
-    ['awaiting_procurement', 'procurement_review', 'requires_action'].includes(
+    ['awaiting_procurement', 'procurement_review', 'redemption_conflict'].includes(
       order.fulfillmentStatus ?? '',
     )
   )
@@ -133,9 +136,19 @@ export async function fulfillOrder(orderId: string): Promise<boolean> {
     // retry would create another one, so mark the order for a human and stop
     // without touching upstream again.
     if (error instanceof UpstreamError && error.code === 'REDEMPTION_CONFLICT') {
-      await db.order.updateMany({
-        where: { id: order.id, status: 'processing' },
-        data: { fulfillmentStatus: 'requires_action' },
+      await transaction(async (client) => {
+        await client.order.updateMany({
+          where: { id: order.id, status: 'processing' },
+          data: { fulfillmentStatus: 'redemption_conflict' },
+        })
+        // Returning true only means "this attempt is over". tick() sets
+        // job.done solely when order.status left 'processing', and this order
+        // stays in 'processing' on purpose — so without this line the worker
+        // re-claims the conflict every few seconds and writes forever.
+        await client.job.updateMany({
+          where: { orderId: order.id },
+          data: { done: true, lockedUntil: null, lastError: 'REDEMPTION_CONFLICT' },
+        })
       })
       return true
     }
@@ -210,7 +223,11 @@ export async function fulfillOrder(orderId: string): Promise<boolean> {
             ) {
               await client.order.updateMany({
                 where: { id: order.id, status: 'processing' },
-                data: { fulfillmentStatus: 'requires_action' },
+                data: { fulfillmentStatus: 'redemption_conflict' },
+              })
+              await client.job.updateMany({
+                where: { orderId: order.id },
+                data: { done: true, lockedUntil: null, lastError: 'REDEMPTION_CONFLICT' },
               })
               return { done: true }
             }
