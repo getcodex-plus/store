@@ -22,6 +22,7 @@ export function safeUpstreamError(error: { code: unknown; retryAfter: unknown })
     'CATALOG_REFRESH_PENDING',
     'OPERATION_NOT_READY',
     'NOT_FOUND',
+    'REDEMPTION_CONFLICT',
   ]
   return {
     code:

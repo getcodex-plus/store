@@ -102,7 +102,14 @@ export async function fulfillOrder(orderId: string): Promise<boolean> {
   )
     return true
   if (order.status !== 'processing') return false
-  if (['awaiting_procurement', 'procurement_review'].includes(order.fulfillmentStatus ?? ''))
+  // requires_action is a stop state: the provider (or our own conflict detector)
+  // already decided a human must look at this order, so the worker must not call
+  // upstream for it again.
+  if (
+    ['awaiting_procurement', 'procurement_review', 'requires_action'].includes(
+      order.fulfillmentStatus ?? '',
+    )
+  )
     return false
   if (demo) {
     await completeOrder(order.id)
@@ -116,9 +123,24 @@ export async function fulfillOrder(orderId: string): Promise<boolean> {
   const quote = storedQuote ? quoteView(storedQuote) : null
   if (!quote) throw new UpstreamError('UPSTREAM_INVALID_RESPONSE', 30, true)
   const requestId = redemptionRequestId(order.id, order.refillCount)
-  const result = order.redemptionId
-    ? await getRedemption(order.redemptionId, binding)
-    : await findRedemption(requestId, binding)
+  let result: Redemption | undefined
+  try {
+    result = order.redemptionId
+      ? await getRedemption(order.redemptionId, binding)
+      : await findRedemption(requestId, binding)
+  } catch (error) {
+    // Upstream already holds more than one redemption for this request. Any
+    // retry would create another one, so mark the order for a human and stop
+    // without touching upstream again.
+    if (error instanceof UpstreamError && error.code === 'REDEMPTION_CONFLICT') {
+      await db.order.updateMany({
+        where: { id: order.id, status: 'processing' },
+        data: { fulfillmentStatus: 'requires_action' },
+      })
+      return true
+    }
+    throw error
+  }
   if (!result) {
     const expired = !quote.preflightExpiresAt || Date.parse(quote.preflightExpiresAt) <= Date.now()
     if ((!quote.preflightToken || expired) && !order.submissionAttempted) {
@@ -176,7 +198,24 @@ export async function fulfillOrder(orderId: string): Promise<boolean> {
             'SESSION_TOKEN_EXPIRED',
           ].includes(error.code)
         ) {
-          const recovered = await findRedemption(requestId, binding)
+          let recovered: Redemption | undefined
+          try {
+            recovered = await findRedemption(requestId, binding)
+          } catch (recoverError) {
+            // Same definitive stop as the pre-submit lookup: never add a second
+            // redemption when upstream already reports more than one.
+            if (
+              recoverError instanceof UpstreamError &&
+              recoverError.code === 'REDEMPTION_CONFLICT'
+            ) {
+              await client.order.updateMany({
+                where: { id: order.id, status: 'processing' },
+                data: { fulfillmentStatus: 'requires_action' },
+              })
+              return { done: true }
+            }
+            throw recoverError
+          }
           if (!recovered) {
             await needSession(order, client)
             return { done: true }

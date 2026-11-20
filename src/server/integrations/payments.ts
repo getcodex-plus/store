@@ -85,6 +85,11 @@ async function post(url: string, fields: Record<string, string>) {
         : undefined
     if (code === 10002)
       throw new ApiError(502, '该订单在网关已存在，请勿重复支付；请联系支持核对原订单')
+    // 10016–10019 are configuration faults (wallet, callback URL, limits). They
+    // never clear by retrying and they are the operator's problem, not the
+    // buyer's, so name them instead of reporting a generic outage.
+    if (code !== undefined && code >= 10016 && code <= 10019)
+      throw new ApiError(502, '支付渠道配置有误，需管理员处理；请联系支持并说明「渠道配置」')
     throw new ApiError(502, '支付渠道暂未响应，请在原订单中联系支持')
   }
   const body = await response.json()

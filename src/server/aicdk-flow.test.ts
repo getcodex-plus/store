@@ -348,6 +348,32 @@ suite('AICDK v2 end-to-end business invariants in isolated PostgreSQL schema', (
     ).toBe('consumed')
   })
 
+  it('stops for a human when upstream reports more than one redemption and never resubmits', async () => {
+    const { buy, fetcher } = await discountScenario()
+    const order = await buy()
+    const duplicated = {
+      id: 'remote_duplicate',
+      status: 'completed' as const,
+      client_request_id: 'a'.repeat(16),
+      account_email: email,
+      quote: { amount_minor: 2000, currency: 'USD', business: 'recharge', target_plan: 'plus' },
+      version: 1,
+    }
+    // Two redemptions for one request is definitive ambiguity: retrying would
+    // add a third one upstream, so the worker must mark the order for a human
+    // and stop touching the provider.
+    fetcher.mockImplementation(async (url: string) => {
+      if (url.includes('/redemptions?')) return ok([duplicated, duplicated])
+      throw new Error('must not call upstream again after a redemption conflict')
+    })
+    expect(await fulfillOrder(order.id)).toBe(true)
+    const after = await db.order.findUniqueOrThrow({ where: { id: order.id } })
+    expect(after.fulfillmentStatus).toBe('requires_action')
+    const callsAfterFirstRun = fetcher.mock.calls.length
+    await fulfillOrder(order.id)
+    expect(fetcher.mock.calls.length).toBe(callsAfterFirstRun)
+  })
+
   it.each([false, null])(
     'uses only normal inventory when discount eligibility is %s',
     async (eligible) => {

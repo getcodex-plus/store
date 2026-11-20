@@ -267,8 +267,13 @@ export async function findRedemption(requestId: string, binding: AicdkBinding) {
       binding,
     ),
   )
+  // More than one redemption for the same client_request_id, or one that belongs
+  // to a different request, means upstream already produced something we cannot
+  // attribute. Resubmitting would produce yet another one, so this is a
+  // definitive stop: callers mark the order for a human and never call upstream
+  // again for it. (uncertain=false — retrying is exactly the wrong move here.)
   if (results.length > 1 || results.some((order) => order.client_request_id !== requestId))
-    throw new UpstreamError('UPSTREAM_INVALID_RESPONSE', 30, true)
+    throw new UpstreamError('REDEMPTION_CONFLICT', 1, false)
   return results[0]
 }
 

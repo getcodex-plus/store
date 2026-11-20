@@ -194,11 +194,15 @@ describe('AICDK transport and config binding', () => {
       .mockResolvedValueOnce(ok([{ ...redemption, client_request_id: 'o_someoneelse' }]))
       .mockResolvedValueOnce(ok({ ...redemption, id: 'ord_other' }))
     vi.stubGlobal('fetch', fetcher)
+    // Ambiguity is definitive, not uncertain: retrying would create yet another
+    // redemption upstream, so callers must stop and route the order to a human.
     await expect(findRedemption(redemption.client_request_id, 'pinned')).rejects.toMatchObject({
-      code: 'UPSTREAM_INVALID_RESPONSE',
+      code: 'REDEMPTION_CONFLICT',
+      uncertain: false,
     })
     await expect(findRedemption(redemption.client_request_id, 'pinned')).rejects.toMatchObject({
-      code: 'UPSTREAM_INVALID_RESPONSE',
+      code: 'REDEMPTION_CONFLICT',
+      uncertain: false,
     })
     await expect(getRedemption(redemption.id, 'pinned')).rejects.toMatchObject({
       code: 'UPSTREAM_INVALID_RESPONSE',
